@@ -1457,6 +1457,18 @@ class BillySession:
         self.session_active.clear()
         self._stop_mic()
 
+        # Stop all motors with timeout to prevent hanging
+        try:
+            await asyncio.wait_for(asyncio.to_thread(stop_all_motors), timeout=1.0)
+        except asyncio.TimeoutError:
+            logger.warning("Stop motors timed out, continuing", "⚠️")
+        except Exception as e:
+            logger.warning(f"Error stopping motors: {e}", "⚠️")
+
+        # Cancel mic timeout task if running
+        if self.mic_timeout_task and not self.mic_timeout_task.done():
+            self.mic_timeout_task.cancel()
+
         async with self.ws_lock:
             if self.ws:
                 try:
