@@ -43,6 +43,9 @@ def start_mqtt():
     try:
         mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
         mqtt_client.loop_start()
+        # Make the MQTT loop thread daemon so it doesn't prevent process exit
+        if hasattr(mqtt_client, '_thread') and mqtt_client._thread:
+            mqtt_client._thread.daemon = True
         mqtt_publish("billy/state", "idle", retain=True)
     except Exception as e:
         logger.error(f"MQTT connection error: {e}")

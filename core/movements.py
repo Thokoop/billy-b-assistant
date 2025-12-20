@@ -161,10 +161,14 @@ def run_motor_async(pwm_pin, low_pin=None, speed_percent=100, duration=0.3, brak
             return
     set_pwm(pwm_pin, int(speed_percent))
     if brake:
-        threading.Timer(duration, lambda: brake_motor(pwm_pin, low_pin)).start()
+        timer = threading.Timer(duration, lambda: brake_motor(pwm_pin, low_pin))
+        timer.daemon = True
+        timer.start()
     else:
         # still auto-close after duration, but just clear PWM (no active brake)
-        threading.Timer(duration, lambda: clear_pwm(pwm_pin)).start()
+        timer = threading.Timer(duration, lambda: clear_pwm(pwm_pin))
+        timer.daemon = True
+        timer.start()
 
 
 # === Movement Functions (keep signatures/behavior) ===
@@ -313,7 +317,9 @@ def _interlude_routine():
             move_head("on")
             # Head movement during interlude (no logging needed)
             # Auto-turn off head after max 5 seconds to allow visible return
-            threading.Timer(5.0, lambda: move_head("off")).start()
+            timer = threading.Timer(5.0, lambda: move_head("off"))
+            timer.daemon = True
+            timer.start()
     except Exception as e:
         logger.warning(f"Interlude error: {e}", "⚠️")
 

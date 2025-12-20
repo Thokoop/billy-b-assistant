@@ -1268,11 +1268,16 @@ class BillySession:
             if not self.kickoff_text:
                 self._start_mic()
 
-            async for message in self.ws:
-                if not self.session_active.is_set():
-                    print("🚪 Session marked as inactive, stopping stream loop.")
-                    print()  # Add newline to end the mic volume display line
+            while self.session_active.is_set():
+                try:
+                    message = await asyncio.wait_for(self.ws.recv(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    # Connection closed or other websocket error
+                    logger.verbose(f"WebSocket recv error: {e}")
                     break
+
                 data = json.loads(message)
                 if DEBUG_MODE and (
                     DEBUG_MODE_INCLUDE_DELTA
