@@ -21,6 +21,7 @@ from .config import (
     PLAYBACK_VOLUME,
     SPEAKER_PREFERENCE,
     TEXT_ONLY_MODE,
+    is_classic_billy,
 )
 from .logger import logger
 from .movements import (
@@ -46,12 +47,15 @@ os.makedirs(RESPONSE_HISTORY_DIR, exist_ok=True)
 
 playback_queue = Queue()
 head_move_queue = Queue()
+mouth_move_queue = Queue()
+tail_move_queue = Queue()
 playback_done_event = threading.Event()
 _playback_thread = None
 last_played_time = time.time()
 song_mode = False
 beat_length = 0.5
 compensate_tail_beats = 0.0
+tail_threshold = 1500
 
 
 def detect_devices(debug=False):
@@ -106,6 +110,10 @@ def playback_worker(chunk_ms):
     head_move_active = False
     head_move_end_time = 0
     next_head_move = None
+    tail_move_active = False
+    tail_move_end_time = 0
+    mouth_move_active = False
+    mouth_move_end_time = 0
     drums_peak = 0
     drums_peak_time = 0
     next_beat_time = 0
@@ -127,13 +135,47 @@ def playback_worker(chunk_ms):
 
                 if not head_move_active and not head_move_queue.empty():
                     move_time, move_duration = head_move_queue.queue[0]  # peek
-                    if now - song_start_time >= move_time:
+                    elapsed = now - song_start_time
+                    print(f"🐟 Head queue check: elapsed={elapsed:.2f}s, next_move={move_time:.2f}s, queue_size={head_move_queue.qsize()}")
+                    if elapsed >= move_time:
                         head_move_queue.get()
                         move_head("on")
                         movements.head_out = True
                         head_move_active = True
                         head_move_end_time = now + move_duration
-                        print(f"🐟 Head move started for {move_duration:.2f} seconds")
+                        print(f"🐟 Head move STARTED at {elapsed:.2f}s for {move_duration:.2f} seconds")
+
+                if tail_move_active and now >= tail_move_end_time:
+                    movements.stop_all_motors()  # Or specific tail stop if available
+                    tail_move_active = False
+                    print("🛑 Tail move ended")
+
+                if not tail_move_active and not tail_move_queue.empty():
+                    move_time, move_duration = tail_move_queue.queue[0]  # peek
+                    elapsed = now - song_start_time
+                    print(f"🐟 Tail queue check: elapsed={elapsed:.2f}s, next_move={move_time:.2f}s, queue_size={tail_move_queue.qsize()}")
+                    if elapsed >= move_time:
+                        tail_move_queue.get()
+                        movements.move_tail(duration=move_duration)
+                        tail_move_active = True
+                        tail_move_end_time = now + move_duration
+                        print(f"🐟 Tail move STARTED at {elapsed:.2f}s for {move_duration:.2f} seconds")
+
+                if mouth_move_active and now >= mouth_move_end_time:
+                    movements.stop_mouth()
+                    mouth_move_active = False
+                    print("🛑 Mouth move ended")
+
+                if not mouth_move_active and not mouth_move_queue.empty():
+                    move_time, move_duration = mouth_move_queue.queue[0]  # peek
+                    elapsed = now - song_start_time
+                    print(f"🗣️ Mouth queue check: elapsed={elapsed:.2f}s, next_move={move_time:.2f}s, queue_size={mouth_move_queue.qsize()}")
+                    if elapsed >= move_time:
+                        mouth_move_queue.get()
+                        movements.move_mouth(speed_percent=80, duration=move_duration)
+                        mouth_move_active = True
+                        mouth_move_end_time = now + move_duration
+                        print(f"🗣️ Mouth move STARTED at {elapsed:.2f}s for {move_duration:.2f} seconds")
 
                 if item is None:
                     logger.info("Received stop signal, cleaning up.", "🧵")
@@ -145,9 +187,11 @@ def playback_worker(chunk_ms):
                     if mode == "song":
                         audio_chunk, flap_chunk, rms_drums = item[1], item[2], item[3]
 
-                        flap_from_pcm_chunk(
-                            np.frombuffer(flap_chunk, dtype=np.int16), chunk_ms=chunk_ms
-                        )
+                        # Only use real-time mouth detection if no scheduled mouth moves
+                        if mouth_move_queue.empty():
+                            flap_from_pcm_chunk(
+                                np.frombuffer(flap_chunk, dtype=np.int16), chunk_ms=chunk_ms
+                            )
 
                         if rms_drums > drums_peak:
                             drums_peak = rms_drums
@@ -161,8 +205,10 @@ def playback_worker(chunk_ms):
                         # print(f"[DEBUG] ⏱ elapsed: {elapsed_song_time:.2f}s | 🥁 adjusted: {adjusted_now:.2f}s | 🎯 next beat at {next_beat_time:.2f}s | 🐟 head_move_queue: {list(head_move_queue.queue)}")
 
                         if adjusted_now >= next_beat_time:
-                            if drums_peak > 1500 and not movements.head_out:
-                                move_tail_async(duration=0.2)
+                            print(f"🐟 Beat check: adjusted_now={adjusted_now:.2f}s, next_beat={next_beat_time:.2f}s")
+                            if (is_classic_billy() or not movements.head_out) and not tail_move_active:
+                                print(f"🐟 Tail beat TRIGGERED at {adjusted_now:.2f}s")
+                                move_tail_async(duration=0.5)  # 0.5 second for quicker rhythmic flapping
                             drums_peak = 0
                             drums_peak_time = 0
                             next_beat_time += beat_length
@@ -412,6 +458,8 @@ def reset_for_new_song():
         drums_peak_time
     playback_queue.queue.clear()
     head_move_queue.queue.clear()
+    mouth_move_queue.queue.clear()
+    tail_move_queue.queue.clear()
     playback_done_event.clear()
     last_played_time = time.time()
     song_start_time = time.time()
@@ -475,6 +523,7 @@ async def play_song(song_name, interrupt_event=None):
         metadata = {
             "bpm": None,
             "head_moves": [],
+            "mouth_moves": [],
             "tail_threshold": 1500,
             "gain": 1.0,
             "compensate_tail": 0.0,
@@ -507,6 +556,14 @@ async def play_song(song_name, interrupt_event=None):
                         for v in head_moves_str.split(',')
                         if ':' in v
                     ]
+
+                mouth_moves_str = config.get('SONG', 'mouth_moves', fallback='')
+                if mouth_moves_str:
+                    metadata['mouth_moves'] = [
+                        (float(v.split(':')[0]), float(v.split(':')[1]))
+                        for v in mouth_moves_str.split(',')
+                        if ':' in v
+                    ]
             return metadata
 
         # Fallback to old metadata.txt format
@@ -519,7 +576,7 @@ async def play_song(song_name, interrupt_event=None):
             for line in f:
                 if '=' in line:
                     key, value = line.strip().split('=', 1)
-                    if key == "head_moves":
+                    if key in ("head_moves", "mouth_moves"):
                         metadata[key] = [
                             (float(v.split(':')[0]), float(v.split(':')[1]))
                             for v in value.split(',')
@@ -534,13 +591,24 @@ async def play_song(song_name, interrupt_event=None):
     metadata = load_metadata(SONG_DIR)
     GAIN = metadata.get("gain", 1.0)
     BPM = metadata.get("bpm", 120)
+    global tail_threshold
     tail_threshold = metadata.get("tail_threshold", 1500)
+    # Convert normalized threshold (0-1) to int16 range if needed
+    if tail_threshold <= 1.0:
+        tail_threshold = int(tail_threshold * 32767)
     global compensate_tail_beats
     compensate_tail_beats = metadata.get("compensate_tail", 0.0)
     head_move_schedule = metadata.get("head_moves", [])
+    print(f"🐟 Loading {len(head_move_schedule)} head movements: {head_move_schedule[:5]}...")
     for move in head_move_schedule:
         audio.head_move_queue.put(move)
-    half_tempo_tail_flap = metadata.get("half_tempo_tail_flap", False)
+
+    mouth_move_schedule = metadata.get("mouth_moves", [])
+    print(f"🗣️ Loading {len(mouth_move_schedule)} mouth movements")
+    for move in mouth_move_schedule:
+        audio.mouth_move_queue.put(move)
+
+    half_tempo_tail_flap = metadata.get("half_tempo_tail_flap", True)  # Default to half tempo for less frequent tail flaps
 
     audio.beat_length = 60.0 / BPM
     if metadata.get("half_tempo_tail_flap"):
