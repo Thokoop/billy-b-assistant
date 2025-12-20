@@ -311,6 +311,68 @@ class SongManager:
 
         return description
 
+    def preprocess_song_movements(self, song_name: str) -> bool:
+        """Automatically analyze song audio and generate movement schedules.
+
+        Args:
+            song_name: Name of the song to preprocess
+
+        Returns:
+            True if preprocessing succeeded, False otherwise
+        """
+        from .audio_preprocessor import preprocess_song
+
+        return preprocess_song(song_name, self)
+
+    def batch_preprocess_songs(self, song_names: Optional[list[str]] = None) -> dict[str, bool]:
+        """Preprocess multiple songs automatically.
+
+        Args:
+            song_names: List of song names to preprocess. If None, preprocesses all songs.
+
+        Returns:
+            Dict mapping song names to success status
+        """
+        if song_names is None:
+            songs = self.list_songs()
+            song_names = [song['name'] for song in songs]
+
+        results = {}
+        for song_name in song_names:
+            logger.info(f"Preprocessing song: {song_name}", "🎵")
+            success = self.preprocess_song_movements(song_name)
+            results[song_name] = success
+
+        successful = sum(results.values())
+        total = len(results)
+        logger.info(f"Batch preprocessing complete: {successful}/{total} songs processed", "📊")
+
+        return results
+
+    def get_audio_file_path(self, song_name: str, file_type: str) -> Optional[Path]:
+        """Get the path to an audio file for a song.
+
+        Args:
+            song_name: Name of the song
+            file_type: Type of audio file ('full', 'vocals', 'drums')
+
+        Returns:
+            Path to the audio file, or None if not found
+        """
+        if file_type not in ['full', 'vocals', 'drums']:
+            return None
+
+        # Check custom songs first, then examples
+        song_path = self.custom_songs_dir / song_name
+        if not song_path.exists():
+            song_path = self.example_songs_dir / song_name
+
+        if not song_path.exists():
+            return None
+
+        file_path = song_path / f"{file_type}.wav"
+        return file_path if file_path.exists() else None
+
 
 # Global instance
 song_manager = SongManager()
