@@ -185,3 +185,26 @@ def serve_audio_file(song_name, file_type):
         return send_file(str(file_path), mimetype='audio/wav', as_attachment=False)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@songs_bp.route('/songs/<song_name>/preprocess', methods=['POST'])
+def preprocess_song(song_name):
+    """Automatically analyze song audio and generate movement schedules."""
+    try:
+        from core.song_manager import song_manager
+
+        success = song_manager.preprocess_song_movements(song_name)
+
+        if success:
+            return jsonify({
+                "success": True,
+                "message": f"Successfully preprocessed song '{song_name}'"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to preprocess song '{song_name}'"
+            }), 500
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
