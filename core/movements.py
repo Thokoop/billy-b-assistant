@@ -178,6 +178,7 @@ def stop_mouth():
 
 def move_head(state="on"):
     global head_out
+    logger.info(f"Head move: state={state}", "🤖")
 
     def _move_head_on():
         global _gpio_active
@@ -192,7 +193,7 @@ def move_head(state="on"):
                 _gpio_active = False
                 return
         set_pwm(HEAD, 80)
-        time.sleep(0.5)
+        time.sleep(1.0)  # Longer pulse for visible movement
         set_pwm(HEAD, 100)  # stay extended
 
     if state == "on":
@@ -213,16 +214,17 @@ def move_tail(duration=0.2):
       - new    + classic(3): dedicated channel with mate tied to GND => mate = None
       - new    + modern(2):  shared bridge with HEAD => mate = HEAD
     """
+    logger.info(f"Tail move: duration={duration}s", "🐟")
     if BILLY_PINS == "legacy":
         if USE_THIRD_MOTOR and TAIL is not None and GND_3 is not None:
-            run_motor_async(TAIL, GND_3, speed_percent=80, duration=duration)
+            run_motor_async(TAIL, GND_3, speed_percent=100, duration=duration)
         else:
-            run_motor_async(TAIL, HEAD, speed_percent=80, duration=duration)
+            run_motor_async(TAIL, HEAD, speed_percent=100, duration=duration)
     else:
         if USE_THIRD_MOTOR:
-            run_motor_async(TAIL, None, speed_percent=80, duration=duration)
+            run_motor_async(TAIL, None, speed_percent=100, duration=duration)
         else:
-            run_motor_async(TAIL, HEAD, speed_percent=80, duration=duration)
+            run_motor_async(TAIL, HEAD, speed_percent=100, duration=duration)
 
 
 def move_tail_async(duration=0.3):
@@ -298,19 +300,22 @@ def flap_from_pcm_chunk(
 # === Interlude Behavior ===
 def _interlude_routine():
     try:
+        logger.info("Interlude: moving head off", "🤖")
         move_head("off")
-        time.sleep(random.uniform(0.2, 2))
+        time.sleep(random.uniform(1, 3))  # Longer pause to ensure head returns
         flap_count = random.randint(1, 3)
-        for _ in range(flap_count):
-            move_tail()
-            time.sleep(random.uniform(0.25, 0.9))
+        for i in range(flap_count):
+            logger.info(f"Interlude: moving tail (flap {i+1}/{flap_count})", "🐟")
+            move_tail(duration=1.0)  # Longer duration for visible movement
+            time.sleep(random.uniform(2, 4))  # Longer pause to allow spring return
         if random.random() < 0.9:
+            logger.info("Interlude: moving head on", "🤖")
             move_head("on")
             # Head movement during interlude (no logging needed)
-            # Auto-turn off head after max 3 seconds to prevent getting stuck
+            # Auto-turn off head after max 5 seconds to allow visible return
             threading.Timer(5.0, lambda: move_head("off")).start()
     except Exception as e:
-        print(f"⚠️ Interlude error: {e}")
+        logger.warning(f"Interlude error: {e}", "⚠️")
 
 
 def interlude():
