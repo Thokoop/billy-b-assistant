@@ -95,6 +95,7 @@ class SongManager:
             "tail_threshold": 1500.0,
             "compensate_tail": 0.0,
             "head_moves": "",
+            "mouth_moves": "",
             "half_tempo_tail_flap": False,
             "has_full": has_full,
             "has_vocals": has_vocals,
@@ -119,6 +120,7 @@ class SongManager:
                         'SONG', 'compensate_tail', fallback=0.0
                     ),
                     "head_moves": config.get('SONG', 'head_moves', fallback=''),
+                    "mouth_moves": config.get('SONG', 'mouth_moves', fallback=''),
                     "half_tempo_tail_flap": config.getboolean(
                         'SONG', 'half_tempo_tail_flap', fallback=False
                     ),
@@ -138,7 +140,7 @@ class SongManager:
             for line in f:
                 if '=' in line:
                     key, value = line.strip().split('=', 1)
-                    if key == "head_moves":
+                    if key in ("head_moves", "mouth_moves"):
                         metadata[key] = value
                     elif key in ("bpm", "tail_threshold", "gain", "compensate_tail"):
                         metadata[key] = float(value.strip())
@@ -164,6 +166,7 @@ class SongManager:
             'tail_threshold': str(metadata.get('tail_threshold', 1500.0)),
             'compensate_tail': str(metadata.get('compensate_tail', 0.0)),
             'head_moves': metadata.get('head_moves', ''),
+            'mouth_moves': metadata.get('mouth_moves', ''),
             'half_tempo_tail_flap': str(metadata.get('half_tempo_tail_flap', False)),
         }
 
