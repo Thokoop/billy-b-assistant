@@ -278,9 +278,16 @@
                                     Format: time_in_seconds:duration, comma-separated<br>
                                     Example: 2:2.0, 29.5:2.0, 33:2.0
                                 </div>
-                                <input type="text" id="song-head-moves" name="head_moves"
-                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
-                                       placeholder="e.g., 2:2.0, 29.5:2.0, 33:2.0">
+                                <div class="flex gap-2">
+                                    <input type="text" id="song-head-moves" name="head_moves"
+                                           class="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                           placeholder="e.g., 2:2.0, 29.5:2.0, 33:2.0">
+                                    <button id="auto-generate-moves-btn" type="button"
+                                            class="bg-blue-600 hover:bg-blue-500 transition-colors text-white text-sm px-3 py-2 rounded flex items-center gap-1 whitespace-nowrap">
+                                        <span class="material-icons text-sm">auto_fix_high</span>
+                                        Auto Generate
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
