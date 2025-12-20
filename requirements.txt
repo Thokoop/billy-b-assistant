@@ -8,6 +8,7 @@ pydub
 paho-mqtt
 requests
 openai
+librosa
 aiohttp
 flask
 lgpio
