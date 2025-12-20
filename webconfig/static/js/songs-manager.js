@@ -497,6 +497,50 @@ const SongsManager = (() => {
         });
     };
 
+    const autoGenerateMoves = async () => {
+        if (!currentSong) {
+            showNotification('Please select a song first', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('auto-generate-moves-btn');
+        const originalText = btn.innerHTML;
+        const headMovesInput = document.getElementById('song-head-moves');
+
+        try {
+            btn.innerHTML = '<span class="material-icons text-sm animate-spin">refresh</span> Analyzing...';
+            btn.disabled = true;
+
+            const response = await fetch(`/songs/${currentSong}/preprocess`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Reload song metadata to get the updated head_moves
+                await loadSongData(currentSong);
+                showNotification('Movements automatically generated!', 'success');
+            } else {
+                throw new Error(result.error || 'Failed to generate movements');
+            }
+
+        } catch (error) {
+            debugLog('ERROR', 'Auto-generate moves failed:', error);
+            showNotification(`Failed to generate movements: ${error.message}`, 'error');
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    };
+
     const init = () => {
         // Modal controls
         document.getElementById('songs-btn')?.addEventListener('click', openSongsModal);
@@ -509,6 +553,7 @@ const SongsManager = (() => {
         // Form actions
         document.getElementById('save-song-btn')?.addEventListener('click', saveSong);
         document.getElementById('delete-song-btn')?.addEventListener('click', deleteSong);
+        document.getElementById('auto-generate-moves-btn')?.addEventListener('click', autoGenerateMoves);
 
         // Audio preview controls
         setupAudioPreview('full');
