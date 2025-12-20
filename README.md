@@ -236,11 +236,13 @@ Make sure Python 3 is installed:
 python3 --version
 ```
 
+> **Note:** Python 3.13 is supported but requires the system lgpio library. If you experience issues, Python 3.11 or 3.12 are also recommended.
+
 Install required system packages:
 
 ```bash
 sudo apt update
-sudo apt install -y python3-pip libportaudio2 ffmpeg
+sudo apt install -y python3-pip libportaudio2 ffmpeg liblgpio-dev liblgpio1
 ```
 
 Create Python virtual environment:

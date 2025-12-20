@@ -420,8 +420,12 @@ def reset_for_new_song():
     drums_peak_time = 0
 
 
-async def play_song(song_name):
-    """Play a full Billy song: main audio, vocals for mouth, drums for tail."""
+async def play_song(song_name, interrupt_event=None):
+    """Play a full Billy song: main audio, vocals for mouth, drums for tail.
+    Args:
+        song_name: Name of the song to play
+        interrupt_event: Optional event to check for interruption during playback
+    """
     import contextlib
 
     from core import audio
@@ -564,6 +568,11 @@ async def play_song(song_name):
             chunk_size_drums = int(rate_drums * CHUNK_MS / 1000)
 
             while True:
+                # Check for interruption
+                if interrupt_event and interrupt_event.is_set():
+                    print("🛑 Song playback interrupted")
+                    break
+
                 frames_main = wf_main.readframes(chunk_size_main)
                 frames_vocals = wf_vocals.readframes(chunk_size_vocals)
                 frames_drums = wf_drums.readframes(chunk_size_drums)
@@ -614,7 +623,34 @@ async def play_song(song_name):
                 ))
 
         print("⌛ Waiting for song playback to complete...")
-        await asyncio.to_thread(audio.playback_queue.join())
+        # Wait for playback with periodic interrupt checks
+        max_wait_time = 300  # 5 minutes maximum
+        check_interval = 0.5  # Check every 500ms
+        elapsed = 0
+
+        while elapsed < max_wait_time:
+            # Check for interruption
+            if interrupt_event and interrupt_event.is_set():
+                print("🛑 Song playback wait interrupted")
+                # Flush remaining queue items
+                while not audio.playback_queue.empty():
+                    try:
+                        audio.playback_queue.get_nowait()
+                        audio.playback_queue.task_done()
+                    except Exception:
+                        break
+                break
+
+            # Check if queue is done
+            if (
+                audio.playback_queue.empty()
+                and audio.playback_queue.unfinished_tasks == 0
+            ):
+                break
+
+            # Wait a bit before checking again
+            await asyncio.sleep(check_interval)
+            elapsed += check_interval
 
     except Exception as e:
         print(f"❌ Playback failed: {e}")

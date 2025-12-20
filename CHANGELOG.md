@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.0.2] — 2025-12-17
+
+### Fixed
+
+- **Song Interruption**: Fixed critical bug where interrupting a song (especially after multiple times) would cause the session to hang indefinitely. Button presses after interruption would have no effect. The fix adds proper interrupt checking in the song playback loop and uses a timeout-based approach instead of blocking indefinitely.
+- **Documentation**: Added missing `liblgpio-dev` and `liblgpio1` system dependencies to installation instructions. These packages are required for the `lgpio` Python package to build successfully.
+
+---
+
 ## [2.0.1] — 2025-12-07
 
 ### Fixed

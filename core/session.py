@@ -686,7 +686,7 @@ class BillySession:
             logger.info(f"Assistant requested to play song: {song_name}", "🎵")
             await self.stop_session()
             await asyncio.sleep(1.0)
-            await audio.play_song(song_name)
+            await audio.play_song(song_name, interrupt_event=self.interrupt_event)
 
     async def _handle_smart_home_command(
         self, raw_args: str | None, call_id: str | None = None
