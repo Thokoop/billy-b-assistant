@@ -291,6 +291,46 @@
                             </div>
                         </div>
 
+                        <!-- Mouth Moves -->
+                        <div>
+                            <label for="song-mouth-moves" class="flex justify-between items-center font-semibold text-sm text-slate-300 mb-2">
+                                Mouth Moves (time:duration pairs)
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                      onclick="toggleTooltip(this)">help_outline</span>
+                            </label>
+                            <div class="relative">
+                                <div data-tooltip class="w-64">
+                                    Format: time_in_seconds:duration, comma-separated<br>
+                                    Example: 0.0:0.2, 0.4:0.2, 0.8:0.2<br>
+                                    Controls mouth opening/closing movements during vocals
+                                </div>
+                                <input type="text" id="song-mouth-moves" name="mouth_moves"
+                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       placeholder="e.g., 0.0:0.2, 0.4:0.2, 0.8:0.2">
+                            </div>
+                        </div>
+
+                        <!-- Legacy Auto Mouth Movement -->
+                        <div>
+                            <label for="song-legacy-mouth" class="flex justify-between items-center font-semibold text-sm text-slate-300">
+                                Legacy Auto Mouth Movement
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
+                                      onclick="toggleTooltip(this)">help_outline</span>
+                            </label>
+                            <div class="relative">
+                                <div data-tooltip>
+                                    Enable automatic mouth movement based on vocals audio RMS levels.<br>
+                                    If disabled, mouth will only move based on predefined mouth moves above.<br>
+                                    Legacy behavior matches original Billy Bass automatic lip sync.
+                                </div>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <input type="checkbox" id="song-legacy-mouth" name="legacy_auto_mouth"
+                                           class="w-4 h-4 bg-zinc-800 border-zinc-700 rounded text-emerald-600 focus:ring-emerald-500">
+                                    <span class="text-sm text-zinc-400">Enable legacy automatic mouth movement from vocals</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Half Tempo Tail Flap -->
                         <div>
                             <label for="song-half-tempo" class="flex justify-between items-center font-semibold text-sm text-slate-300">

@@ -205,6 +205,8 @@ const SongsManager = (() => {
             document.getElementById('song-tail-threshold').value = song.tail_threshold || 1500;
             document.getElementById('song-compensate-tail').value = song.compensate_tail || 0;
             document.getElementById('song-head-moves').value = song.head_moves || '';
+            document.getElementById('song-mouth-moves').value = song.mouth_moves || '';
+            document.getElementById('song-legacy-mouth').checked = song.legacy_auto_mouth || false;
             document.getElementById('song-half-tempo').checked = song.half_tempo_tail_flap || false;
 
             // Update file status indicators and show play buttons for existing files
@@ -264,6 +266,8 @@ const SongsManager = (() => {
         document.getElementById('song-tail-threshold').value = 1500;
         document.getElementById('song-compensate-tail').value = 0;
         document.getElementById('song-head-moves').value = '';
+        document.getElementById('song-mouth-moves').value = '';
+        document.getElementById('song-legacy-mouth').checked = false;
         document.getElementById('song-half-tempo').checked = false;
         
         // Hide play buttons and reset file status
@@ -296,6 +300,8 @@ const SongsManager = (() => {
                 tail_threshold: parseFloat(document.getElementById('song-tail-threshold').value),
                 compensate_tail: parseFloat(document.getElementById('song-compensate-tail').value),
                 head_moves: document.getElementById('song-head-moves').value,
+                mouth_moves: document.getElementById('song-mouth-moves').value,
+                legacy_auto_mouth: document.getElementById('song-legacy-mouth').checked,
                 half_tempo_tail_flap: document.getElementById('song-half-tempo').checked,
             };
 
