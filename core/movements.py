@@ -60,7 +60,7 @@ logger.info(f"Using third motor: {USE_THIRD_MOTOR} | Pin profile: {BILLY_PINS}",
 
 # === GPIO Setup ===
 h = lgpio.gpiochip_open(0)
-FREQ = 10000  # PWM frequency
+FREQ = 500  # PWM frequency
 _gpio_active = True  # Flag to track if GPIO handle is still valid
 
 # -------------------------------------------------------------------
@@ -211,7 +211,31 @@ def run_motor_async(pwm_pin, low_pin=None, speed_percent=100, duration=0.3, brak
 
 # === Movement Functions (keep signatures/behavior) ===
 def move_mouth(speed_percent, duration, brake=False):
-    run_motor_async(MOUTH, GND_1, speed_percent, duration, brake)
+    # Kick to overcome stiction 
+    kick_duty = 100
+    kick_time = 0.15  # 150ms; 
+
+    # If the move is very short, scale kick down so it doesn't eat the whole motion
+    kt = min(kick_time, max(0.0, duration * 0.5))
+
+    # Ensure mate is LOW (does nothing for new wiring if GND_1 is None)
+    if GND_1 is not None:
+        try:
+            lgpio.gpio_write(h, GND_1, 0)
+        except (lgpio.error, Exception):
+            return
+
+    # Kick
+    set_pwm(MOUTH, kick_duty)
+    time.sleep(kt)
+
+    # Sustain
+    set_pwm(MOUTH, int(speed_percent))
+
+    if brake:
+        threading.Timer(duration, lambda: brake_motor(MOUTH, GND_1)).start()
+    else:
+        threading.Timer(duration, lambda: clear_pwm(MOUTH)).start()
 
 
 def stop_mouth():
