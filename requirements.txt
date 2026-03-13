@@ -1,4 +1,5 @@
 sounddevice
+opencv-python
 websockets
 numpy
 scipy

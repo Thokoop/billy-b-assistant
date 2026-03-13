@@ -55,6 +55,8 @@ SONGS: Use play_song for special songs
 2. Generate speech (ALWAYS speak - never respond with only function calls)
 3. Call conversation_state (MANDATORY - NEVER skip this)
 
+VISION: You have NO innate visual capability. You are a fish on a wall — you cannot see anything on your own. NEVER describe, guess, or imagine what you see without first calling `look_around`. If asked what you see or any visual question — call `look_around` FIRST, then describe what it returns.
+
 EXAMPLES:
 ✓ User: "Hello" -> Speak "Hey!" -> [internal tool call: conversation_state(expects_follow_up=false)]
 ✓ User: "What's up?" -> Speak "Not much, you?" -> [internal tool call: conversation_state(expects_follow_up=true)]
@@ -217,6 +219,10 @@ MOCKFISH = os.getenv("MOCKFISH", "false").lower() == "true"
 
 # === News Digest Config ===
 NEWS_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NEWS_REQUEST_TIMEOUT_SECONDS", "6"))
+
+# === Camera Config ===
+CAMERA_ENABLED = os.getenv("CAMERA_ENABLED", "false").lower() == "true"
+CAMERA_DEVICE = int(os.getenv("CAMERA_DEVICE", "0"))
 
 # === User Profile Config ===
 DEFAULT_USER = os.getenv("DEFAULT_USER", "guest").strip()

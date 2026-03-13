@@ -75,6 +75,16 @@ def get_base_tools() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "look_around",
+            "type": "function",
+            "description": "Take a picture with the camera and describe what you see. Use this when the user asks what you see, asks you to look at something, or when visual context would enhance the conversation.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "identify_user",
             "type": "function",
             "description": "Call this ONLY when someone explicitly introduces themselves by stating their own name (e.g., 'I am Tom', 'My name is Sarah', 'Hey billy it is tom'). Do NOT call this when someone greets you by name (like 'Hello Billy' or 'Hey Billy'). Only call when they are telling you their own name to switch from guest mode to user mode. IMPORTANT: If you're uncertain about the spelling of a name (e.g., 'Thom' vs 'Tom', 'Sarah' vs 'Sara'), set confidence to 'low' to trigger spelling confirmation.",

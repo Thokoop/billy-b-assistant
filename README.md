@@ -606,6 +606,56 @@ Behind the scenes:
 
 ---
 
+## M. (Optional) 📷 Camera Vision
+
+Billy can take a photo and describe what he sees using GPT-4o-mini vision. When asked "what do you see?" or any visual question, he calls the `look_around` tool, captures a frame, and responds based on the actual image.
+
+### Requirements
+
+- A connected camera (Pi Camera Module, USB webcam, or MacBook FaceTime camera in dev mode)
+- On Raspberry Pi with Pi Camera Module: install `picamera2` (included in Raspberry Pi OS)
+- On any platform with a USB webcam: `opencv-python` (already in `requirements.txt`)
+
+### Setup
+
+Add these to your `.env`:
+
+```ini
+CAMERA_ENABLED=true
+CAMERA_DEVICE=0
+```
+
+`CAMERA_DEVICE` is the camera index (usually `0`). If you have multiple cameras (e.g., MacBook with a Continuity Camera connected), use the helper script to find the right index:
+
+```bash
+python test/list-cameras.py
+```
+
+This will print all detected camera devices and their resolutions, e.g.:
+
+```
+Scanning camera devices...
+
+  [0] 1920x1080   ← iPhone Continuity Camera
+  [1] 1920x1080   ← MacBook FaceTime HD Camera
+
+Set CAMERA_DEVICE=<index> in your .env to choose one.
+```
+
+### How It Works
+
+- Billy has **no innate visual capability** — he can only describe what he sees by calling `look_around`
+- When triggered, a frame is captured from the camera and sent to GPT-4o-mini vision
+- The description is returned to the Realtime session and Billy responds naturally
+
+### Tips
+
+- On macOS, grant camera access to your terminal app in **System Settings → Privacy & Security → Camera**
+- On Raspberry Pi, `picamera2` is tried first; OpenCV is used as a fallback for USB webcams
+- Keep `CAMERA_ENABLED=false` (the default) if no camera is attached — Billy will inform the user gracefully if `look_around` is called
+
+---
+
 # Future Ideas & Bug report
 
 Have a feature request or found a bug?  
