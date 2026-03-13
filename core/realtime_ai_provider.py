@@ -1,7 +1,7 @@
 import base64
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 import websockets.asyncio.client
 
@@ -11,8 +11,8 @@ class RealtimeAIProvider(ABC):
     async def generate_audio_clip(
         self,
         prompt: str,
-        voice: Optional[str] = None,
-        instructions: Optional[str] = None,
+        voice: str | None = None,
+        instructions: str | None = None,
         **kwargs,
     ) -> bytes:
         """Generate audio clip from text prompt using specified voice or default"""
@@ -92,7 +92,7 @@ class RealtimeAIProvider(ABC):
 class RealtimeAIProviderRegistry:
     def __init__(self):
         self.providers: dict[str, RealtimeAIProvider] = {}
-        self.default_provider: Optional[str] = None
+        self.default_provider: str | None = None
 
     def register_provider(self, provider: RealtimeAIProvider):
         """Register a realtime AI provider"""
@@ -101,7 +101,7 @@ class RealtimeAIProviderRegistry:
         if self.default_provider is None:
             self.default_provider = name
 
-    def get_provider(self, name: Optional[str] = None) -> RealtimeAIProvider:
+    def get_provider(self, name: str | None = None) -> RealtimeAIProvider:
         """Get a realtime AI provider by name, or default if none specified"""
         if name is None:
             name = self.default_provider

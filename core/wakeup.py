@@ -2,7 +2,6 @@ import asyncio
 import os
 import re
 import wave
-from typing import Optional
 
 from .config import CUSTOM_INSTRUCTIONS
 from .realtime_ai_provider import voice_provider_registry
@@ -33,7 +32,7 @@ def get_wakeup_path(phrase: str) -> str:
 
 
 class WakeupClipGenerator:
-    def __init__(self, *, voice: Optional[str] = None, persona_name: str = "default"):
+    def __init__(self, *, voice: str | None = None, persona_name: str = "default"):
         self.persona_name = persona_name
 
         # Get voice from persona if not specified

@@ -5,7 +5,7 @@ Handles loading and switching between different personality configurations.
 
 import configparser
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .logger import logger
 from .realtime_ai_provider import voice_provider_registry
@@ -73,7 +73,7 @@ class PersonaManager:
             else [{"name": "default", "description": "Default"}]
         )
 
-    def load_persona(self, persona_name: str) -> Optional[dict[str, Any]]:
+    def load_persona(self, persona_name: str) -> dict[str, Any] | None:
         """Load a persona configuration from file."""
         if persona_name in self._persona_cache:
             return self._persona_cache[persona_name]
@@ -168,7 +168,7 @@ class PersonaManager:
         logger.info(f"Switched to persona: {persona_name}", "🎭")
         return True
 
-    def get_current_persona_data(self) -> Optional[dict[str, Any]]:
+    def get_current_persona_data(self) -> dict[str, Any] | None:
         """Get data for the current persona."""
         return self.load_persona(self.current_persona)
 

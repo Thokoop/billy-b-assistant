@@ -70,7 +70,7 @@ class PersonaProfile:
             "max": "Project strong certainty and authority (without making safety claims).",
         },
         "warmth": {
-            "min": "Detached; skip emotional language.",
+            "min": "Cold and indifferent. NEVER say you're friendly, helpful, or here to assist. No empathy, no encouragement, no assistant-style openers. Talk like a mate, not a service.",
             "low": "Cool tone; minimal empathy.",
             "med": "Approachable; polite warmth when appropriate.",
             "high": "Include brief empathy or encouragement when helpful.",

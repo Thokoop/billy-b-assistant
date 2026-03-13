@@ -5,7 +5,7 @@ Song Manager - Handles custom song management for Billy Bass
 import configparser
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .logger import logger
 
@@ -53,8 +53,8 @@ class SongManager:
         return sorted(songs, key=lambda x: x.get('title', x['name']))
 
     def get_song_metadata(
-        self, song_name: str, is_custom: Optional[bool] = None
-    ) -> Optional[dict[str, Any]]:
+        self, song_name: str, is_custom: bool | None = None
+    ) -> dict[str, Any] | None:
         """Get metadata for a specific song.
 
         Args:
@@ -225,7 +225,7 @@ class SongManager:
             logger.error(f"Failed to save {file_type}.wav for {song_name}: {e}")
             return False
 
-    def get_audio_file_path(self, song_name: str, file_type: str) -> Optional[Path]:
+    def get_audio_file_path(self, song_name: str, file_type: str) -> Path | None:
         """Get the path to an audio file for a song.
 
         Args:
@@ -251,7 +251,7 @@ class SongManager:
         return None
 
     def copy_example_to_custom(
-        self, example_name: str, new_name: Optional[str] = None
+        self, example_name: str, new_name: str | None = None
     ) -> bool:
         """Copy an example song to custom_songs directory.
 

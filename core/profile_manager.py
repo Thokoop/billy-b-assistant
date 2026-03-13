@@ -8,7 +8,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .logger import logger
 
@@ -159,7 +159,7 @@ class UserProfile:
         except Exception as e:
             logger.warning(f"Failed to set guest as default user: {e}")
 
-    def _save_profile(self, data: Optional[dict[str, Any]] = None):
+    def _save_profile(self, data: dict[str, Any] | None = None):
         """Save profile to INI file."""
         if data is None:
             data = self.data
@@ -346,11 +346,11 @@ class UserProfileManager:
     """Manages user profiles and current user state."""
 
     def __init__(self):
-        self.current_user: Optional[UserProfile] = None
+        self.current_user: UserProfile | None = None
         self.profiles_dir = Path("profiles")
         self.profiles_dir.mkdir(exist_ok=True)
 
-    def find_user_by_name_or_display_name(self, name: str) -> Optional[str]:
+    def find_user_by_name_or_display_name(self, name: str) -> str | None:
         """Find a user profile by name or display name. Returns the actual profile name if found."""
         name = name.strip().title()
 
@@ -383,7 +383,7 @@ class UserProfileManager:
 
     def identify_user(
         self, name: str, confidence: str = "medium"
-    ) -> Optional[UserProfile]:
+    ) -> UserProfile | None:
         """Identify and load a user profile.
         Note: last_seen is updated at the end of the session, not during identification.
         """
@@ -409,7 +409,7 @@ class UserProfileManager:
         logger.info(f"Created new user profile: {name}", "👤")
         return profile
 
-    def get_current_user(self) -> Optional[UserProfile]:
+    def get_current_user(self) -> UserProfile | None:
         """Get the current user profile."""
         return self.current_user
 

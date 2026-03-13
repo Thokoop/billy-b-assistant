@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any
 
 from ..realtime_ai_provider import RealtimeAIProvider
 
@@ -8,7 +8,7 @@ class XAIProvider(RealtimeAIProvider):
     def __init__(
         self,
         api_key: str,
-        voice: Optional[str] = None,
+        voice: str | None = None,
     ):
         self.api_key = api_key
         if voice and voice in self.get_supported_voices():
@@ -32,8 +32,8 @@ class XAIProvider(RealtimeAIProvider):
     async def generate_audio_clip(
         self,
         prompt: str,
-        voice: Optional[str] = None,
-        instructions: Optional[str] = None,
+        voice: str | None = None,
+        instructions: str | None = None,
         **kwargs,
     ) -> bytes:
         if voice is None:

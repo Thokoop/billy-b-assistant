@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any
 
 from ..realtime_ai_provider import RealtimeAIProvider
 
@@ -9,7 +9,7 @@ class OpenAIProvider(RealtimeAIProvider):
         self,
         api_key: str,
         model: str = "gpt-realtime-mini",
-        voice: Optional[str] = None,
+        voice: str | None = None,
     ):
         self.api_key = api_key
         self.model = model
@@ -25,8 +25,8 @@ class OpenAIProvider(RealtimeAIProvider):
     async def generate_audio_clip(
         self,
         prompt: str,
-        voice: Optional[str] = None,
-        instructions: Optional[str] = None,
+        voice: str | None = None,
+        instructions: str | None = None,
         **kwargs,
     ) -> bytes:
         if voice is None:

@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 
 def _classify_kind(text: str) -> tuple[Literal["prompt", "literal", "raw"], str]:
@@ -8,7 +8,7 @@ def _classify_kind(text: str) -> tuple[Literal["prompt", "literal", "raw"], str]
     return "literal", s
 
 
-async def say(text: str, *, interactive: Optional[bool] = None):
+async def say(text: str, *, interactive: bool | None = None):
     # 🔁 Lazy import to avoid: session -> mqtt -> say -> session
     from . import audio
     from .config import CHUNK_MS, TEXT_ONLY_MODE
