@@ -117,7 +117,11 @@ Use your backstory to inspire jokes, metaphors, or occasional references in conv
 # === OpenAI Config ===
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-realtime-mini")
-CONVERSATION_STATE_ENABLED_MODELS = {"gpt-realtime", "gpt-realtime-1.5"}
+CONVERSATION_STATE_ENABLED_MODELS = {
+    "gpt-realtime",
+    "gpt-realtime-1.5",
+    "gpt-realtime-2",
+}
 
 
 def _is_camera_vision_enabled() -> bool:

@@ -58,7 +58,8 @@
                 <div class="relative">
                     <div data-tooltip>
                         Recommended order:<br>
-                        <strong>gpt-realtime-1.5</strong> newest flagship model.<br>
+                        <strong>gpt-realtime-2</strong> newest flagship model.<br>
+                        <strong>gpt-realtime-1.5</strong> previous flagship model.<br>
                         <strong>gpt-realtime</strong> older flagship model.<br>
                         <strong>gpt-realtime-mini</strong> lower-cost realtime model.<br>
                         <strong>gpt-4o-mini-realtime-preview</strong> legacy preview model.<br>
@@ -72,10 +73,15 @@
 
                     <select id="OPENAI_MODEL" name="OPENAI_MODEL"
                             class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        <option value="gpt-realtime-2"
+                                {% if config.get(
+                        'OPENAI_MODEL') == 'gpt-realtime-2' %}selected{% endif %}>
+                        gpt-realtime-2 (newest flagship model)
+                        </option>
                         <option value="gpt-realtime-1.5"
                                 {% if config.get(
                         'OPENAI_MODEL') == 'gpt-realtime-1.5' %}selected{% endif %}>
-                        gpt-realtime-1.5 (newest flagship model)
+                        gpt-realtime-1.5 (previous flagship model)
                         </option>
                         <option value="gpt-realtime"
                                 {% if config.get(

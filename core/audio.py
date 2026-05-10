@@ -13,7 +13,7 @@ from queue import Queue
 
 import numpy as np
 import sounddevice as sd
-from scipy.signal import resample
+from scipy.signal import resample, resample_poly
 
 from . import movements
 from .config import (
@@ -766,8 +766,13 @@ async def play_song(song_name, interrupt_event=None):
 
 
 def _resample_24k_mono_to_48k_stereo(mono: np.ndarray) -> np.ndarray:
-    """Resample 24kHz mono int16 -> 48kHz stereo int16 with volume applied."""
-    resampled = resample(mono, int(len(mono) * 48000 / 24000)).astype(np.int16)
+    """Resample 24kHz mono int16 -> 48kHz stereo int16 with volume applied.
+
+    Uses polyphase filtering (resample_poly) instead of FFT-based resampling
+    to avoid phase discontinuities at chunk boundaries that cause pitch glitches
+    in streaming audio.
+    """
+    resampled = resample_poly(mono, up=2, down=1).astype(np.int16)
     stereo = np.repeat(resampled[:, np.newaxis], 2, axis=1)
     return np.clip(stereo * PLAYBACK_VOLUME, -32768, 32767).astype(np.int16)
 
