@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.2.3] — 2026-05-10
+
+### Added
+- **gpt-realtime-2 Support**: Added `gpt-realtime-2` to the OpenAI Realtime API Model dropdown in General Settings. The model is listed as the newest flagship option and is included in the conversation-state-enabled model set.
+
+### Fixed
+- **Audio Pitch Glitches**: Replaced FFT-based `resample()` with polyphase `resample_poly()` in the 24kHz→48kHz playback upsampling path. FFT resampling processes each audio chunk independently without phase continuity, causing audible pitch glitches at chunk boundaries during streaming playback. Polyphase filtering handles the exact 2× upsample ratio with smooth boundaries between chunks.
+
+---
+
 ## [2.2.2] — 2026-04-21
 
 ### Fixed
