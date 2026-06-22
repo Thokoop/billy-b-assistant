@@ -10,6 +10,7 @@ logger.verbose("Importing core.providers")
 from ..config import OPENAI_API_KEY, OPENAI_MODEL, REALTIME_AI_PROVIDER, XAI_API_KEY
 from ..realtime_ai_provider import voice_provider_registry
 from .openai_provider import OpenAIProvider
+from .openwakeword_wakeword_provider import OpenWakeWordBackend
 from .porcupine_wakeword_provider import PorcupineWakeWordBackend
 from .xai_provider import XAIProvider
 
@@ -64,3 +65,4 @@ else:
 
 # Register wake-word providers
 wakeword_provider_registry.register_provider("porcupine", PorcupineWakeWordBackend)
+wakeword_provider_registry.register_provider("openwakeword", OpenWakeWordBackend)

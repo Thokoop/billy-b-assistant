@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.3.0] — 2026-06-22
+
+### Added
+- **openWakeWord Wake-word Support**: Added `openwakeword` as a local wake-word backend with ONNX wake-word model selection from `wakewords/`.
+
+### Changed
+- **Generic Wake-word Uploads**: Wake-word upload flow now accepts both Porcupine `.ppn` keywords and openWakeWord `.onnx` models, stores them in `wakewords/`, and switches the selected backend automatically.
+- **Wake-word Provider Settings UI**: Wake-word settings now show provider-specific controls for Porcupine and openWakeWord, including ONNX model selection and threshold configuration for openWakeWord.
+
+---
+
 ## [2.2.3] — 2026-05-10
 
 ### Added

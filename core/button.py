@@ -421,6 +421,10 @@ def start_loop():
                 porcupine_access_key=config.PORCUPINE_ACCESS_KEY,
                 porcupine_keyword_path=config.WAKE_WORD_PORCUPINE_KEYWORD_PATH,
                 porcupine_sensitivity=config.WAKE_WORD_PORCUPINE_SENSITIVITY,
+                openwakeword_model_path=config.WAKE_WORD_OPENWAKEWORD_MODEL_PATH,
+                openwakeword_threshold=config.WAKE_WORD_OPENWAKEWORD_THRESHOLD,
+                openwakeword_melspec_model_path=config.WAKE_WORD_OPENWAKEWORD_MELSPEC_MODEL_PATH,
+                openwakeword_embedding_model_path=config.WAKE_WORD_OPENWAKEWORD_EMBEDDING_MODEL_PATH,
             )
             wakeword_listener.start()
         except Exception as e:

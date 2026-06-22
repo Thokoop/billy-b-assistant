@@ -436,6 +436,8 @@ WAKE_WORD_COOLDOWN_SECONDS=4.0
 PORCUPINE_ACCESS_KEY=
 WAKE_WORD_PORCUPINE_KEYWORD_PATH=hey-billy.ppn
 WAKE_WORD_PORCUPINE_SENSITIVITY=0.20
+WAKE_WORD_OPENWAKEWORD_MODEL_PATH=hey_billy.onnx
+WAKE_WORD_OPENWAKEWORD_THRESHOLD=0.50
 
 DEBUG_MODE=true
 DEBUG_MODE_INCLUDE_DELTA=false
@@ -458,11 +460,13 @@ ALLOW_UPDATE_PERSONALITY_INI=true
 **CAMERA_CAPTURE_WIDTH / CAMERA_CAPTURE_HEIGHT**: Capture resolution in pixels (default `1280x720`)  
 **CAMERA_CAPTURE_TIMEOUT_SECONDS**: Timeout for local camera capture command (seconds, default `8`)  
 **WAKE_WORD_ENABLED**: Enables local wake-word listening while idle (`false` by default)  
-**WAKE_WORD_BACKEND**: Local detector backend (`porcupine`)  
+**WAKE_WORD_BACKEND**: Local detector backend (`porcupine` or `openwakeword`)  
 **WAKE_WORD_COOLDOWN_SECONDS**: Cooldown after a detection to reduce retriggers (default `4.0`)  
 **PORCUPINE_ACCESS_KEY**: Your Porcupine AccessKey (required when `WAKE_WORD_BACKEND=porcupine`)  
 **WAKE_WORD_PORCUPINE_KEYWORD_PATH**: Porcupine keyword filename (for example `hey-billy.ppn`). Billy resolves it from `wakewords/`.  
 **WAKE_WORD_PORCUPINE_SENSITIVITY**: Porcupine sensitivity from `0.0` to `1.0` (higher is more sensitive). Default is `0.20` to reduce near-match false triggers.  
+**WAKE_WORD_OPENWAKEWORD_MODEL_PATH**: openWakeWord ONNX model filename (for example `hey_billy.onnx`). Billy resolves it from `wakewords/`.  
+**WAKE_WORD_OPENWAKEWORD_THRESHOLD**: openWakeWord score threshold from `0.0` to `1.0`. Default is `0.50`.  
 **DEBUG_MODE**: Print debug information such as OpenAI responses to the output stream  
 **DEBUG_MODE_INCLUDE_DELTA**: Also print voice and speech delta data, which can get very noisy  
 **ALLOW_UPDATE_PERSONALITY_INI**: If true, personality updates asked for by the user will be written and committed to the personality file. If false, changes to personality parameters will only affect the current running process (`true` is default)
@@ -488,6 +492,25 @@ Notes:
 - Billy resolves that filename automatically from `wakewords/`.
 - A default bundled keyword file is included: `hey-billy.ppn` (Hey Billy).
 - You can create your own custom wake-word in Picovoice and upload/select that `.ppn` instead.
+
+### Wake-word setup (openWakeWord)
+
+Billy also supports fully local wake-word detection using `openWakeWord`.
+
+1. Install the updated requirements so `openwakeword` and `onnxruntime` are available.
+2. Place your `.onnx` wake-word model in `wakewords/`.
+3. In the Web UI, open **Wake-word Settings** and:
+   - Enable wake-word
+   - Select the `openWakeWord` backend
+   - Choose the ONNX model from the dropdown
+   - Adjust the threshold if needed
+   - Save settings
+4. Restart Billy (or restart service) and test the model.
+
+Notes:
+- `WAKE_WORD_OPENWAKEWORD_MODEL_PATH` stores only the filename (for example `hey_billy.onnx`).
+- Billy resolves that filename automatically from `wakewords/`.
+- The bundled `wakewords/hey_billy.onnx` model can be selected directly.
 
 ### Example `persona.ini` File
 

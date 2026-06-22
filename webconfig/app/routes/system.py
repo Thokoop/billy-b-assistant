@@ -78,6 +78,8 @@ CONFIG_KEYS = [
     "PORCUPINE_ACCESS_KEY",
     "WAKE_WORD_PORCUPINE_KEYWORD_PATH",
     "WAKE_WORD_PORCUPINE_SENSITIVITY",
+    "WAKE_WORD_OPENWAKEWORD_MODEL_PATH",
+    "WAKE_WORD_OPENWAKEWORD_THRESHOLD",
 ]
 WAKEWORD_REL_ROOT = Path("wakewords")
 
@@ -186,14 +188,23 @@ def _detect_usb_video_nodes() -> list[dict[str, str | int]]:
     return nodes
 
 
-def _list_available_wakeword_keywords() -> list[str]:
+def _list_available_wakeword_files(*suffixes: str) -> list[str]:
     paths: list[str] = []
     seen: set[str] = set()
     abs_root = Path(PROJECT_ROOT) / WAKEWORD_REL_ROOT
     if not abs_root.exists():
         return paths
-    for ppn in sorted(abs_root.glob("*.ppn")):
-        filename = ppn.name
+    normalized_suffixes = tuple(
+        suffix if suffix.startswith(".") else f".{suffix}" for suffix in suffixes
+    )
+    for path in sorted(abs_root.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.parent != abs_root:
+            continue
+        if normalized_suffixes and path.suffix.lower() not in normalized_suffixes:
+            continue
+        filename = path.name
         if filename in seen:
             continue
         seen.add(filename)
@@ -664,17 +675,20 @@ def save():
     return jsonify(response)
 
 
+@bp.route("/wakeword/model/upload", methods=["POST"])
 @bp.route("/wakeword/keyword/upload", methods=["POST"])
-def upload_porcupine_keyword():
-    keyword_file = request.files.get("keyword_file")
-    if keyword_file is None:
+def upload_wakeword_file():
+    wakeword_file = request.files.get("keyword_file")
+    if wakeword_file is None:
         return jsonify({"error": "No file uploaded"}), 400
 
-    filename = secure_filename(keyword_file.filename or "")
+    filename = secure_filename(wakeword_file.filename or "")
     if not filename:
         return jsonify({"error": "Invalid filename"}), 400
-    if not filename.lower().endswith(".ppn"):
-        return jsonify({"error": "Only .ppn files are supported"}), 400
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".ppn", ".onnx"}:
+        return jsonify({"error": "Only .ppn and .onnx files are supported"}), 400
 
     target_rel_dir = WAKEWORD_REL_ROOT
     target_dir = Path(PROJECT_ROOT) / target_rel_dir
@@ -682,26 +696,45 @@ def upload_porcupine_keyword():
     target_path = target_dir / filename
 
     try:
-        keyword_file.save(target_path)
-        set_key(
-            ENV_PATH,
-            "WAKE_WORD_PORCUPINE_KEYWORD_PATH",
-            filename,
-            quote_mode='never',
-        )
-        set_key(ENV_PATH, "WAKE_WORD_BACKEND", "porcupine", quote_mode='never')
+        wakeword_file.save(target_path)
+        if suffix == ".ppn":
+            set_key(
+                ENV_PATH,
+                "WAKE_WORD_PORCUPINE_KEYWORD_PATH",
+                filename,
+                quote_mode='never',
+            )
+            set_key(ENV_PATH, "WAKE_WORD_BACKEND", "porcupine", quote_mode='never')
+            backend = "porcupine"
+            file_type = "keyword"
+        else:
+            set_key(
+                ENV_PATH,
+                "WAKE_WORD_OPENWAKEWORD_MODEL_PATH",
+                filename,
+                quote_mode='never',
+            )
+            set_key(ENV_PATH, "WAKE_WORD_BACKEND", "openwakeword", quote_mode='never')
+            backend = "openwakeword"
+            file_type = "model"
         return jsonify({
             "status": "uploaded",
+            "backend": backend,
+            "file_type": file_type,
+            "filename": filename,
             "keyword_path": filename,
         })
     except Exception as e:
-        logger.warning(f"[wakeword] Keyword upload failed: {e}", "⚠️")
+        logger.warning(f"[wakeword] Upload failed: {e}", "⚠️")
         return jsonify({"error": f"Upload failed: {e}"}), 500
 
 
 @bp.route("/wakeword/keywords", methods=["GET"])
 def list_wakeword_keywords():
-    return jsonify({"keywords": _list_available_wakeword_keywords()})
+    return jsonify({
+        "keywords": _list_available_wakeword_files(".ppn"),
+        "models": _list_available_wakeword_files(".onnx"),
+    })
 
 
 @bp.route("/camera/devices", methods=["GET"])

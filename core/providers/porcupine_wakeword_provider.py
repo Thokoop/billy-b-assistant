@@ -40,6 +40,7 @@ class PorcupineWakeWordBackend(WakeWordBackend):
         porcupine_access_key: str,
         porcupine_keyword_path: str,
         porcupine_sensitivity: float,
+        **_,
     ):
         self.root_dir = root_dir
         self.access_key = porcupine_access_key.strip()

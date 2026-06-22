@@ -220,10 +220,11 @@
                     <select id="WAKE_WORD_BACKEND" name="WAKE_WORD_BACKEND"
                             class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
                         <option value="porcupine" {% if config.get('WAKE_WORD_BACKEND', 'porcupine') == 'porcupine' %}selected{% endif %}>Porcupine</option>
+                        <option value="openwakeword" {% if config.get('WAKE_WORD_BACKEND', 'porcupine') == 'openwakeword' %}selected{% endif %}>openWakeWord</option>
                     </select>
                 </div>
 
-                <div class="relative" style="grid-column: 1 / -1;">
+                <div class="relative wakeword-provider-only" data-wakeword-provider="porcupine" style="grid-column: 1 / -1;">
                     <label for="PORCUPINE_ACCESS_KEY"
                            class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
                         Porcupine AccessKey
@@ -254,7 +255,7 @@
                     </div>
                 </div>
 
-                <div>
+                <div class="wakeword-provider-only" data-wakeword-provider="porcupine">
                     <label for="WAKE_WORD_PORCUPINE_KEYWORD_PATH"
                            class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
                         Porcupine keyword (.ppn) path
@@ -276,7 +277,7 @@
                     </select>
                 </div>
 
-                <div>
+                <div class="wakeword-provider-only" data-wakeword-provider="porcupine">
                     <label for="WAKE_WORD_PORCUPINE_SENSITIVITY"
                            class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
                         Porcupine sensitivity (0-1)
@@ -295,21 +296,62 @@
                                value="{{ config.get('WAKE_WORD_PORCUPINE_SENSITIVITY', '0.20') }}">
                     </div>
                 </div>
+
+                <div class="wakeword-provider-only" data-wakeword-provider="openwakeword">
+                    <label for="WAKE_WORD_OPENWAKEWORD_MODEL_PATH"
+                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                        openWakeWord model (.onnx) path
+                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                              onclick="toggleTooltip(this)">help_outline</span>
+                    </label>
+                    <div class="relative">
+                        <div data-tooltip>
+                            Choose which openWakeWord ONNX model Billy should listen for.<br>
+                            Billy resolves filenames from <b>wakewords/</b> automatically.<br>
+                            Your bundled model can be selected here directly.
+                        </div>
+                    </div>
+                    {% set current_openwakeword_model_path = config.get('WAKE_WORD_OPENWAKEWORD_MODEL_PATH', 'hey_billy.onnx') %}
+                    <select id="WAKE_WORD_OPENWAKEWORD_MODEL_PATH" name="WAKE_WORD_OPENWAKEWORD_MODEL_PATH"
+                            data-current="{{ current_openwakeword_model_path }}"
+                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        <option value="{{ current_openwakeword_model_path }}" selected>{{ current_openwakeword_model_path }}</option>
+                    </select>
+                </div>
+
+                <div class="wakeword-provider-only" data-wakeword-provider="openwakeword">
+                    <label for="WAKE_WORD_OPENWAKEWORD_THRESHOLD"
+                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                        openWakeWord threshold (0-1)
+                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                              onclick="toggleTooltip(this)">help_outline</span>
+                    </label>
+                    <div class="relative">
+                        <div data-tooltip>
+                            Detection score threshold for your openWakeWord model.<br>
+                            Higher values are stricter and reduce false triggers.<br>
+                            Recommended starting point: <b>0.50</b>.
+                        </div>
+                        <input type="number" min="0" max="1" step="0.01" id="WAKE_WORD_OPENWAKEWORD_THRESHOLD" name="WAKE_WORD_OPENWAKEWORD_THRESHOLD"
+                               class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                               value="{{ config.get('WAKE_WORD_OPENWAKEWORD_THRESHOLD', '0.50') }}">
+                    </div>
+                </div>
             </div>
 
             <div class="mt-3 p-3 rounded border border-zinc-700 bg-zinc-900/40">
-                <label for="wakeword-keyword-file" class="block font-semibold text-sm text-slate-300 mb-1">Porcupine keyword upload (.ppn)</label>
+                <label for="wakeword-keyword-file" class="block font-semibold text-sm text-slate-300 mb-1">Wake-word file upload (.ppn or .onnx)</label>
                 <div class="flex flex-wrap gap-2 items-center">
-                    <input type="file" id="wakeword-keyword-file" accept=".ppn"
+                    <input type="file" id="wakeword-keyword-file" accept=".ppn,.onnx"
                            class="text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-zinc-700 file:px-3 file:py-2 file:text-slate-100 hover:file:bg-zinc-600">
                     <button type="button" id="wakeword-upload-keyword-btn"
                             class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center px-3 py-2 rounded shadow flex gap-1.5 cursor-pointer">
                         <span class="material-icons align-middle">upload_file</span>
-                        Upload Keyword
+                        Upload File
                     </button>
                 </div>
                 <div id="wakeword-keyword-status" class="text-xs text-slate-400 mt-2">
-                    Default bundled keyword: <code>hey-billy.ppn</code>. Uploaded files are stored in <code>wakewords</code>.
+                    Upload either a Porcupine <code>.ppn</code> keyword or an openWakeWord <code>.onnx</code> model. Files are stored in <code>./wakewords</code>.
                 </div>
             </div>
         </div>

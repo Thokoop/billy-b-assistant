@@ -144,11 +144,12 @@ const SettingsForm = (() => {
                 const savedValue = localStorage.getItem(`dropdown_${id}`);
                 // Then fall back to config value
                 const configValue = cfg[key];
-                // For OPENAI_MODEL, prefer .env/config over localStorage.
-                const preferredValue = id === 'OPENAI_MODEL' ? configValue : (savedValue || configValue);
-                const fallbackValue = id === 'OPENAI_MODEL' ? savedValue : null;
+                // For backend/model selectors, prefer .env/config over localStorage.
+                const preferConfigValue = id === 'OPENAI_MODEL' || id === 'WAKE_WORD_BACKEND';
+                const preferredValue = preferConfigValue ? configValue : (savedValue || configValue);
+                const fallbackValue = preferConfigValue ? savedValue : null;
 
-                if (id === 'OPENAI_MODEL') {
+                if (preferConfigValue) {
                     const normalizedPreferred = normalizeModelValue(preferredValue);
                     const normalizedFallback = normalizeModelValue(fallbackValue);
 
@@ -579,52 +580,76 @@ const SettingsForm = (() => {
         const fileInput = document.getElementById("wakeword-keyword-file");
         const status = document.getElementById("wakeword-keyword-status");
         const keywordPathInput = document.getElementById("WAKE_WORD_PORCUPINE_KEYWORD_PATH");
+        const openWakeWordModelInput = document.getElementById("WAKE_WORD_OPENWAKEWORD_MODEL_PATH");
         const backendSelect = document.getElementById("WAKE_WORD_BACKEND");
-        if (!uploadBtn || !fileInput || !keywordPathInput) return;
+        if (!keywordPathInput || !openWakeWordModelInput || !backendSelect) return;
 
-        const normalizeKeywordName = (value) => {
+        const normalizeWakeWordName = (value) => {
             const raw = String(value || "").trim();
             if (!raw) return "";
             const parts = raw.split(/[\\/]/);
             return parts[parts.length - 1] || raw;
         };
 
-        const loadWakeWordKeywordOptions = async (preferredPath = null) => {
-            try {
-                const response = await fetch("/wakeword/keywords");
-                const data = await response.json();
-                const options = Array.isArray(data.keywords)
-                    ? data.keywords.map(normalizeKeywordName).filter(Boolean)
-                    : [];
-                const currentValue = normalizeKeywordName(
-                    preferredPath || keywordPathInput.value || keywordPathInput.dataset.current || ""
-                );
-                const merged = [...new Set([...options, currentValue].filter(Boolean))];
-                keywordPathInput.innerHTML = "";
-                merged.forEach((name) => {
-                    const opt = document.createElement("option");
-                    opt.value = name;
-                    opt.textContent = name;
-                    keywordPathInput.appendChild(opt);
-                });
-                if (currentValue && merged.includes(currentValue)) {
-                    keywordPathInput.value = currentValue;
-                }
-            } catch (error) {
-                console.error("Failed to load wake-word keywords:", error);
+        const syncWakeWordProviderFields = () => {
+            const provider = String(backendSelect.value || "porcupine").trim().toLowerCase();
+            document.querySelectorAll("[data-wakeword-provider]").forEach((element) => {
+                const match = element.dataset.wakewordProvider === provider;
+                element.classList.toggle("hidden", !match);
+            });
+        };
+
+        const populateSelectOptions = (select, options, preferredPath = null) => {
+            if (!select) return;
+            const currentValue = normalizeWakeWordName(
+                preferredPath || select.value || select.dataset.current || ""
+            );
+            const merged = [...new Set([...options, currentValue].filter(Boolean))];
+            select.innerHTML = "";
+            merged.forEach((name) => {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = name;
+                select.appendChild(opt);
+            });
+            if (currentValue && merged.includes(currentValue)) {
+                select.value = currentValue;
             }
         };
 
-        loadWakeWordKeywordOptions();
+        const loadWakeWordOptions = async (preferredKeywordPath = null, preferredModelPath = null) => {
+            try {
+                const response = await fetch("/wakeword/keywords");
+                const data = await response.json();
+                const keywordOptions = Array.isArray(data.keywords)
+                    ? data.keywords.map(normalizeWakeWordName).filter(Boolean)
+                    : [];
+                const modelOptions = Array.isArray(data.models)
+                    ? data.models.map(normalizeWakeWordName).filter(Boolean)
+                    : [];
+                populateSelectOptions(keywordPathInput, keywordOptions, preferredKeywordPath);
+                populateSelectOptions(openWakeWordModelInput, modelOptions, preferredModelPath);
+            } catch (error) {
+                console.error("Failed to load wake-word options:", error);
+            }
+        };
 
+        loadWakeWordOptions();
+        syncWakeWordProviderFields();
+        backendSelect.addEventListener("change", syncWakeWordProviderFields);
+
+        if (!uploadBtn || !fileInput) return;
         uploadBtn.addEventListener("click", async () => {
             const file = fileInput.files && fileInput.files[0];
             if (!file) {
-                showNotification("Select a .ppn file first", "warning", 3000);
+                showNotification("Select a .ppn or .onnx file first", "warning", 3000);
                 return;
             }
-            if (!file.name.toLowerCase().endsWith(".ppn")) {
-                showNotification("Only .ppn files are supported", "warning", 3000);
+            const lowerName = file.name.toLowerCase();
+            const isPorcupine = lowerName.endsWith(".ppn");
+            const isOpenWakeWord = lowerName.endsWith(".onnx");
+            if (!isPorcupine && !isOpenWakeWord) {
+                showNotification("Only .ppn and .onnx files are supported", "warning", 3000);
                 return;
             }
 
@@ -637,37 +662,40 @@ const SettingsForm = (() => {
                 status.textContent = `Uploading ${file.name}...`;
             }
             try {
-                const response = await fetch("/wakeword/keyword/upload", {
+                const response = await fetch("/wakeword/model/upload", {
                     method: "POST",
                     body: formData,
                 });
                 const data = await response.json();
                 if (!response.ok) {
                     const errorMessage = data.error || "Upload failed";
-                    console.error("Wake-word keyword upload failed:", errorMessage);
+                    console.error("Wake-word file upload failed:", errorMessage);
                     if (status) {
                         status.textContent = `Upload failed: ${errorMessage}`;
                     }
-                    showNotification(`Keyword upload failed: ${errorMessage}`, "error", 5000);
+                    showNotification(`Upload failed: ${errorMessage}`, "error", 5000);
                     return;
                 }
-                if (keywordPathInput && data.keyword_path) {
-                    await loadWakeWordKeywordOptions(data.keyword_path);
+                if (data.backend === "porcupine" && data.filename) {
+                    await loadWakeWordOptions(data.filename, null);
+                } else if (data.backend === "openwakeword" && data.filename) {
+                    await loadWakeWordOptions(null, data.filename);
                 }
-                if (backendSelect) {
-                    backendSelect.value = "porcupine";
+                if (backendSelect && data.backend) {
+                    backendSelect.value = data.backend;
+                    syncWakeWordProviderFields();
                 }
                 if (status) {
-                    status.textContent = `Keyword uploaded: ${data.keyword_path}`;
+                    status.textContent = `Uploaded ${data.filename} for ${data.backend}`;
                 }
                 fileInput.value = "";
-                showNotification("Porcupine keyword uploaded", "success", 3000);
+                showNotification(`${data.filename} uploaded`, "success", 3000);
             } catch (error) {
-                console.error("Wake-word keyword upload failed:", error);
+                console.error("Wake-word file upload failed:", error);
                 if (status) {
                     status.textContent = `Upload failed: ${error.message}`;
                 }
-                showNotification(`Keyword upload failed: ${error.message}`, "error", 5000);
+                showNotification(`Upload failed: ${error.message}`, "error", 5000);
             } finally {
                 uploadBtn.disabled = false;
                 uploadBtn.classList.remove("opacity-50", "cursor-not-allowed");

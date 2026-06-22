@@ -15,3 +15,5 @@ simple-websocket
 lgpio
 packaging
 pvporcupine
+openwakeword
+onnxruntime

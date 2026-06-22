@@ -27,6 +27,10 @@ class LocalWakeWordListener:
         porcupine_access_key: str = "",
         porcupine_keyword_path: str = "",
         porcupine_sensitivity: float = 0.65,
+        openwakeword_model_path: str = "",
+        openwakeword_threshold: float = 0.5,
+        openwakeword_melspec_model_path: str = "",
+        openwakeword_embedding_model_path: str = "",
     ):
         self.backend = backend.strip().lower()
         self.callback = callback
@@ -38,6 +42,12 @@ class LocalWakeWordListener:
         self.porcupine_access_key = porcupine_access_key.strip()
         self.porcupine_keyword_path = porcupine_keyword_path.strip()
         self.porcupine_sensitivity = float(porcupine_sensitivity)
+        self.openwakeword_model_path = openwakeword_model_path.strip()
+        self.openwakeword_threshold = float(openwakeword_threshold)
+        self.openwakeword_melspec_model_path = openwakeword_melspec_model_path.strip()
+        self.openwakeword_embedding_model_path = (
+            openwakeword_embedding_model_path.strip()
+        )
 
         self._thread = None
         self._stop_event = threading.Event()
@@ -87,6 +97,10 @@ class LocalWakeWordListener:
                 porcupine_access_key=self.porcupine_access_key,
                 porcupine_keyword_path=self.porcupine_keyword_path,
                 porcupine_sensitivity=self.porcupine_sensitivity,
+                openwakeword_model_path=self.openwakeword_model_path,
+                openwakeword_threshold=self.openwakeword_threshold,
+                openwakeword_melspec_model_path=self.openwakeword_melspec_model_path,
+                openwakeword_embedding_model_path=self.openwakeword_embedding_model_path,
             )
         except ValueError:
             logger.warning(
