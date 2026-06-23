@@ -28,11 +28,19 @@
             <div id="songs-list-view">
                 <div class="mb-4 flex justify-between items-center">
                     <p class="text-sm text-zinc-400">Manage custom songs for Billy to perform</p>
-                    <button id="create-song-btn"
-                            class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm py-2 px-4 rounded flex gap-2 items-center">
-                        <span class="material-icons text-sm">add</span>
-                        New Song
-                    </button>
+                    <div class="flex gap-2">
+                        <button id="create-song-btn"
+                                class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm py-2 px-4 rounded flex gap-2 items-center">
+                            <span class="material-icons text-sm">add</span>
+                            New Song
+                        </button>
+                        <button id="import-fishsinger-btn" type="button"
+                                class="bg-cyan-600 hover:bg-cyan-500 transition-colors text-white text-sm py-2 px-4 rounded flex gap-2 items-center">
+                            <span class="material-icons text-sm">upload_file</span>
+                            Import from FishSinger
+                        </button>
+                        <input type="file" id="fishsinger-file" accept=".🐟,.zip,application/zip" class="hidden">
+                    </div>
                 </div>
 
                 <!-- Songs Grid -->
@@ -324,3 +332,394 @@
     </div>
 </div>
 
+
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+(() => {
+    const fishImportState = {
+        importedFiles: {},
+        importedAudioUrls: {},
+    };
+
+    function $(id) {
+        return document.getElementById(id);
+    }
+
+    function showStatus(el, message, ok = true) {
+        if (!el) return;
+        el.textContent = message;
+        el.className = ok ? 'ml-2 text-emerald-400 text-xs' : 'ml-2 text-rose-400 text-xs';
+    }
+
+    function slugifyFolderName(value) {
+        return String(value || 'fishsinger_import')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '') || 'fishsinger_import';
+    }
+
+    function pairIntervals(events, onCat, offCat, audioDuration) {
+        const sorted = [...events].sort((a, b) => (a.time || 0) - (b.time || 0));
+        const intervals = [];
+        let start = null;
+        for (const event of sorted) {
+            if (event.cat === onCat) {
+                start = Number(event.time) || 0;
+            } else if (event.cat === offCat && start !== null) {
+                const end = Number(event.time) || 0;
+                if (end > start) {
+                    intervals.push([start, end]);
+                }
+                start = null;
+            }
+        }
+        if (start !== null && audioDuration > start) {
+            intervals.push([start, audioDuration]);
+        }
+        return intervals;
+    }
+
+    function headMovesFromEvents(events, audioDuration) {
+        return pairIntervals(events, 'head1', 'head0', audioDuration)
+            .map(([start, end]) => `${start.toFixed(3).replace(/\.000$/, '')}:${(end - start).toFixed(3).replace(/\.000$/, '')}`)
+            .join(', ');
+    }
+
+    function createGatedBuffer(sourceBuffer, intervals) {
+        const ctx = new OfflineAudioContext(
+            sourceBuffer.numberOfChannels,
+            sourceBuffer.length,
+            sourceBuffer.sampleRate
+        );
+        const output = ctx.createBuffer(
+            sourceBuffer.numberOfChannels,
+            sourceBuffer.length,
+            sourceBuffer.sampleRate
+        );
+
+        for (let ch = 0; ch < sourceBuffer.numberOfChannels; ch++) {
+            output.getChannelData(ch).set(sourceBuffer.getChannelData(ch));
+        }
+
+        const sampleRate = sourceBuffer.sampleRate;
+        for (let ch = 0; ch < output.numberOfChannels; ch++) {
+            const channel = output.getChannelData(ch);
+            channel.fill(0);
+            const src = sourceBuffer.getChannelData(ch);
+            for (const [start, end] of intervals) {
+                const s = Math.max(0, Math.floor(start * sampleRate));
+                const e = Math.min(channel.length, Math.ceil(end * sampleRate));
+                if (e > s) {
+                    channel.set(src.subarray(s, e), s);
+                }
+            }
+        }
+        return output;
+    }
+
+    async function decodeAudioFile(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        try {
+            return await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        } finally {
+            await audioCtx.close();
+        }
+    }
+
+    async function resampleAudioBuffer(audioBuffer, targetSampleRate = 48000) {
+        if (audioBuffer.sampleRate === targetSampleRate) {
+            return audioBuffer;
+        }
+        const duration = audioBuffer.duration;
+        const frameCount = Math.ceil(duration * targetSampleRate);
+        const offline = new OfflineAudioContext(audioBuffer.numberOfChannels, frameCount, targetSampleRate);
+        const source = offline.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offline.destination);
+        source.start();
+        return await offline.startRendering();
+    }
+
+    function audioBufferTo16BitWavBlob(audioBuffer) {
+        const numChannels = audioBuffer.numberOfChannels;
+        const sampleRate = audioBuffer.sampleRate;
+        const samples = audioBuffer.length;
+        const bytesPerSample = 2;
+        const blockAlign = numChannels * bytesPerSample;
+        const buffer = new ArrayBuffer(44 + samples * blockAlign);
+        const view = new DataView(buffer);
+
+        function writeString(offset, str) {
+            for (let i = 0; i < str.length; i++) {
+                view.setUint8(offset + i, str.charCodeAt(i));
+            }
+        }
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + samples * blockAlign, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * blockAlign, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, 16, true);
+        writeString(36, 'data');
+        view.setUint32(40, samples * blockAlign, true);
+
+        const channels = [];
+        for (let ch = 0; ch < numChannels; ch++) {
+            channels.push(audioBuffer.getChannelData(ch));
+        }
+
+        let offset = 44;
+        for (let i = 0; i < samples; i++) {
+            for (let ch = 0; ch < numChannels; ch++) {
+                let sample = channels[ch][i];
+                sample = Math.max(-1, Math.min(1, sample));
+                const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                view.setInt16(offset, intSample, true);
+                offset += 2;
+            }
+        }
+
+        return new Blob([buffer], { type: 'audio/wav' });
+    }
+
+    function assignFileToInput(input, file) {
+        if (!input || !file) return;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function setAudioPreview(audioEl, file, playBtn) {
+        if (!audioEl || !file) return;
+        const priorUrl = fishImportState.importedAudioUrls[audioEl.id];
+        if (priorUrl) {
+            URL.revokeObjectURL(priorUrl);
+        }
+        const url = URL.createObjectURL(file);
+        fishImportState.importedAudioUrls[audioEl.id] = url;
+        audioEl.src = url;
+        audioEl.classList.remove('hidden');
+        if (playBtn) {
+            playBtn.classList.remove('hidden');
+            playBtn.onclick = () => {
+                if (audioEl.paused) {
+                    audioEl.play();
+                    const icon = playBtn.querySelector('.material-icons');
+                    if (icon) icon.textContent = 'pause_circle';
+                } else {
+                    audioEl.pause();
+                    const icon = playBtn.querySelector('.material-icons');
+                    if (icon) icon.textContent = 'play_circle';
+                }
+            };
+            audioEl.onended = () => {
+                const icon = playBtn.querySelector('.material-icons');
+                if (icon) icon.textContent = 'play_circle';
+            };
+        }
+    }
+
+    async function convertMp3To48k16BitMainTrack(songMp3File) {
+        const decoded = await decodeAudioFile(songMp3File);
+        const resampled = await resampleAudioBuffer(decoded, 48000);
+        const fullWav = new File([
+            audioBufferTo16BitWavBlob(resampled)
+        ], 'full.wav', { type: 'audio/wav' });
+
+        return { fullWav, duration: resampled.duration };
+    }
+
+    function createActivityNoiseBuffer(durationSeconds, intervals, sampleRate = 48000) {
+        const frameCount = Math.max(1, Math.ceil(durationSeconds * sampleRate));
+        const buffer = new AudioBuffer({
+            numberOfChannels: 1,
+            length: frameCount,
+            sampleRate,
+        });
+        const channel = buffer.getChannelData(0);
+
+        for (const [start, end] of intervals) {
+            const startFrame = Math.max(0, Math.floor(start * sampleRate));
+            const endFrame = Math.min(frameCount, Math.ceil(end * sampleRate));
+            for (let i = startFrame; i < endFrame; i++) {
+                channel[i] = (Math.random() * 2 - 1) * 0.7;
+            }
+        }
+
+        const fadeSamples = Math.max(1, Math.round(sampleRate * 0.003));
+        for (const [start, end] of intervals) {
+            const startFrame = Math.max(0, Math.floor(start * sampleRate));
+            const endFrame = Math.min(frameCount, Math.ceil(end * sampleRate));
+            const fadeInEnd = Math.min(endFrame, startFrame + fadeSamples);
+            const fadeOutStart = Math.max(startFrame, endFrame - fadeSamples);
+
+            for (let i = startFrame; i < fadeInEnd; i++) {
+                const gain = (i - startFrame) / Math.max(1, fadeInEnd - startFrame);
+                channel[i] *= gain;
+            }
+            for (let i = fadeOutStart; i < endFrame; i++) {
+                const gain = (endFrame - i) / Math.max(1, endFrame - fadeOutStart);
+                channel[i] *= gain;
+            }
+        }
+
+        return buffer;
+    }
+
+    function createMovementWavFile(fileName, durationSeconds, intervals) {
+        const noiseBuffer = createActivityNoiseBuffer(durationSeconds, intervals, 48000);
+        return new File([
+            audioBufferTo16BitWavBlob(noiseBuffer)
+        ], fileName, { type: 'audio/wav' });
+    }
+
+    function openSongEditor() {
+        const listView = $('songs-list-view');
+        const editView = $('song-edit-view');
+        const footer = $('song-edit-footer');
+        const backBtn = $('back-to-songs-list-btn');
+        const title = $('songs-modal-title');
+        if (listView) listView.classList.add('hidden');
+        if (editView) editView.classList.remove('hidden');
+        if (footer) footer.classList.remove('hidden');
+        if (backBtn) backBtn.classList.remove('hidden');
+        if (title) title.textContent = 'Edit Song';
+    }
+
+    async function tryAutoSaveImportedSong() {
+        const saveBtn = $('save-song-btn');
+        if (!saveBtn) return false;
+
+        const beforeCards = document.querySelectorAll('#custom-songs-list > *').length;
+        saveBtn.click();
+
+        await new Promise(resolve => setTimeout(resolve, 600));
+        const afterCards = document.querySelectorAll('#custom-songs-list > *').length;
+        return afterCards > beforeCards;
+    }
+
+    async function importFishSingerFile(file) {
+        if (!window.JSZip) {
+            throw new Error('JSZip failed to load.');
+        }
+
+        const zip = await JSZip.loadAsync(file);
+        const animationEntry = zip.file(/(^|\/)animation\.json$/i)?.[0];
+        const songEntry = zip.file(/(^|\/)(audio|song)\.mp3$/i)?.[0];
+
+        if (!animationEntry || !songEntry) {
+            throw new Error('The selected FishSinger file must contain animation.json and audio.mp3.');
+        }
+
+        const animationText = await animationEntry.async('string');
+        const animationJson = JSON.parse(animationText);
+        if (!Array.isArray(animationJson) || animationJson.length < 2) {
+            throw new Error('animation.json did not contain the expected event list.');
+        }
+
+        openSongEditor();
+
+        const meta = animationJson[0] || {};
+        const animationEvents = animationJson.slice(1);
+        const songMp3Blob = await songEntry.async('blob');
+        const songMp3File = new File([songMp3Blob], songEntry.name.split('/').pop() || 'audio.mp3', { type: 'audio/mpeg' });
+        const { fullWav, duration } = await convertMp3To48k16BitMainTrack(songMp3File);
+
+        const mouthIntervals = pairIntervals(animationEvents, 'mouth1', 'mouth0', duration);
+        const tailIntervals = pairIntervals(animationEvents, 'tail1', 'tail0', duration);
+        const vocalsWav = createMovementWavFile('vocals.wav', duration, mouthIntervals);
+        const drumsWav = createMovementWavFile('drums.wav', duration, tailIntervals);
+
+        const title = meta.name || file.name.replace(/\.[^.]+$/, '');
+        const folderName = slugifyFolderName(title);
+        const keywords = [title, meta.notes].filter(Boolean).join(', ');
+        const headMoves = headMovesFromEvents(animationEvents, duration);
+
+        if ($('song-name')) $('song-name').value = folderName;
+        if ($('song-title')) $('song-title').value = title;
+        if ($('song-keywords')) $('song-keywords').value = keywords;
+        if ($('song-head-moves')) $('song-head-moves').value = headMoves;
+
+        assignFileToInput($('full-file'), fullWav);
+        setAudioPreview($('full-audio'), fullWav, $('play-full'));
+        showStatus($('full-status'), 'Imported');
+
+        assignFileToInput($('vocals-file'), vocalsWav);
+        setAudioPreview($('vocals-audio'), vocalsWav, $('play-vocals'));
+        showStatus($('vocals-status'), `Generated from mouth (${mouthIntervals.length} clips)`);
+
+        assignFileToInput($('drums-file'), drumsWav);
+        setAudioPreview($('drums-audio'), drumsWav, $('play-drums'));
+        showStatus($('drums-status'), `Generated from tail (${tailIntervals.length} clips)`);
+
+        fishImportState.importedFiles = {
+            full: fullWav,
+            vocals: vocalsWav,
+            drums: drumsWav,
+            animationJson,
+        };
+
+        document.dispatchEvent(new CustomEvent('fishsinger-imported', {
+            detail: {
+                meta,
+                animationEvents,
+                files: fishImportState.importedFiles,
+                headMoves,
+            }
+        }));
+
+        const autoSaved = await tryAutoSaveImportedSong();
+        if (!autoSaved) {
+            alert('FishSinger import is loaded into the song editor. Tap Save Song to add it to Custom Songs.');
+        }
+    }
+
+    function wireFishSingerImporter() {
+        const importBtn = $('import-fishsinger-btn');
+        const fileInput = $('fishsinger-file');
+        if (!importBtn || !fileInput || importBtn.dataset.wired === 'true') return;
+
+        importBtn.dataset.wired = 'true';
+        importBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+
+            const originalLabel = importBtn.innerHTML;
+            importBtn.disabled = true;
+            importBtn.innerHTML = '<span class="material-icons text-sm">hourglass_top</span> Importing...';
+
+            try {
+                await importFishSingerFile(file);
+                importBtn.innerHTML = '<span class="material-icons text-sm">check_circle</span> Imported';
+                setTimeout(() => {
+                    importBtn.innerHTML = originalLabel;
+                    importBtn.disabled = false;
+                }, 1500);
+            } catch (error) {
+                console.error(error);
+                alert(`FishSinger import failed: ${error.message}`);
+                importBtn.innerHTML = originalLabel;
+                importBtn.disabled = false;
+            } finally {
+                fileInput.value = '';
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', wireFishSingerImporter);
+    } else {
+        wireFishSingerImporter();
+    }
+})();
+</script>
