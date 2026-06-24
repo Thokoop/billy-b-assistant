@@ -1,6 +1,7 @@
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 from flask import Flask, redirect, render_template_string, request
 
@@ -8,6 +9,7 @@ from flask import Flask, redirect, render_template_string, request
 app = Flask(__name__)
 
 wifi_request = {}
+ONBOARDING_FLAG = Path(__file__).resolve().parent / ".wifi_onboarding_active"
 
 FORM_TEMPLATE = """
 <!DOCTYPE html>
@@ -238,6 +240,8 @@ def save_wifi_credentials(ssid, password, country):
 def stop_hotspot_services():
     subprocess.call(["sudo", "systemctl", "stop", "hostapd"])
     subprocess.call(["sudo", "systemctl", "stop", "dnsmasq"])
+    if ONBOARDING_FLAG.exists():
+        ONBOARDING_FLAG.unlink()
     print("🛑 Stopped hotspot services")
 
 

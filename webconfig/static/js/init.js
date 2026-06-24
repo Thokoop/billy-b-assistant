@@ -60,6 +60,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     SettingsForm.bindNewsSources();
     SettingsForm.bindWakeWordKeywordUpload();
     SettingsForm.bindCameraPreview();
+    SettingsForm.bindWiFiSection();
+    SettingsForm.bindApiProviderFields();
     PersonaForm.handlePersonaSave();
     PersonaForm.bindPersonaSelector();
     PersonaForm.populatePersonaSelector();

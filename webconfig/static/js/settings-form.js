@@ -20,6 +20,17 @@ const SettingsForm = (() => {
         return true;
     };
 
+    const ensureSelectHasValue = (element, preferredValue, fallbackValue = null) => {
+        if (!element) return false;
+        if (setSelectValueSafely(element, preferredValue)) return true;
+        if (setSelectValueSafely(element, fallbackValue)) return true;
+        if (element.options.length > 0) {
+            element.value = element.options[0].value;
+            return true;
+        }
+        return false;
+    };
+
     const getCameraSelectionFromConfig = (cfg) => {
         const hardware = String(cfg?.CAMERA_HARDWARE || "none").trim().toLowerCase();
         const index = String(cfg?.CAMERA_DEVICE_INDEX || "0").trim();
@@ -121,7 +132,9 @@ const SettingsForm = (() => {
     const populateDropdowns = (cfg) => {
         // Populate dropdown values with saved configuration
         const dropdowns = [
+            { id: 'REALTIME_AI_PROVIDER', key: 'REALTIME_AI_PROVIDER' },
             { id: 'OPENAI_MODEL', key: 'OPENAI_MODEL' },
+            { id: 'XAI_MODEL', key: 'XAI_MODEL' },
             { id: 'VOICE', key: 'VOICE' },
             { id: 'RUN_MODE', key: 'RUN_MODE' },
             { id: 'TURN_EAGERNESS', key: 'TURN_EAGERNESS' },
@@ -130,7 +143,8 @@ const SettingsForm = (() => {
             { id: 'BILLY_PINS_SELECT', key: 'BILLY_PINS' },
             { id: 'HA_LANG', key: 'HA_LANG' },
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
-            { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' }
+            { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
+            { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
 
         dropdowns.forEach(({ id, key }) => {
@@ -143,9 +157,11 @@ const SettingsForm = (() => {
                 // First try to get from localStorage (user's last selection)
                 const savedValue = localStorage.getItem(`dropdown_${id}`);
                 // Then fall back to config value
-                const configValue = cfg[key];
+                const configValue = id === "REALTIME_AI_PROVIDER"
+                    ? (cfg[key] || "openai")
+                    : cfg[key];
                 // For backend/model selectors, prefer .env/config over localStorage.
-                const preferConfigValue = id === 'OPENAI_MODEL' || id === 'WAKE_WORD_BACKEND';
+                const preferConfigValue = id === 'OPENAI_MODEL' || id === 'XAI_MODEL' || id === 'WAKE_WORD_BACKEND' || id === 'REALTIME_AI_PROVIDER';
                 const preferredValue = preferConfigValue ? configValue : (savedValue || configValue);
                 const fallbackValue = preferConfigValue ? savedValue : null;
 
@@ -153,16 +169,20 @@ const SettingsForm = (() => {
                     const normalizedPreferred = normalizeModelValue(preferredValue);
                     const normalizedFallback = normalizeModelValue(fallbackValue);
 
-                    if (setSelectValueSafely(element, normalizedPreferred)) {
-                        localStorage.setItem(`dropdown_${id}`, normalizedPreferred);
-                    } else if (setSelectValueSafely(element, normalizedFallback)) {
-                        localStorage.setItem(`dropdown_${id}`, normalizedFallback);
+                    if (ensureSelectHasValue(element, normalizedPreferred, normalizedFallback)) {
+                        localStorage.setItem(`dropdown_${id}`, element.value);
                     } else {
                         // Clear stale localStorage when no matching option exists.
                         localStorage.removeItem(`dropdown_${id}`);
                     }
                 } else if (preferredValue) {
-                    setSelectValueSafely(element, preferredValue);
+                    ensureSelectHasValue(
+                        element,
+                        preferredValue,
+                        id === "WIFI_COUNTRY" ? "US" : null
+                    );
+                } else if (id === "WIFI_COUNTRY") {
+                    ensureSelectHasValue(element, "US");
                 }
             }
         });
@@ -171,9 +191,9 @@ const SettingsForm = (() => {
     const saveDropdownSelections = () => {
         // Save dropdown selections to localStorage when they change
         const dropdowns = [
-            'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
+            'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY'
         ];
 
         dropdowns.forEach(id => {
@@ -281,7 +301,7 @@ const SettingsForm = (() => {
                     if (refreshData.config) {
                         // Update dropdowns with new values
                         const dropdowns = [
-                            'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
+                            'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
                             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
                             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
                         ];
@@ -561,7 +581,7 @@ const SettingsForm = (() => {
     const refreshFromConfig = (config) => {
         // Update dropdowns with new configuration values
         const dropdowns = [
-            'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
+            'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
         ];
@@ -701,6 +721,24 @@ const SettingsForm = (() => {
                 uploadBtn.classList.remove("opacity-50", "cursor-not-allowed");
             }
         });
+    };
+
+    const bindApiProviderFields = () => {
+        const providerSelect = document.getElementById("REALTIME_AI_PROVIDER");
+        if (!providerSelect) return;
+
+        const syncProviderFields = () => {
+            const provider = String(providerSelect.value || "openai").trim().toLowerCase();
+            document.querySelectorAll("[data-api-provider]").forEach((element) => {
+                const match = element.dataset.apiProvider === provider;
+                element.classList.toggle("hidden", !match);
+                element.toggleAttribute("hidden", !match);
+                element.style.display = match ? "" : "none";
+            });
+        };
+
+        syncProviderFields();
+        providerSelect.addEventListener("change", syncProviderFields);
     };
 
     const NEWS_SOURCE_TEMPLATES = {
@@ -1046,6 +1084,357 @@ const SettingsForm = (() => {
         loadNewsSources();
     };
 
+    const bindWiFiSection = () => {
+        const form = document.getElementById("config-form");
+        const scanBtn = document.getElementById("wifi-scan-btn");
+        const saveBtn = document.getElementById("wifi-save-btn");
+        const saveLabel = document.getElementById("wifi-save-label");
+        const saveIcon = document.getElementById("wifi-save-icon");
+        const editToggleBtn = document.getElementById("wifi-edit-toggle-btn");
+        const editFields = document.getElementById("wifi-edit-fields");
+        const cancelBtn = document.getElementById("wifi-cancel-btn");
+        const networkSelect = document.getElementById("wifi-network-select");
+        const ssidInput = document.getElementById("wifi-ssid");
+        const ssidField = document.getElementById("wifi-ssid-field");
+        const passwordInput = document.getElementById("wifi-password");
+        const countrySelect = document.getElementById("WIFI_COUNTRY");
+        const unifiedFields = document.getElementById("wifi-unified-fields");
+        const internetSection = document.getElementById("section-internet");
+        const settingsPanel = document.getElementById("settings-panel");
+        const statusEl = document.getElementById("wifi-connection-status");
+        const testResultEl = document.getElementById("wifi-test-result");
+        const errorResultEl = document.getElementById("wifi-error-result");
+        const banner = document.getElementById("wifi-onboarding-banner");
+        if (!form || !scanBtn || !saveBtn || !saveLabel || !saveIcon || !editToggleBtn || !editFields || !cancelBtn || !networkSelect || !ssidInput || !ssidField || !passwordInput || !countrySelect || !unifiedFields || !internetSection || !statusEl || !testResultEl || !errorResultEl) {
+            return;
+        }
+
+        const onboardingActive = form.dataset.wifiOnboardingActive === "true";
+        const configuredMode = String(form.dataset.wifiOnboardingMode || "legacy").trim().toLowerCase();
+        const unifiedConfigured = configuredMode === "unified";
+        const legacyHotspotOnboarding = onboardingActive && !unifiedConfigured;
+        let hotspotActive = false;
+        let savedFingerprint = "";
+        const MANUAL_SSID_VALUE = "__manual__";
+        const legacyOnboardingMessage = "Legacy Wi-Fi setup is active. Open billy.local:8080 to scan, test, and save Wi-Fi without disconnecting from Billy_Bassistant.";
+
+        const currentFingerprint = () => JSON.stringify({
+            ssid: ssidInput.value.trim(),
+            password: passwordInput.value,
+            country: countrySelect.value || "US",
+        });
+
+        const setBusy = (button, busy) => {
+            button.disabled = busy;
+            button.classList.toggle("opacity-50", busy);
+            button.classList.toggle("cursor-not-allowed", busy);
+        };
+
+        const syncSaveButton = () => {
+            const enabled = Boolean(ssidInput.value.trim());
+            saveBtn.disabled = !enabled;
+            saveBtn.classList.toggle("opacity-50", !enabled);
+            saveBtn.classList.toggle("cursor-not-allowed", !enabled);
+            if (!enabled && savedFingerprint === currentFingerprint()) {
+                saveLabel.textContent = "Saved";
+                saveIcon.textContent = "check_circle";
+            } else {
+                saveLabel.textContent = "Save Wi-Fi connection";
+                saveIcon.textContent = "save";
+            }
+        };
+
+        const setEditFieldsVisible = (visible) => {
+            editFields.classList.toggle("hidden", !visible);
+            editToggleBtn.classList.toggle("hidden", visible);
+        };
+
+        const invalidateSuccessfulTest = () => {
+            if (savedFingerprint !== currentFingerprint()) {
+                savedFingerprint = "";
+            }
+            syncSaveButton();
+        };
+
+        const syncManualSsidVisibility = () => {
+            const showManual = networkSelect.value === MANUAL_SSID_VALUE;
+            ssidField.classList.toggle("hidden", !showManual);
+            if (!showManual) {
+                ssidInput.value = networkSelect.value || "";
+            }
+        };
+
+        const syncSectionVisibility = () => {
+            internetSection.classList.remove("hidden");
+            unifiedFields.classList.remove("hidden");
+        };
+
+        const showLegacyHotspotMessage = () => {
+            showError(legacyOnboardingMessage);
+            if (banner) {
+                banner.textContent = legacyOnboardingMessage;
+                banner.classList.remove("hidden");
+            }
+        };
+
+        const showError = (message) => {
+            if (!message) {
+                errorResultEl.classList.add("hidden");
+                errorResultEl.textContent = "";
+                return;
+            }
+            errorResultEl.textContent = message;
+            errorResultEl.classList.remove("hidden");
+        };
+
+        const showTestResult = (message) => {
+            if (!message) {
+                testResultEl.classList.add("hidden");
+                testResultEl.textContent = "";
+                return;
+            }
+            testResultEl.textContent = message;
+            testResultEl.classList.remove("hidden");
+        };
+
+        const setConnectionStatus = (message, connected = null) => {
+            statusEl.textContent = message;
+            statusEl.classList.remove(
+                "text-zinc-300",
+                "text-zinc-400",
+                "text-amber-400",
+                "text-emerald-400",
+                "text-rose-400"
+            );
+            if (connected === true) {
+                statusEl.classList.add("text-emerald-400");
+            } else if (connected === "setup") {
+                statusEl.classList.add("text-amber-400");
+            } else if (connected === false) {
+                statusEl.classList.add("text-rose-400");
+            } else {
+                statusEl.classList.add("text-zinc-300");
+            }
+        };
+
+        const applyOnboardingLock = () => {
+            if (!onboardingActive) return;
+            if (banner) {
+                banner.classList.remove("hidden");
+            }
+            [
+                "section-software",
+                "section-wakeword",
+                "section-hardware",
+                "section-audio",
+                "section-mqtt",
+                "section-ha",
+                "section-advanced-settings",
+            ].forEach((id) => {
+                const section = document.getElementById(id);
+                if (section) {
+                    section.classList.add("hidden");
+                }
+            });
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+            }
+            cancelBtn.classList.toggle("hidden", onboardingActive);
+        };
+
+        const shouldAutoOpenEditor = () => onboardingActive || hotspotActive;
+
+        const forceOnboardingPanelOpen = () => {
+            if (!shouldAutoOpenEditor()) return;
+            if (window.UserProfilePanel && typeof window.UserProfilePanel.openSettingsModal === "function") {
+                window.UserProfilePanel.openSettingsModal();
+            } else if (settingsPanel) {
+                settingsPanel.classList.remove("hidden");
+            }
+            if (internetSection) {
+                localStorage.setItem(`collapse_${internetSection.id}`, "open");
+                internetSection.classList.remove("collapsed");
+                const header = internetSection.querySelector("h3");
+                if (header) {
+                    header.classList.add("mb-4");
+                    const chevron = header.querySelector(".material-icons:last-child");
+                    if (chevron && chevron.textContent === "expand_more") {
+                        chevron.classList.remove("rotate-0");
+                        chevron.classList.add("rotate-180");
+                    }
+                }
+                [...internetSection.children].forEach((child) => {
+                    if (child.tagName !== "H3") {
+                        child.classList.remove("hidden");
+                    }
+                });
+            }
+        };
+
+        const loadStatus = async () => {
+            try {
+                const response = await fetch("/wifi/status");
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Failed to load Wi-Fi status");
+                }
+                hotspotActive = Boolean(data.hotspot_active);
+                if (hotspotActive) {
+                    setConnectionStatus(
+                        "Billy setup hotspot is active. Connect Billy to your home Wi-Fi to finish setup.",
+                        "setup"
+                    );
+                } else {
+                    setConnectionStatus(
+                        data.connected
+                            ? `Connected to ${data.ssid || "Wi-Fi"}`
+                            : "Not connected",
+                        Boolean(data.connected)
+                    );
+                }
+                if (shouldAutoOpenEditor()) {
+                    forceOnboardingPanelOpen();
+                }
+                if (shouldAutoOpenEditor()) {
+                    setEditFieldsVisible(true);
+                } else if (legacyHotspotOnboarding) {
+                    setEditFieldsVisible(false);
+                } else {
+                    setEditFieldsVisible(!data.connected);
+                }
+                const countryValue = String(data.country || countrySelect.value || "US").trim().toUpperCase();
+                ensureSelectHasValue(countrySelect, countryValue, "US");
+            } catch (error) {
+                setConnectionStatus(String(error), false);
+                setEditFieldsVisible(shouldAutoOpenEditor() || !legacyHotspotOnboarding);
+            }
+        };
+
+        const loadNetworks = async () => {
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+                showNotification("Use billy.local:8080 for legacy Wi-Fi setup", "warning", 4000);
+                return;
+            }
+            setBusy(scanBtn, true);
+            showError("");
+            try {
+                const response = await fetch("/wifi/networks");
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Wi-Fi scan failed");
+                }
+                const networks = Array.isArray(data.networks) ? data.networks : [];
+                networkSelect.innerHTML = "";
+                if (!networks.length) {
+                    networkSelect.innerHTML = '<option value="">Choose a network</option>';
+                    const manualOption = document.createElement("option");
+                    manualOption.value = MANUAL_SSID_VALUE;
+                    manualOption.textContent = "Enter SSID manually";
+                    networkSelect.appendChild(manualOption);
+                    syncManualSsidVisibility();
+                    return;
+                }
+                networkSelect.innerHTML = '<option value="">Choose a network</option>';
+                networks.forEach((network) => {
+                    const option = document.createElement("option");
+                    option.value = network.ssid || "";
+                    const security = network.security && network.security !== "open"
+                        ? `, ${network.security}`
+                        : "";
+                    const active = network.active ? " connected" : "";
+                    option.textContent = `${network.ssid} (${network.signal}%)${security}${active}`;
+                    networkSelect.appendChild(option);
+                });
+                const manualOption = document.createElement("option");
+                manualOption.value = MANUAL_SSID_VALUE;
+                manualOption.textContent = "Enter SSID manually";
+                networkSelect.appendChild(manualOption);
+                syncManualSsidVisibility();
+            } catch (error) {
+                showError(error.message || String(error));
+            } finally {
+                setBusy(scanBtn, false);
+            }
+        };
+
+        networkSelect.addEventListener("change", () => {
+            syncManualSsidVisibility();
+            invalidateSuccessfulTest();
+        });
+
+        [ssidInput, passwordInput, countrySelect].forEach((element) => {
+            element.addEventListener("input", invalidateSuccessfulTest);
+            element.addEventListener("change", invalidateSuccessfulTest);
+        });
+
+        editToggleBtn.addEventListener("click", () => {
+            setEditFieldsVisible(true);
+        });
+
+        cancelBtn.addEventListener("click", () => {
+            setEditFieldsVisible(false);
+        });
+
+        scanBtn.addEventListener("click", loadNetworks);
+
+        saveBtn.addEventListener("click", async () => {
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+                showNotification("Use billy.local:8080 for legacy Wi-Fi setup", "warning", 4000);
+                return;
+            }
+            const ssid = ssidInput.value.trim();
+            const password = passwordInput.value;
+            const country = countrySelect.value;
+            if (!ssid) {
+                showNotification("Enter a network name first", "warning", 2500);
+                return;
+            }
+
+            setBusy(saveBtn, true);
+            showError("");
+            if (onboardingActive && unifiedConfigured) {
+                showTestResult(`Trying to connect Billy to ${ssid}. If it fails, setup mode will come back automatically.`);
+            }
+
+            try {
+                const response = await fetch("/wifi/save", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ssid, password, country}),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.error || "Failed to save Wi-Fi");
+                }
+                showTestResult(`Saved Wi-Fi for ${ssid}. Billy will use this network after reboot too.`);
+                showNotification("Wi-Fi saved", "success", 3000);
+                savedFingerprint = currentFingerprint();
+                syncSaveButton();
+                await loadStatus();
+                if (onboardingActive) {
+                    setTimeout(() => {
+                        window.location.href = `http://${window.location.hostname}:${window.location.port || 80}/`;
+                    }, 2500);
+                }
+            } catch (error) {
+                showError(error.message || String(error));
+                showNotification(error.message || String(error), "error", 4000);
+            } finally {
+                setBusy(saveBtn, false);
+            }
+        });
+
+        applyOnboardingLock();
+        forceOnboardingPanelOpen();
+        syncSectionVisibility();
+        syncManualSsidVisibility();
+        syncSaveButton();
+        setEditFieldsVisible(shouldAutoOpenEditor());
+        loadStatus();
+    };
+
     return {
         handleSettingsSave,
         populateDropdowns,
@@ -1058,6 +1447,8 @@ const SettingsForm = (() => {
         bindEnvEditorCard,
         bindNewsSources,
         bindWakeWordKeywordUpload,
+        bindWiFiSection,
+        bindApiProviderFields,
     };
 })();
 

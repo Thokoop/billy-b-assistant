@@ -155,9 +155,10 @@ def get_tool_instructions(model: str | None = None) -> str:
 
 # === XAI Config ===
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+XAI_MODEL = os.getenv("XAI_MODEL", "grok-voice-latest").strip()
 
 # === Provider Config ===
-REALTIME_AI_PROVIDER = os.getenv("REALTIME_AI_PROVIDER", None)
+REALTIME_AI_PROVIDER = os.getenv("REALTIME_AI_PROVIDER", "openai").strip().lower()
 
 # === Modes ===
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -251,6 +252,10 @@ FORCE_PASS_CHANGE = os.getenv("FORCE_PASS_CHANGE", "false").lower() == "true"
 SHOW_RC_VERSIONS = os.getenv("SHOW_RC_VERSIONS", "False")
 FLAP_ON_BOOT = os.getenv("FLAP_ON_BOOT", "false").lower() == "true"
 MOCKFISH = os.getenv("MOCKFISH", "false").lower() == "true"
+WIFI_COUNTRY = (os.getenv("WIFI_COUNTRY", "US") or "").strip().upper() or "US"
+WIFI_ONBOARDING_MODE = os.getenv("WIFI_ONBOARDING_MODE", "legacy").strip().lower()
+if WIFI_ONBOARDING_MODE not in {"legacy", "unified"}:
+    WIFI_ONBOARDING_MODE = "legacy"
 
 # === News Digest Config ===
 NEWS_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NEWS_REQUEST_TIMEOUT_SECONDS", "6"))

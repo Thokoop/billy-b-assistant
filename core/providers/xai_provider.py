@@ -8,23 +8,33 @@ class XAIProvider(RealtimeAIProvider):
     def __init__(
         self,
         api_key: str,
+        model: str = "grok-voice-latest",
         voice: Optional[str] = None,
     ):
         self.api_key = api_key
-        if voice and voice in self.get_supported_voices():
-            self.voice = voice
-        else:
-            self.voice = self.default_voice
+        self.model = model.strip() or "grok-voice-latest"
+        self.voice = self._normalize_voice(voice) if voice else self.default_voice
 
     @property
     def default_voice(self) -> str:
-        return "Rex"
+        return "rex"
 
     def _get_websocket_uri(self) -> str:
-        return "wss://api.x.ai/v1/realtime"
+        uri = f"wss://api.x.ai/v1/realtime?model={self.model}"
+        if self.model in {"grok-voice-latest", "grok-voice-think-fast-1.0"}:
+            uri += "&reasoning.effort=none"
+        return uri
 
     def get_supported_voices(self) -> list[str]:
-        return ["Ara", "Rex", "Sal", "Eve", "Leo"]
+        return ["ara", "rex", "sal", "eve", "leo"]
+
+    def _normalize_voice(self, voice: Optional[str]) -> str:
+        candidate = str(voice or "").strip().lower()
+        return (
+            candidate
+            if candidate in self.get_supported_voices()
+            else self.default_voice
+        )
 
     def get_provider_name(self) -> str:
         return "xai"
@@ -36,8 +46,7 @@ class XAIProvider(RealtimeAIProvider):
         instructions: Optional[str] = None,
         **kwargs,
     ) -> bytes:
-        if voice is None:
-            voice = self.default_voice
+        voice = self.default_voice if voice is None else self._normalize_voice(voice)
 
         # Reserve kwargs for future use
         _ = kwargs
@@ -102,29 +111,60 @@ class XAIProvider(RealtimeAIProvider):
             "Authorization": f"Bearer {self.api_key}",
         }
 
+    def _normalize_tools(self, tools: list[dict]) -> list[dict]:
+        """Convert mixed/OpenAI-style tool shapes into xAI Voice Agent tool schema."""
+        normalized_tools: list[dict] = []
+        for tool in tools or []:
+            if not isinstance(tool, dict):
+                continue
+
+            tool_type = tool.get("type")
+            if tool_type != "function":
+                normalized_tools.append(tool)
+                continue
+
+            function_spec = (
+                tool.get("function") if isinstance(tool.get("function"), dict) else tool
+            )
+            name = function_spec.get("name")
+            if not name:
+                continue
+
+            normalized_tool = {
+                "type": "function",
+                "name": name,
+                "description": function_spec.get("description", ""),
+                "parameters": function_spec.get(
+                    "parameters",
+                    {"type": "object", "properties": {}, "additionalProperties": False},
+                ),
+            }
+            normalized_tools.append(normalized_tool)
+
+        return normalized_tools
+
     def _get_initial_session_config(
         self, instructions: str, tools: list[dict], **kwargs
     ) -> dict[str, Any]:
-        server_vad_params = kwargs.get("server_vad_params", {})
-        text_only_mode = kwargs.get("text_only_mode", False)
+        server_vad_params = dict(kwargs.get("server_vad_params", {}))
+        text_only_mode = bool(kwargs.get("text_only_mode", False))
         requested_voice = kwargs.get("voice", self.default_voice)
-        # Validate voice is supported, otherwise use default
-        voice = (
-            requested_voice
-            if requested_voice in self.get_supported_voices()
-            else self.default_voice
-        )
-        interrupt_response = bool(kwargs.get("interrupt_response", False))
+        voice = self._normalize_voice(requested_voice)
+
+        turn_detection = {"type": "server_vad"}
+        for key in (
+            "threshold",
+            "silence_duration_ms",
+            "prefix_padding_ms",
+            "idle_timeout_ms",
+        ):
+            if key in server_vad_params:
+                turn_detection[key] = server_vad_params[key]
 
         session_config = {
             "voice": voice,
             "instructions": instructions,
-            "turn_detection": {
-                "type": "server_vad",
-                **server_vad_params,
-                "create_response": True,
-                "interrupt_response": interrupt_response,
-            },
+            "turn_detection": turn_detection,
             "audio": {
                 "input": {"format": {"type": "audio/pcm", "rate": 24000}},
                 "output": {"format": {"type": "audio/pcm", "rate": 24000}}
@@ -134,7 +174,7 @@ class XAIProvider(RealtimeAIProvider):
         }
 
         if tools:
-            session_config["tools"] = tools
+            session_config["tools"] = self._normalize_tools(tools)
 
         return {
             "type": "session.update",
@@ -154,13 +194,5 @@ class XAIProvider(RealtimeAIProvider):
         await ws.send(json.dumps(payload))
 
     def get_provider_tools(self) -> list[dict]:
-        # XAI server-side tools
-        return [
-            {
-                "type": "web_search",
-            },
-            {
-                "type": "x_search",
-                "allowed_x_handles": ["elonmusk", "xai"],
-            },
-        ]
+        # Keep xAI provider-side tool payload empty until the voice-agent flow is stable.
+        return []
