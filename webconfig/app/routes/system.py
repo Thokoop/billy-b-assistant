@@ -83,6 +83,8 @@ CONFIG_KEYS = [
     "WAKE_WORD_PORCUPINE_SENSITIVITY",
     "WAKE_WORD_OPENWAKEWORD_MODEL_PATH",
     "WAKE_WORD_OPENWAKEWORD_THRESHOLD",
+    "STATUS_LED_ENABLED",
+    "STATUS_LED_BRIGHTNESS",
     "WIFI_COUNTRY",
     "WIFI_ONBOARDING_MODE",
 ]
@@ -1017,7 +1019,7 @@ def simulate_update():
             stderr=subprocess.STDOUT,
             text=True,
         )
-        logger.info(f"📦 Simulated update pip output:\n{output}")
+        logger.info(f"📦 Reinstall current version pip output:\n{output}")
 
         actual_current = get_current_version()
         save_versions(actual_current, latest)
@@ -1042,7 +1044,7 @@ def simulate_update():
 
         return jsonify({
             "status": "restarting",
-            "message": "Simulated update complete. Restarting services...",
+            "message": "Reinstall complete. Restarting services...",
             "version": actual_current,
         })
     except subprocess.CalledProcessError as e:
@@ -1077,6 +1079,12 @@ def save():
                 except (TypeError, ValueError):
                     parsed = 1
                 value = str(max(0, min(5, parsed)))
+            elif key == "STATUS_LED_BRIGHTNESS":
+                try:
+                    parsed = float(str(value).strip())
+                except (TypeError, ValueError):
+                    parsed = 0.2
+                value = str(max(0.0, min(1.0, parsed)))
             old_value = str(existing_env.get(key, ""))
             new_value = str(value)
             set_key(ENV_PATH, key, value, quote_mode='never')

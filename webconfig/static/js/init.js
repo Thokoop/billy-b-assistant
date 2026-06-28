@@ -55,6 +55,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     SettingsForm.saveDropdownSelections();
     SettingsForm.populateDropdowns(cfg);
     SettingsForm.initMouthArticulationSlider();
+    SettingsForm.initStatusLedBrightnessSlider();
     SettingsForm.bindFactoryReset();
     SettingsForm.bindEnvEditorCard();
     SettingsForm.bindNewsSources();

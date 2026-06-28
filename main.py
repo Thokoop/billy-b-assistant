@@ -43,6 +43,11 @@ from core.audio import playback_queue
 from core.logger import reload_log_level
 from core.movements import start_motor_watchdog
 from core.mqtt import start_mqtt, stop_mqtt
+from core.status_led import (
+    cleanup_status_led,
+    initialize_status_led,
+    set_status_led_state,
+)
 
 
 current_level = reload_log_level()
@@ -51,11 +56,13 @@ print(f"🔧 Log level set to: {current_level.name}")
 
 def signal_handler(sig, frame):
     logger.info("Exiting cleanly (signal received).", "👋")
+    set_status_led_state("stopping")
     core.button.stop_background_services()
     playback_queue.put(None)
     from core.movements import cleanup_gpio
 
     cleanup_gpio()
+    cleanup_status_led()
     stop_mqtt()
     sys.exit(0)
 
@@ -63,6 +70,8 @@ def signal_handler(sig, frame):
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    initialize_status_led()
+    set_status_led_state("starting")
 
     # Load default user profile BEFORE starting button loop
     # This ensures the persona manager is set to the correct persona before any sessions start
@@ -81,9 +90,11 @@ if __name__ == "__main__":
     except Exception as e:
         print("❌ Unhandled exception occurred:", e)
         traceback.print_exc()
+        set_status_led_state("error")
         core.button.stop_background_services()
         from core.movements import cleanup_gpio
 
         cleanup_gpio()
+        cleanup_status_led()
         stop_mqtt()
         sys.exit(1)

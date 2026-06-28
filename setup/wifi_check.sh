@@ -97,14 +97,19 @@ if nmcli -t -f NAME,TYPE,DEVICE connection show --active 2>/dev/null | grep -qE 
     has_active_wifi=1
 fi
 
+has_internet=0
+if [ "$FORCE_OFFLINE" -eq 0 ] && ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
+    has_internet=1
+fi
+
 should_start_onboarding=0
 if [ "$WIFI_ONBOARDING_MODE" = "unified" ]; then
-    if [ "$has_active_wifi" -eq 0 ]; then
+    if [ "$has_active_wifi" -eq 0 ] || [ "$has_internet" -eq 0 ]; then
         should_start_onboarding=1
     fi
 else
     # Legacy behavior: treat missing internet access as "offline"
-    if ! [ "$FORCE_OFFLINE" -eq 0 ] || ! ping -c 1 -W 3 8.8.8.8 &> /dev/null; then
+    if [ "$has_internet" -eq 0 ]; then
         should_start_onboarding=1
     fi
 fi

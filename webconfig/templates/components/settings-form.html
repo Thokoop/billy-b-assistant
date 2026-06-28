@@ -19,49 +19,6 @@
             </h3>
 
             <div id="wifi-unified-fields" class="space-y-4">
-                <div>
-                    <label for="WIFI_COUNTRY" class="block font-semibold text-sm text-slate-300">
-                        Wi-Fi country
-                    </label>
-                    <select id="WIFI_COUNTRY" name="WIFI_COUNTRY"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        <option value="AE" {% if config.get('WIFI_COUNTRY', 'US') == 'AE' %}selected{% endif %}>United Arab Emirates (AE)</option>
-                        <option value="AU" {% if config.get('WIFI_COUNTRY', 'US') == 'AU' %}selected{% endif %}>Australia (AU)</option>
-                        <option value="AT" {% if config.get('WIFI_COUNTRY', 'US') == 'AT' %}selected{% endif %}>Austria (AT)</option>
-                        <option value="BE" {% if config.get('WIFI_COUNTRY', 'US') == 'BE' %}selected{% endif %}>Belgium (BE)</option>
-                        <option value="BR" {% if config.get('WIFI_COUNTRY', 'US') == 'BR' %}selected{% endif %}>Brazil (BR)</option>
-                        <option value="CA" {% if config.get('WIFI_COUNTRY', 'US') == 'CA' %}selected{% endif %}>Canada (CA)</option>
-                        <option value="CH" {% if config.get('WIFI_COUNTRY', 'US') == 'CH' %}selected{% endif %}>Switzerland (CH)</option>
-                        <option value="CN" {% if config.get('WIFI_COUNTRY', 'US') == 'CN' %}selected{% endif %}>China (CN)</option>
-                        <option value="CZ" {% if config.get('WIFI_COUNTRY', 'US') == 'CZ' %}selected{% endif %}>Czech Republic (CZ)</option>
-                        <option value="DE" {% if config.get('WIFI_COUNTRY', 'US') == 'DE' %}selected{% endif %}>Germany (DE)</option>
-                        <option value="DK" {% if config.get('WIFI_COUNTRY', 'US') == 'DK' %}selected{% endif %}>Denmark (DK)</option>
-                        <option value="ES" {% if config.get('WIFI_COUNTRY', 'US') == 'ES' %}selected{% endif %}>Spain (ES)</option>
-                        <option value="FI" {% if config.get('WIFI_COUNTRY', 'US') == 'FI' %}selected{% endif %}>Finland (FI)</option>
-                        <option value="FR" {% if config.get('WIFI_COUNTRY', 'US') == 'FR' %}selected{% endif %}>France (FR)</option>
-                        <option value="GB" {% if config.get('WIFI_COUNTRY', 'US') == 'GB' %}selected{% endif %}>United Kingdom (GB)</option>
-                        <option value="HK" {% if config.get('WIFI_COUNTRY', 'US') == 'HK' %}selected{% endif %}>Hong Kong (HK)</option>
-                        <option value="IN" {% if config.get('WIFI_COUNTRY', 'US') == 'IN' %}selected{% endif %}>India (IN)</option>
-                        <option value="IE" {% if config.get('WIFI_COUNTRY', 'US') == 'IE' %}selected{% endif %}>Ireland (IE)</option>
-                        <option value="IT" {% if config.get('WIFI_COUNTRY', 'US') == 'IT' %}selected{% endif %}>Italy (IT)</option>
-                        <option value="JP" {% if config.get('WIFI_COUNTRY', 'US') == 'JP' %}selected{% endif %}>Japan (JP)</option>
-                        <option value="KR" {% if config.get('WIFI_COUNTRY', 'US') == 'KR' %}selected{% endif %}>South Korea (KR)</option>
-                        <option value="MX" {% if config.get('WIFI_COUNTRY', 'US') == 'MX' %}selected{% endif %}>Mexico (MX)</option>
-                        <option value="MY" {% if config.get('WIFI_COUNTRY', 'US') == 'MY' %}selected{% endif %}>Malaysia (MY)</option>
-                        <option value="NL" {% if config.get('WIFI_COUNTRY', 'US') == 'NL' %}selected{% endif %}>Netherlands (NL)</option>
-                        <option value="NO" {% if config.get('WIFI_COUNTRY', 'US') == 'NO' %}selected{% endif %}>Norway (NO)</option>
-                        <option value="NZ" {% if config.get('WIFI_COUNTRY', 'US') == 'NZ' %}selected{% endif %}>New Zealand (NZ)</option>
-                        <option value="PL" {% if config.get('WIFI_COUNTRY', 'US') == 'PL' %}selected{% endif %}>Poland (PL)</option>
-                        <option value="PT" {% if config.get('WIFI_COUNTRY', 'US') == 'PT' %}selected{% endif %}>Portugal (PT)</option>
-                        <option value="SE" {% if config.get('WIFI_COUNTRY', 'US') == 'SE' %}selected{% endif %}>Sweden (SE)</option>
-                        <option value="SG" {% if config.get('WIFI_COUNTRY', 'US') == 'SG' %}selected{% endif %}>Singapore (SG)</option>
-                        <option value="TH" {% if config.get('WIFI_COUNTRY', 'US') == 'TH' %}selected{% endif %}>Thailand (TH)</option>
-                        <option value="TW" {% if config.get('WIFI_COUNTRY', 'US') == 'TW' %}selected{% endif %}>Taiwan (TW)</option>
-                        <option value="US" {% if config.get('WIFI_COUNTRY', 'US') == 'US' %}selected{% endif %}>United States (US)</option>
-                        <option value="ZA" {% if config.get('WIFI_COUNTRY', 'US') == 'ZA' %}selected{% endif %}>South Africa (ZA)</option>
-                    </select>
-                </div>
-
                 <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
                     <div>
                         <div class="text-white font-medium text-sm">Wi-Fi connection</div>
@@ -72,68 +29,7 @@
                                 id="wifi-edit-toggle-btn"
                                 class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
                             <span class="material-icons text-sm">edit</span>
-                            <span>Edit connection</span>
-                        </button>
-                    </div>
-                </div>
-
-                <div id="wifi-edit-fields" class="space-y-4 hidden">
-                    <div>
-                        <div class="flex flex-wrap items-center justify-between gap-3">
-                            <label for="wifi-network-select" class="block font-semibold text-sm text-slate-300">
-                                Nearby networks
-                            </label>
-                            <button type="button"
-                                    id="wifi-scan-btn"
-                                    class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
-                                <span class="material-icons text-sm">wifi_find</span>
-                                Scan networks
-                            </button>
-                        </div>
-                        <select id="wifi-network-select"
-                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                            <option value="">Choose a network</option>
-                            <option value="__manual__">Enter SSID manually</option>
-                        </select>
-                    </div>
-
-                    <div class="grid gap-4 md:grid-cols-2">
-                        <div id="wifi-ssid-field" class="hidden">
-                            <label for="wifi-ssid" class="block font-semibold text-sm text-slate-300">Network name (SSID)</label>
-                            <input id="wifi-ssid"
-                                   type="text"
-                                   class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                                   placeholder="My Wi-Fi">
-                        </div>
-
-                        <div>
-                            <label for="wifi-password" class="block font-semibold text-sm text-slate-300">Password</label>
-                            <div class="relative">
-                                <input id="wifi-password"
-                                       type="password"
-                                       class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                                       placeholder="Wi-Fi password">
-                                <button type="button"
-                                        onclick="toggleInputVisibility('wifi-password', this)"
-                                        class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer">
-                                    <span class="material-icons" id="wifi-password_icon">visibility</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-3 mt-4 justify-between">
-                        <button type="button"
-                                id="wifi-cancel-btn"
-                                class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
-                            <span class="material-icons text-sm">close</span>
-                            Cancel
-                        </button>
-                        <button type="button"
-                                id="wifi-save-btn"
-                                class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
-                            <span id="wifi-save-icon" class="material-icons text-sm">save</span>
-                            <span id="wifi-save-label">Save Wi-Fi connection</span>
+                            <span id="wifi-edit-toggle-label">Wi-Fi setup</span>
                         </button>
                     </div>
                 </div>
@@ -171,10 +67,6 @@
                     </div>
                 </div>
 
-                <div id="wifi-test-result"
-                     class="hidden mt-3 p-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-sm text-emerald-100"></div>
-                <div id="wifi-error-result"
-                     class="hidden mt-3 p-3 rounded border border-rose-500/40 bg-rose-500/10 text-sm text-rose-100"></div>
             </div>
         </div>
 
@@ -686,6 +578,71 @@
             </div>
 
             <div class="mb-4">
+                <div class="relative">
+                    <div data-tooltip>
+                        Runs a short preview on the optional WS2812B status LED.<br>
+                        Raspberry Pi 5: wire WS2812B <code>DIN</code> to SPI MOSI <code>GPIO 10</code> (physical pin <code>19</code>).<br>
+                        For Pi 5 SPI mode, enable SPI first via <code>sudo raspi-config</code> → Interface Options → SPI → Enable,<br>
+                        or set <code>dtparam=spi=on</code> in <code>/boot/firmware/config.txt</code> and reboot.<br>
+                        Billy will be stopped during the test if the service is currently running.
+                    </div>
+
+                    <div class="grid gap-4 md:grid-cols-2 mt-1 mb-3">
+                        <div>
+                            <label for="STATUS_LED_ENABLED" class="block font-semibold text-sm text-slate-300 mb-1">
+                                Status LED enabled
+                            </label>
+                            <select id="STATUS_LED_ENABLED" name="STATUS_LED_ENABLED"
+                                    class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                <option value="false" {% if config.get('STATUS_LED_ENABLED', 'false') == 'false' %}selected{% endif %}>Disabled</option>
+                                <option value="true" {% if config.get('STATUS_LED_ENABLED', 'false') == 'true' %}selected{% endif %}>Enabled</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col justify-between">
+                            <label for="STATUS_LED_BRIGHTNESS" class="block font-semibold text-sm text-slate-300 mb-1">
+                                LED brightness
+                            </label>
+                            <div class="flex gap-2 items-center mt-1 grow">
+                                <div class="w-20 text-sm font-medium text-gray-200">
+                                    <span id="status-led-brightness-value">{{ ((config.get('STATUS_LED_BRIGHTNESS', '0.2')|float) * 100)|round|int }}%</span>
+                                </div>
+                                <label for="STATUS_LED_BRIGHTNESS" class="sr-only">LED brightness</label>
+                                <input id="STATUS_LED_BRIGHTNESS"
+                                       name="STATUS_LED_BRIGHTNESS"
+                                       type="range"
+                                       min="0"
+                                       max="1"
+                                       step="0.05"
+                                       value="{{ config.get('STATUS_LED_BRIGHTNESS', '0.2') }}"
+                                       class="hidden">
+                                <div
+                                        class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
+                                        id="status-led-brightness-bar"
+                                        style="user-select: none;"
+                                >
+                                    <div
+                                            class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
+                                            id="status-led-brightness-fill"
+                                            style="width: 20%;"
+                                            data-value="{{ config.get('STATUS_LED_BRIGHTNESS', '0.2') }}"
+                                    ></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap md:flex-nowrap items-center gap-3 mt-1">
+                        <button type="button" id="test-led-btn"
+                                class="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded flex gap-2 items-center cursor-pointer whitespace-nowrap">
+                            <span class="material-icons text-sm">lightbulb</span>
+                            Test LED
+                        </button>
+                        <span class="text-xs text-slate-400">Preview startup, listening, speaking, error, and rainbow modes.</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4">
                 <label for="RUN_MODE"
                        class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
                     Motor test
@@ -1186,7 +1143,7 @@
                 <div class="pt-2">
                     <button id="simulate-update-btn"
                             type="button"
-                            class="bg-cyan-500 hover:bg-cyan-400 text-zinc-900 text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer"
+                            class="text-cyan-400 hover:text-cyan-300 text-sm py-1 px-0 rounded flex gap-2 items-center cursor-pointer bg-transparent"
                             title="Reinstall dependencies for the current checked-out version">
                         <span class="material-icons align-middle">system_update_alt</span>
                         Reinstall current version

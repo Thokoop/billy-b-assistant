@@ -142,6 +142,7 @@ const SettingsForm = (() => {
             { id: 'CAMERA_HARDWARE', key: 'CAMERA_HARDWARE' },
             { id: 'BILLY_PINS_SELECT', key: 'BILLY_PINS' },
             { id: 'HA_LANG', key: 'HA_LANG' },
+            { id: 'STATUS_LED_ENABLED', key: 'STATUS_LED_ENABLED' },
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
             { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
             { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
@@ -192,7 +193,7 @@ const SettingsForm = (() => {
         // Save dropdown selections to localStorage when they change
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-            'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG',
+            'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY'
         ];
 
@@ -302,7 +303,7 @@ const SettingsForm = (() => {
                         // Update dropdowns with new values
                         const dropdowns = [
                             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-                            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
+                            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
                             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
                         ];
                         dropdowns.forEach(id => {
@@ -317,6 +318,10 @@ const SettingsForm = (() => {
                             }
                         });
                         await populateCameraHardwareDropdown(refreshData.config);
+                        const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
+                        if (ledBrightness && refreshData.config.STATUS_LED_BRIGHTNESS) {
+                            ledBrightness.value = refreshData.config.STATUS_LED_BRIGHTNESS;
+                        }
                         
                         // Refresh user profile panel if it exists
                         if (window.UserProfilePanel && window.UserProfilePanel.refreshUserProfile) {
@@ -540,10 +545,31 @@ const SettingsForm = (() => {
         setupSlider("mouth-articulation-bar", "mouth-articulation-fill", "MOUTH_ARTICULATION", 1, 10);
     };
 
-    function setupSlider(barId, fillId, inputId, min, max) {
+    const initStatusLedBrightnessSlider = () => {
+        setupSlider(
+            "status-led-brightness-bar",
+            "status-led-brightness-fill",
+            "STATUS_LED_BRIGHTNESS",
+            0,
+            1,
+            {
+                step: 0.05,
+                valueDisplayId: "status-led-brightness-value",
+                valueFormatter: (val) => `${Math.round(Number(val) * 100)}%`,
+            }
+        );
+    };
+
+    function setupSlider(barId, fillId, inputId, min, max, options = {}) {
         const bar = document.getElementById(barId);
         const fill = document.getElementById(fillId);
         const input = document.getElementById(inputId);
+        const step = Number(options.step ?? 1);
+        const valueDisplayId = options.valueDisplayId || "mouth-articulation-value";
+        const decimals = Number.isInteger(options.decimals) ? options.decimals : 0;
+        const valueFormatter = typeof options.valueFormatter === "function"
+            ? options.valueFormatter
+            : (val) => Number(val).toFixed(decimals);
 
         if (!bar || !fill || !input) return;
 
@@ -556,15 +582,17 @@ const SettingsForm = (() => {
             input.value = val;
             input.setAttribute('value', val);
             // Update the value display
-            const valueDisplay = document.getElementById("mouth-articulation-value");
+            const valueDisplay = document.getElementById(valueDisplayId);
             if (valueDisplay) {
-                valueDisplay.textContent = val;
+                valueDisplay.textContent = valueFormatter(val);
             }
         };
         const updateFromMouse = (e) => {
             const rect = bar.getBoundingClientRect();
             const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-            const val = Math.round(min + percent * (max - min));
+            const rawVal = min + percent * (max - min);
+            const steppedVal = Math.round(rawVal / step) * step;
+            const val = Math.min(max, Math.max(min, Number(steppedVal.toFixed(4))));
             input.value = val;
             // Ensure the input value is properly set for form submission
             input.setAttribute('value', val);
@@ -582,7 +610,7 @@ const SettingsForm = (() => {
         // Update dropdowns with new configuration values
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
+            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
         ];
         dropdowns.forEach(id => {
@@ -593,6 +621,10 @@ const SettingsForm = (() => {
             }
         });
         populateCameraHardwareDropdown(config);
+        const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
+        if (ledBrightness && config.STATUS_LED_BRIGHTNESS) {
+            ledBrightness.value = config.STATUS_LED_BRIGHTNESS;
+        }
     };
 
     const bindWakeWordKeywordUpload = () => {
@@ -1086,12 +1118,15 @@ const SettingsForm = (() => {
 
     const bindWiFiSection = () => {
         const form = document.getElementById("config-form");
+        const wifiModal = document.getElementById("wifi-setup-modal");
+        const wifiModalCloseBtn = document.getElementById("close-wifi-setup-modal");
+        const wifiModalDescription = document.getElementById("wifi-setup-modal-description");
         const scanBtn = document.getElementById("wifi-scan-btn");
         const saveBtn = document.getElementById("wifi-save-btn");
         const saveLabel = document.getElementById("wifi-save-label");
         const saveIcon = document.getElementById("wifi-save-icon");
         const editToggleBtn = document.getElementById("wifi-edit-toggle-btn");
-        const editFields = document.getElementById("wifi-edit-fields");
+        const editToggleLabel = document.getElementById("wifi-edit-toggle-label");
         const cancelBtn = document.getElementById("wifi-cancel-btn");
         const networkSelect = document.getElementById("wifi-network-select");
         const ssidInput = document.getElementById("wifi-ssid");
@@ -1100,12 +1135,11 @@ const SettingsForm = (() => {
         const countrySelect = document.getElementById("WIFI_COUNTRY");
         const unifiedFields = document.getElementById("wifi-unified-fields");
         const internetSection = document.getElementById("section-internet");
-        const settingsPanel = document.getElementById("settings-panel");
         const statusEl = document.getElementById("wifi-connection-status");
         const testResultEl = document.getElementById("wifi-test-result");
         const errorResultEl = document.getElementById("wifi-error-result");
         const banner = document.getElementById("wifi-onboarding-banner");
-        if (!form || !scanBtn || !saveBtn || !saveLabel || !saveIcon || !editToggleBtn || !editFields || !cancelBtn || !networkSelect || !ssidInput || !ssidField || !passwordInput || !countrySelect || !unifiedFields || !internetSection || !statusEl || !testResultEl || !errorResultEl) {
+        if (!form || !wifiModal || !wifiModalCloseBtn || !wifiModalDescription || !scanBtn || !saveBtn || !saveLabel || !saveIcon || !editToggleBtn || !editToggleLabel || !cancelBtn || !networkSelect || !ssidInput || !ssidField || !passwordInput || !countrySelect || !unifiedFields || !internetSection || !statusEl || !testResultEl || !errorResultEl) {
             return;
         }
 
@@ -1144,9 +1178,27 @@ const SettingsForm = (() => {
             }
         };
 
-        const setEditFieldsVisible = (visible) => {
-            editFields.classList.toggle("hidden", !visible);
-            editToggleBtn.classList.toggle("hidden", visible);
+        const openWifiModal = () => {
+            wifiModal.classList.remove("hidden");
+            editToggleBtn.classList.add("hidden");
+            document.documentElement.classList.add("overflow-hidden");
+            document.body.classList.add("overflow-hidden");
+        };
+
+        const closeWifiModal = () => {
+            wifiModal.classList.add("hidden");
+            document.documentElement.classList.remove("overflow-hidden");
+            document.body.classList.remove("overflow-hidden");
+            editToggleBtn.classList.remove("hidden");
+        };
+
+        const syncOnboardingUiState = () => {
+            const onboardingUi = shouldAutoOpenEditor();
+            cancelBtn.classList.toggle("hidden", onboardingUi);
+            editToggleLabel.textContent = onboardingUi ? "Wi-Fi setup" : "Edit connection";
+            wifiModalDescription.textContent = onboardingUi
+                ? "Connect Billy to your home Wi-Fi to finish setup. The rest of the settings unlock after Billy is online."
+                : "Choose your Wi-Fi network and save the connection for Billy.";
         };
 
         const invalidateSuccessfulTest = () => {
@@ -1239,36 +1291,14 @@ const SettingsForm = (() => {
             if (legacyHotspotOnboarding) {
                 showLegacyHotspotMessage();
             }
-            cancelBtn.classList.toggle("hidden", onboardingActive);
+            syncOnboardingUiState();
         };
 
         const shouldAutoOpenEditor = () => onboardingActive || hotspotActive;
 
-        const forceOnboardingPanelOpen = () => {
+        const forceOnboardingModalOpen = () => {
             if (!shouldAutoOpenEditor()) return;
-            if (window.UserProfilePanel && typeof window.UserProfilePanel.openSettingsModal === "function") {
-                window.UserProfilePanel.openSettingsModal();
-            } else if (settingsPanel) {
-                settingsPanel.classList.remove("hidden");
-            }
-            if (internetSection) {
-                localStorage.setItem(`collapse_${internetSection.id}`, "open");
-                internetSection.classList.remove("collapsed");
-                const header = internetSection.querySelector("h3");
-                if (header) {
-                    header.classList.add("mb-4");
-                    const chevron = header.querySelector(".material-icons:last-child");
-                    if (chevron && chevron.textContent === "expand_more") {
-                        chevron.classList.remove("rotate-0");
-                        chevron.classList.add("rotate-180");
-                    }
-                }
-                [...internetSection.children].forEach((child) => {
-                    if (child.tagName !== "H3") {
-                        child.classList.remove("hidden");
-                    }
-                });
-            }
+            openWifiModal();
         };
 
         const loadStatus = async () => {
@@ -1276,9 +1306,15 @@ const SettingsForm = (() => {
                 const response = await fetch("/wifi/status");
                 const data = await response.json();
                 if (!response.ok) {
-                    throw new Error(data.error || "Failed to load Wi-Fi status");
+                    setConnectionStatus(data.error || "Failed to load Wi-Fi status", false);
+                    syncOnboardingUiState();
+                    if (shouldAutoOpenEditor()) {
+                        forceOnboardingModalOpen();
+                    }
+                    return;
                 }
                 hotspotActive = Boolean(data.hotspot_active);
+                syncOnboardingUiState();
                 if (hotspotActive) {
                     setConnectionStatus(
                         "Billy setup hotspot is active. Connect Billy to your home Wi-Fi to finish setup.",
@@ -1293,20 +1329,20 @@ const SettingsForm = (() => {
                     );
                 }
                 if (shouldAutoOpenEditor()) {
-                    forceOnboardingPanelOpen();
-                }
-                if (shouldAutoOpenEditor()) {
-                    setEditFieldsVisible(true);
-                } else if (legacyHotspotOnboarding) {
-                    setEditFieldsVisible(false);
+                    forceOnboardingModalOpen();
+                } else if (wifiModal.classList.contains("hidden")) {
+                    editToggleBtn.classList.remove("hidden");
                 } else {
-                    setEditFieldsVisible(!data.connected);
+                    editToggleBtn.classList.add("hidden");
                 }
                 const countryValue = String(data.country || countrySelect.value || "US").trim().toUpperCase();
                 ensureSelectHasValue(countrySelect, countryValue, "US");
             } catch (error) {
                 setConnectionStatus(String(error), false);
-                setEditFieldsVisible(shouldAutoOpenEditor() || !legacyHotspotOnboarding);
+                syncOnboardingUiState();
+                if (shouldAutoOpenEditor()) {
+                    forceOnboardingModalOpen();
+                }
             }
         };
 
@@ -1322,7 +1358,8 @@ const SettingsForm = (() => {
                 const response = await fetch("/wifi/networks");
                 const data = await response.json();
                 if (!response.ok) {
-                    throw new Error(data.error || "Wi-Fi scan failed");
+                    showError(data.error || "Wi-Fi scan failed");
+                    return;
                 }
                 const networks = Array.isArray(data.networks) ? data.networks : [];
                 networkSelect.innerHTML = "";
@@ -1369,11 +1406,17 @@ const SettingsForm = (() => {
         });
 
         editToggleBtn.addEventListener("click", () => {
-            setEditFieldsVisible(true);
+            showError("");
+            showTestResult("");
+            openWifiModal();
         });
 
-        cancelBtn.addEventListener("click", () => {
-            setEditFieldsVisible(false);
+        wifiModalCloseBtn.addEventListener("click", closeWifiModal);
+        cancelBtn.addEventListener("click", closeWifiModal);
+        wifiModal.addEventListener("click", (event) => {
+            if (event.target === wifiModal) {
+                closeWifiModal();
+            }
         });
 
         scanBtn.addEventListener("click", loadNetworks);
@@ -1406,13 +1449,19 @@ const SettingsForm = (() => {
                 });
                 const data = await response.json();
                 if (!response.ok || !data.ok) {
-                    throw new Error(data.error || "Failed to save Wi-Fi");
+                    const errorMessage = data.error || "Failed to save Wi-Fi";
+                    showError(errorMessage);
+                    showNotification(errorMessage, "error", 4000);
+                    return;
                 }
                 showTestResult(`Saved Wi-Fi for ${ssid}. Billy will use this network after reboot too.`);
                 showNotification("Wi-Fi saved", "success", 3000);
                 savedFingerprint = currentFingerprint();
                 syncSaveButton();
                 await loadStatus();
+                if (!shouldAutoOpenEditor()) {
+                    closeWifiModal();
+                }
                 if (onboardingActive) {
                     setTimeout(() => {
                         window.location.href = `http://${window.location.hostname}:${window.location.port || 80}/`;
@@ -1427,11 +1476,12 @@ const SettingsForm = (() => {
         });
 
         applyOnboardingLock();
-        forceOnboardingPanelOpen();
+        forceOnboardingModalOpen();
         syncSectionVisibility();
         syncManualSsidVisibility();
         syncSaveButton();
-        setEditFieldsVisible(shouldAutoOpenEditor());
+        syncOnboardingUiState();
+        editToggleBtn.classList.toggle("hidden", shouldAutoOpenEditor());
         loadStatus();
     };
 
@@ -1440,6 +1490,7 @@ const SettingsForm = (() => {
         populateDropdowns,
         saveDropdownSelections,
         initMouthArticulationSlider,
+        initStatusLedBrightnessSlider,
         refreshFromConfig,
         populateCameraHardwareDropdown,
         bindCameraPreview,

@@ -11,6 +11,7 @@ import paho.mqtt.client as mqtt
 from .config import CHUNK_MS, MQTT_HOST, MQTT_PASSWORD, MQTT_PORT, MQTT_USERNAME
 from .logger import logger
 from .movements import stop_all_motors
+from .status_led import set_status_led_state
 
 
 mqtt_client: mqtt.Client | None = None
@@ -71,6 +72,9 @@ def stop_mqtt():
 
 def mqtt_publish(topic, payload, retain=True, retry=True):
     global mqtt_client, mqtt_connected
+
+    if topic == "billy/state":
+        set_status_led_state(str(payload))
 
     if mqtt_available():
         if not mqtt_client or not mqtt_connected:

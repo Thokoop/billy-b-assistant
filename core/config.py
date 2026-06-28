@@ -228,6 +228,13 @@ SERVER_VAD_PARAMS = {
 
 # === GPIO Config ===
 BUTTON_PIN = 27 if BILLY_PINS == "legacy" else 24  # legacy=pin 13, new=pin 18
+STATUS_LED_ENABLED = os.getenv("STATUS_LED_ENABLED", "false").lower() == "true"
+STATUS_LED_BACKEND = os.getenv("STATUS_LED_BACKEND", "auto").strip().lower()
+STATUS_LED_PIN = int(os.getenv("STATUS_LED_PIN", "18"))
+STATUS_LED_COUNT = max(1, int(os.getenv("STATUS_LED_COUNT", "1")))
+STATUS_LED_BRIGHTNESS = float(os.getenv("STATUS_LED_BRIGHTNESS", "0.2"))
+STATUS_LED_DMA_CHANNEL = int(os.getenv("STATUS_LED_DMA_CHANNEL", "10"))
+STATUS_LED_PWM_CHANNEL = int(os.getenv("STATUS_LED_PWM_CHANNEL", "0"))
 
 # === MQTT Config ===
 MQTT_HOST = os.getenv("MQTT_HOST", "")

@@ -7,6 +7,7 @@ from concurrent.futures import CancelledError
 from . import audio, config
 from .logger import logger
 from .movements import move_head, move_tail
+from .status_led import get_status_led_state, set_status_led_state
 
 
 try:
@@ -338,6 +339,7 @@ def trigger_session_start(source: str = "button"):
         # Clear the playback done event so session waits for wake-up sound
         audio.playback_done_event.clear()
         logger.info("🔧 playback_done_event cleared (waiting for wake-up sound)", "🔧")
+        set_status_led_state("starting")
         threading.Thread(target=audio.play_random_wake_up_clip, daemon=True).start()
         is_active = True
         interrupt_event = threading.Event()  # Fresh event for each session
@@ -355,6 +357,8 @@ def trigger_session_start(source: str = "button"):
                 move_head("off")
                 is_active = False
                 session_instance = None  # Clear reference
+                if get_status_led_state() not in {"error", "stopping", "off"}:
+                    set_status_led_state("idle")
                 # Give ALSA a short moment to release the capture handle.
                 time.sleep(0.3)
                 _resume_wakeword_listener()
@@ -459,6 +463,7 @@ def start_loop():
         "Ready. Press button to start a voice session. Press Ctrl+C to quit.", "🎦"
     )
     logger.info("Waiting for button press...", "🕐")
+    set_status_led_state("idle")
     if config.MOCKFISH:
         logger.info("Mockfish mode: use Enter to simulate button press", "🐟")
         try:
