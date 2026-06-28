@@ -1,16 +1,103 @@
 <!-- Settings Form -->
 <section>
-    <form id="config-form" class="p-6">
+    <form id="config-form"
+          class="p-6"
+          data-wifi-onboarding-active="{{ 'true' if WIFI_ONBOARDING_ACTIVE else 'false' }}"
+          data-wifi-onboarding-mode="{{ config.get('WIFI_ONBOARDING_MODE', 'legacy') }}">
+        <div id="wifi-onboarding-banner"
+             class="hidden bg-emerald-500/10 border border-emerald-500/40 text-emerald-100 rounded-lg p-4 mb-4">
+            Billy is in Wi-Fi setup mode. Finish Internet setup first, then the rest of the settings will unlock.
+        </div>
+
+        <!-- Internet Settings -->
+        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+             id="section-internet">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">wifi</span>
+                Internet Settings
+                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+            </h3>
+
+            <div id="wifi-unified-fields" class="space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <div>
+                        <div class="text-white font-medium text-sm">Wi-Fi connection</div>
+                        <div id="wifi-connection-status" class="text-sm text-zinc-300 mt-1">Checking connection...</div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button type="button"
+                                id="wifi-edit-toggle-btn"
+                                class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
+                            <span class="material-icons text-sm">edit</span>
+                            <span id="wifi-edit-toggle-label">Wi-Fi setup</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-end gap-4">
+                    <div class="flex-1 min-w-0">
+                        <label for="hostname" class="block font-semibold text-sm text-slate-300">Device
+                            Hostname</label>
+                        <div class="flex items-center mt-1 gap-2">
+                            <input
+                                    id="hostname"
+                                    name="hostname"
+                                    type="text"
+                                    data-original=""
+                                    data-default="raspberrypi"
+                                    class="w-full p-3  bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                    value=""
+                            >
+                            <span>.local</span>
+                        </div>
+                    </div>
+                    <div class="w-40 shrink-0">
+                        <label for="FLASK_PORT" class="block font-semibold text-sm text-slate-300">Web UI
+                            Port</label>
+                        <input
+                                id="FLASK_PORT"
+                                name="FLASK_PORT"
+                                type="number"
+                                min="1"
+                                max="65535"
+                                data-default="80"
+                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                value="{{ config.get('FLASK_PORT', '80') }}"
+                        >
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
         <!-- Software Settings -->
         <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-software">
             <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">settings</span>
-                General Settings
+                API Settings
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
             </h3>
 
-            <div class="mb-4 relative">
+            <div class="mb-4">
+                <label for="REALTIME_AI_PROVIDER" class="block font-semibold text-sm text-slate-300">
+                    Realtime API Provider
+                </label>
+                <select id="REALTIME_AI_PROVIDER" name="REALTIME_AI_PROVIDER"
+                        class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                    <option value="openai" {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'openai' %}selected{% endif %}>
+                        OpenAI
+                    </option>
+                    <option value="xai" {% if config.get('REALTIME_AI_PROVIDER') == 'xai' %}selected{% endif %}>
+                        xAI
+                    </option>
+                </select>
+            </div>
+
+            <div class="mb-4 relative api-provider-only {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}"
+                 data-api-provider="openai"
+                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}
+                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}style="display:none"{% endif %}>
                 <label for="OPENAI_API_KEY"
                        class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
                     OpenAI API Key
@@ -47,7 +134,78 @@
                 </div>
             </div>
 
-            <div class="block mb-4">
+            <div class="mb-4 relative api-provider-only {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}"
+                 data-api-provider="xai"
+                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}
+                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}style="display:none"{% endif %}>
+                <label for="XAI_API_KEY"
+                       class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                    xAI API Key
+                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                          onclick="toggleTooltip(this)">
+                        help_outline
+                    </span>
+                </label>
+                <div class="relative">
+                    <div data-tooltip>
+                        Enter your xAI API key for realtime access when using the xAI provider.
+                    </div>
+                    <input
+                            type="password"
+                            class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            id="XAI_API_KEY"
+                            name="XAI_API_KEY"
+                            value="{{ config.get('XAI_API_KEY', '') }}"
+                            placeholder="xai-..."
+                    >
+                    <button
+                            type="button"
+                            onclick="toggleInputVisibility('XAI_API_KEY', this)"
+                            class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
+                    >
+                        <span class="material-icons" id="XAI_API_KEY_icon">visibility</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="block mb-4 api-provider-only {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}"
+                 data-api-provider="xai"
+                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}
+                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}style="display:none"{% endif %}>
+                <label for="XAI_MODEL" class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                    xAI Realtime API Model
+                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                          onclick="toggleTooltip(this)">
+                        help_outline
+                    </span>
+                </label>
+                <div class="relative">
+                    <div data-tooltip>
+                        Select the xAI voice model Billy should use for realtime conversations.
+                    </div>
+
+                    <select id="XAI_MODEL" name="XAI_MODEL"
+                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        <option value="grok-voice-latest"
+                                {% if config.get('XAI_MODEL', 'grok-voice-latest') == 'grok-voice-latest' %}selected{% endif %}>
+                            grok-voice-latest
+                        </option>
+                        <option value="grok-voice-think-fast-1.0"
+                                {% if config.get('XAI_MODEL') == 'grok-voice-think-fast-1.0' %}selected{% endif %}>
+                            grok-voice-think-fast-1.0
+                        </option>
+                        <option value="grok-voice-fast-1.0"
+                                {% if config.get('XAI_MODEL') == 'grok-voice-fast-1.0' %}selected{% endif %}>
+                            grok-voice-fast-1.0
+                        </option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="block mb-4 api-provider-only {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}"
+                 data-api-provider="openai"
+                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}
+                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}style="display:none"{% endif %}>
                 <label for="OPENAI_MODEL" class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
                     OpenAI Realtime API Model
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
@@ -104,39 +262,6 @@
                         gpt-4o-realtime-preview (deprecated)
                         </option>
                     </select>
-                </div>
-            </div>
-
-            <div class="flex gap-2">
-                <div class="mb-4 grow flex flex-col justify-between">
-                    <label for="hostname" class="block font-semibold text-sm text-slate-300">Device
-                        Hostname</label>
-                    <div class="flex items-center mt-1 gap-2">
-                        <input
-                                id="hostname"
-                                name="hostname"
-                                type="text"
-                                data-original=""
-                                data-default="raspberrypi"
-                                class="w-full p-3  bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                                value=""
-                        >
-                        <span>.local:</span>
-                    </div>
-                </div>
-                <div class="mb-4">
-                    <label for="FLASK_PORT" class="block font-semibold text-sm text-slate-300">Web UI
-                        Port</label>
-                    <input
-                            id="FLASK_PORT"
-                            name="FLASK_PORT"
-                            type="number"
-                            min="1"
-                            max="65535"
-                            data-default="80"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                            value="{{ config.get('FLASK_PORT', '80') }}"
-                    >
                 </div>
             </div>
 
@@ -448,6 +573,71 @@
                              alt="Camera preview"
                              class="hidden w-full rounded border border-zinc-700 shadow-lg"
                         />
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <div class="relative">
+                    <div data-tooltip>
+                        Runs a short preview on the optional WS2812B status LED.<br>
+                        Raspberry Pi 5: wire WS2812B <code>DIN</code> to SPI MOSI <code>GPIO 10</code> (physical pin <code>19</code>).<br>
+                        For Pi 5 SPI mode, enable SPI first via <code>sudo raspi-config</code> → Interface Options → SPI → Enable,<br>
+                        or set <code>dtparam=spi=on</code> in <code>/boot/firmware/config.txt</code> and reboot.<br>
+                        Billy will be stopped during the test if the service is currently running.
+                    </div>
+
+                    <div class="grid gap-4 md:grid-cols-2 mt-1 mb-3">
+                        <div>
+                            <label for="STATUS_LED_ENABLED" class="block font-semibold text-sm text-slate-300 mb-1">
+                                Status LED enabled
+                            </label>
+                            <select id="STATUS_LED_ENABLED" name="STATUS_LED_ENABLED"
+                                    class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                <option value="false" {% if config.get('STATUS_LED_ENABLED', 'false') == 'false' %}selected{% endif %}>Disabled</option>
+                                <option value="true" {% if config.get('STATUS_LED_ENABLED', 'false') == 'true' %}selected{% endif %}>Enabled</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col justify-between">
+                            <label for="STATUS_LED_BRIGHTNESS" class="block font-semibold text-sm text-slate-300 mb-1">
+                                LED brightness
+                            </label>
+                            <div class="flex gap-2 items-center mt-1 grow">
+                                <div class="w-20 text-sm font-medium text-gray-200">
+                                    <span id="status-led-brightness-value">{{ ((config.get('STATUS_LED_BRIGHTNESS', '0.2')|float) * 100)|round|int }}%</span>
+                                </div>
+                                <label for="STATUS_LED_BRIGHTNESS" class="sr-only">LED brightness</label>
+                                <input id="STATUS_LED_BRIGHTNESS"
+                                       name="STATUS_LED_BRIGHTNESS"
+                                       type="range"
+                                       min="0"
+                                       max="1"
+                                       step="0.05"
+                                       value="{{ config.get('STATUS_LED_BRIGHTNESS', '0.2') }}"
+                                       class="hidden">
+                                <div
+                                        class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
+                                        id="status-led-brightness-bar"
+                                        style="user-select: none;"
+                                >
+                                    <div
+                                            class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
+                                            id="status-led-brightness-fill"
+                                            style="width: 20%;"
+                                            data-value="{{ config.get('STATUS_LED_BRIGHTNESS', '0.2') }}"
+                                    ></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap md:flex-nowrap items-center gap-3 mt-1">
+                        <button type="button" id="test-led-btn"
+                                class="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded flex gap-2 items-center cursor-pointer whitespace-nowrap">
+                            <span class="material-icons text-sm">lightbulb</span>
+                            Test LED
+                        </button>
+                        <span class="text-xs text-slate-400">Preview startup, listening, speaking, error, and rainbow modes.</span>
                     </div>
                 </div>
             </div>
@@ -953,7 +1143,7 @@
                 <div class="pt-2">
                     <button id="simulate-update-btn"
                             type="button"
-                            class="bg-cyan-500 hover:bg-cyan-400 text-zinc-900 text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer"
+                            class="text-cyan-400 hover:text-cyan-300 text-sm py-1 px-0 rounded flex gap-2 items-center cursor-pointer bg-transparent"
                             title="Reinstall dependencies for the current checked-out version">
                         <span class="material-icons align-middle">system_update_alt</span>
                         Reinstall current version

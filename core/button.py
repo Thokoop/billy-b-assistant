@@ -7,6 +7,7 @@ from concurrent.futures import CancelledError
 from . import audio, config
 from .logger import logger
 from .movements import move_head, move_tail
+from .status_led import get_status_led_state, set_status_led_state
 
 
 try:
@@ -68,7 +69,9 @@ interrupt_event = threading.Event()
 session_instance: BillySession | None = None
 wakeword_listener = None
 last_button_time = 0
-button_debounce_delay = 0.5  # seconds debounce
+last_active_button_press_time = 0
+button_debounce_delay = 0.12  # seconds debounce against switch bounce
+button_double_press_window = 0.6  # second press in this window counts as double press
 _session_start_lock = threading.Lock()  # Lock to prevent concurrent session starts
 
 # Setup hardware button
@@ -157,25 +160,8 @@ def _resume_wakeword_listener():
         logger.warning(f"Failed to resume wake-word listener: {e}", "⚠️")
 
 
-def _handle_active_session_button_press():
+def _stop_active_session():
     global is_active, session_thread, session_instance
-
-    logger.info("Button pressed during active session.", "🔁")
-    if (
-        session_instance
-        and session_instance.loop
-        and session_instance.is_assistant_turn()
-    ):
-        try:
-            logger.info("Assistant is speaking. Handing turn back to user...", "🎙️")
-            future = asyncio.run_coroutine_threadsafe(
-                session_instance.interrupt_to_user_turn(), session_instance.loop
-            )
-            future.result(timeout=3.0)
-            logger.success("Turn handed back to user (mic open).")
-            return
-        except Exception as e:
-            logger.warning(f"Turn handoff failed, stopping session instead: {e}")
 
     interrupt_event.set()
     audio.stop_playback()
@@ -224,12 +210,41 @@ def _handle_active_session_button_press():
     is_active = False  # Ensure this is always set after stopping
 
 
+def _handle_active_session_button_press(force_stop: bool = False):
+    logger.info("Button pressed during active session.", "🔁")
+
+    if not force_stop and (
+        session_instance
+        and session_instance.loop
+        and session_instance.is_assistant_turn()
+    ):
+        try:
+            logger.info("Assistant is speaking. Handing turn back to user...", "🎙️")
+            future = asyncio.run_coroutine_threadsafe(
+                session_instance.interrupt_to_user_turn(), session_instance.loop
+            )
+            future.result(timeout=3.0)
+            logger.success("Turn handed back to user (mic open).")
+            return
+        except Exception as e:
+            logger.warning(f"Turn handoff failed, stopping session instead: {e}")
+
+    if force_stop:
+        logger.info("Double press detected. Ending session immediately.", "🛑")
+    else:
+        logger.info("Stopping active session...", "🛑")
+
+    _stop_active_session()
+
+
 def trigger_session_start(source: str = "button"):
     global is_active, session_thread, interrupt_event, session_instance
 
     if is_active:
         if source == "button":
             _handle_active_session_button_press()
+        elif source == "button-double":
+            _handle_active_session_button_press(force_stop=True)
         else:
             logger.info(
                 f"Ignoring {source} trigger while session is already active.", "🔕"
@@ -324,6 +339,7 @@ def trigger_session_start(source: str = "button"):
         # Clear the playback done event so session waits for wake-up sound
         audio.playback_done_event.clear()
         logger.info("🔧 playback_done_event cleared (waiting for wake-up sound)", "🔧")
+        set_status_led_state("starting")
         threading.Thread(target=audio.play_random_wake_up_clip, daemon=True).start()
         is_active = True
         interrupt_event = threading.Event()  # Fresh event for each session
@@ -341,6 +357,8 @@ def trigger_session_start(source: str = "button"):
                 move_head("off")
                 is_active = False
                 session_instance = None  # Clear reference
+                if get_status_led_state() not in {"error", "stopping", "off"}:
+                    set_status_led_state("idle")
                 # Give ALSA a short moment to release the capture handle.
                 time.sleep(0.3)
                 _resume_wakeword_listener()
@@ -366,7 +384,7 @@ def on_wake_word():
 
 
 def on_button():
-    global last_button_time
+    global last_button_time, last_active_button_press_time
 
     now = time.time()
     if now - last_button_time < button_debounce_delay:
@@ -375,6 +393,17 @@ def on_button():
 
     if not button.is_pressed:
         return
+
+    if is_active:
+        double_press = (
+            last_active_button_press_time > 0
+            and now - last_active_button_press_time < button_double_press_window
+        )
+        last_active_button_press_time = 0 if double_press else now
+        trigger_session_start(source="button-double" if double_press else "button")
+        return
+
+    last_active_button_press_time = 0
 
     trigger_session_start(source="button")
 
@@ -434,6 +463,7 @@ def start_loop():
         "Ready. Press button to start a voice session. Press Ctrl+C to quit.", "🎦"
     )
     logger.info("Waiting for button press...", "🕐")
+    set_status_led_state("idle")
     if config.MOCKFISH:
         logger.info("Mockfish mode: use Enter to simulate button press", "🐟")
         try:

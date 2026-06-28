@@ -6,6 +6,7 @@ import os
 from .. import audio
 from ..logger import logger
 from ..movements import stop_all_motors
+from ..status_led import set_status_led_state
 
 
 class ErrorHandler:
@@ -17,6 +18,7 @@ class ErrorHandler:
     async def play_error_sound(self, code: str = "error", message: str | None = None):
         """Play an error sound based on code (error, nowifi, noapikey)."""
         stop_all_motors()
+        set_status_led_state("error")
 
         filename = f"{code}.wav"
         sound_path = os.path.join("sounds", filename)

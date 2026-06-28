@@ -414,3 +414,31 @@ def test_motor():
         return jsonify({"status": f"{motor} tested", "service_was_active": was_active})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/test-led", methods=["POST"])
+def test_led():
+    """Run a short WS2812B status LED test."""
+    try:
+        # Stop Billy service if running so the LED test can control the pixel cleanly.
+        was_active = False
+        try:
+            output = subprocess.check_output(
+                ["systemctl", "is-active", "billy.service"], stderr=subprocess.STDOUT
+            )
+            was_active = output.decode().strip() == "active"
+        except subprocess.CalledProcessError:
+            was_active = False
+
+        if was_active:
+            subprocess.check_call(["sudo", "systemctl", "stop", "billy.service"])
+
+        from core.status_led import run_status_led_test
+
+        ok, message = run_status_led_test()
+        if not ok:
+            return jsonify({"error": message, "service_was_active": was_active}), 400
+
+        return jsonify({"status": message, "service_was_active": was_active})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

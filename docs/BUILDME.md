@@ -11,19 +11,20 @@ This guide explains how to physically build and wire your Raspberry Pi–powered
 - Classic (& Christmas edition) version: 
   - [Alternative 3D-printed parts](https://www.thingiverse.com/thing:7096350)
 
-| Part                                         | Source |
-|----------------------------------------------|--------|
-| Big Mouth Billy Bass                         | [Amazon NL](https://amzn.eu/d/gzyNRsg) |
-| MicroSD card (for Raspberry OS Lite)         | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/transcend-64gb-microsd-met-adapter-uhs-i-u3-a2-ultra-performance-160-80-mb-s-11632 ) |
-| Raspberry Pi 5 (4gb RAM or more recommended) | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/raspberry-pi-5-computers-accessoires-415/raspberry-pi-5-4gb-11579) |
-| Raspberry Pi Power Supply 27W                | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/raspberry-pi-27w-usb-c-power-supply-wit-eu-11581) |
-| MicroSD card (for Raspberry OS Lite)         | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/transcend-64gb-microsd-met-adapter-uhs-i-u3-a2-ultra-performance-160-80-mb-s-11632 ) |
-| Raspberry Pi Active Cooler                   | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/raspberry-pi-active-cooler-11585) |
+| Part                                         | Source                                                                                                                                                     |
+|----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Big Mouth Billy Bass                         | [Amazon NL](https://amzn.eu/d/gzyNRsg)                                                                                                                     |
+| MicroSD card (for Raspberry OS Lite)         | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/transcend-64gb-microsd-met-adapter-uhs-i-u3-a2-ultra-performance-160-80-mb-s-11632 )                |
+| Raspberry Pi 5 (4gb RAM or more recommended) | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/raspberry-pi-5-computers-accessoires-415/raspberry-pi-5-4gb-11579)                                  |
+| Raspberry Pi Power Supply 27W                | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/raspberry-pi-27w-usb-c-power-supply-wit-eu-11581)                                                   |
+| MicroSD card (for Raspberry OS Lite)         | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/transcend-64gb-microsd-met-adapter-uhs-i-u3-a2-ultra-performance-160-80-mb-s-11632 )                |
+| Raspberry Pi Active Cooler                   | [Kiwi Electronics](https://www.kiwi-electronics.com/nl/raspberry-pi-active-cooler-11585)                                                                   |
 | 1x USB Speaker                               | [Amazon NL](https://amzn.eu/d/2yklfno), [Amazon US](https://www.amazon.com/dp/B075M7FHM1), [AliExpress](https://aliexpress.com/item/1005007168026736.html) |
 | 1x USB Microphone                            | [Amazon NL](https://amzn.eu/d/7Y9GhoL), [Amazon US](https://www.amazon.com/dp/B08M37224H), [AliExpress](https://aliexpress.com/item/1005007211513791.html) |
 | 1x L298N Motor Driver                        | [Amazon NL](https://amzn.eu/d/g9yBNVg), [Amazon US](https://www.amazon.com/dp/B0B82GZVT5), [AliExpress](https://aliexpress.com/item/1005006890733953.html) |
-| Jumper Wires / Dupont Cables                 | [Amazon NL](https://amzn.eu/d/i4kyXG2), [AliExpress](https://aliexpress.com/item/1005003641187997.html) |
-| JST 2.54 4 pin connector (female) \*         | [Amazon NL](https://amzn.eu/d/cDqHgNv), [AliExpress](https://aliexpress.com/item/1005007460897865.html) |
+| 1x WS2812B LED (optional status light)       | [Amazon NL](https://www.amazon.nl/dp/B0DRJMGT9C) |                                                                                                          |
+| Jumper Wires / Dupont Cables                 | [Amazon NL](https://amzn.eu/d/i4kyXG2), [AliExpress](https://aliexpress.com/item/1005003641187997.html)                                                    |
+| JST 2.54 4 pin connector (female) \*         | [Amazon NL](https://amzn.eu/d/cDqHgNv), [AliExpress](https://aliexpress.com/item/1005007460897865.html)                                                    |
 
 
 \* Recommended to be able to easily (un)plug the motor cables.
@@ -107,6 +108,15 @@ This keeps the driver in a known safe state and prevents “phantom” motor mov
 | Motor +   | 5v pwr  (pin 4)                 | Pin +              |
 | Motor -   | Ground  (pin 6)                 | Pin -              |
 | Button    | GPIO 24 (pin 18) & GND (pin 20) |                    |
+
+Optional status LED:
+- Default (`STATUS_LED_BACKEND=auto`):
+  - Raspberry Pi 5: wire WS2812B `DIN` -> SPI MOSI GPIO 10 (pin 19)
+  - Older Pi boards using PWM: wire WS2812B `DIN` -> GPIO 18 (pin 12)
+- WS2812B `5V` -> 5v power (pin 2 or 4)
+- WS2812B `GND` -> Ground (for example pin 6)
+- Set `STATUS_LED_ENABLED=true` in `.env` after wiring it
+- Optional: force a backend with `STATUS_LED_BACKEND=spi` or `STATUS_LED_BACKEND=pwm`
 ---
 
 **Classic Billy (3 motors)**

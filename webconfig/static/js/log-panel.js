@@ -125,13 +125,38 @@ const LogPanel = (() => {
         });
     };
 
-    const checkAndShowPasswordModal = (cfg) => {
-        // Show modal automatically if FORCE_PASS_CHANGE is true
-        if (cfg.FORCE_PASS_CHANGE === 'True' || cfg.FORCE_PASS_CHANGE === 'true' || cfg.FORCE_PASS_CHANGE === true) {
-            setTimeout(() => {
-                showPasswordModal();
-            }, 1000); // Small delay to let page load
+    const checkAndShowPasswordModal = async (cfg) => {
+        const forcePassChange = (
+            cfg.FORCE_PASS_CHANGE === 'True'
+            || cfg.FORCE_PASS_CHANGE === 'true'
+            || cfg.FORCE_PASS_CHANGE === true
+        );
+        if (!forcePassChange) return;
+
+        try {
+            const response = await fetch("/wifi/status");
+            const wifiStatus = await response.json();
+            if (!response.ok) {
+                console.warn(
+                    "Skipping forced password modal until Wi-Fi is fully connected:",
+                    wifiStatus.error || "Failed to load Wi-Fi status"
+                );
+                return;
+            }
+
+            const hasInternetReadyConnection = Boolean(wifiStatus.connected) && !Boolean(wifiStatus.hotspot_active);
+            const isCaptiveOnboarding = Boolean(wifiStatus.onboarding_active) || Boolean(wifiStatus.hotspot_active);
+            if (!hasInternetReadyConnection || isCaptiveOnboarding) {
+                return;
+            }
+        } catch (error) {
+            console.warn("Skipping forced password modal until Wi-Fi is fully connected:", error);
+            return;
         }
+
+        setTimeout(() => {
+            showPasswordModal();
+        }, 1000); // Small delay to let page load
     };
 
 
@@ -195,7 +220,8 @@ const LogPanel = (() => {
         try {
             const res = await fetch("/logs");
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                console.error(`Failed to fetch logs: HTTP ${res.status}`);
+                return {logs: ""};
             }
             const data = await res.json();
             setLogsUI(data.logs || "No logs found.");
@@ -253,7 +279,7 @@ const LogPanel = (() => {
         return 0;
     };
 
-    const appendLogsSnapshot = (incomingLogs) => {
+    window.updateLogs = (incomingLogs) => {
         if (!elements.logOutput || !elements.logContainer) return;
         const incoming = String(incomingLogs || "");
         const existing = String(elements.logOutput.textContent || "");
@@ -279,9 +305,6 @@ const LogPanel = (() => {
         const merged = overlap > 0 ? `${existing}${incoming.slice(overlap)}` : `${existing}\n${incoming}`;
         setLogsUI(merged);
     };
-
-    // Expose for WebSocket (append behavior)
-    window.updateLogs = appendLogsSnapshot;
 
     const toggleLogPanel = () => {
         isLogHidden = !isLogHidden;

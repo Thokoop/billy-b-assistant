@@ -27,7 +27,13 @@ from .profile_manager import user_manager
 from .realtime_ai_provider import voice_provider_registry
 
 
-def get_instructions_with_user_context():
+def _strip_tools_section_for_provider(instructions: str, provider_name: str) -> str:
+    """Hook for provider-specific prompt shaping."""
+    _ = provider_name
+    return instructions
+
+
+def get_instructions_with_user_context(provider_name: str | None = None):
     """Generate instructions with current user context and persona if available."""
     import os
 
@@ -53,10 +59,12 @@ def get_instructions_with_user_context():
         user_profile=current_user,
     )
 
-    return instruction_builder.build(context)
+    instructions = instruction_builder.build(context)
+    provider_name = (provider_name or REALTIME_AI_PROVIDER or "").strip().lower()
+    return _strip_tools_section_for_provider(instructions, provider_name)
 
 
-def get_tools_for_current_mode():
+def get_tools_for_current_mode(provider_name: str | None = None):
     """Get tools list based on current mode (guest vs user mode)."""
     import os
 
@@ -253,8 +261,11 @@ class BillySession:
     # ---- Private handlers -----------------------------------------------
     def _on_response_created(self):
         self.state.on_response_created()
-        # Clear any buffered audio on OpenAI's side to prevent echo
-        asyncio.create_task(self._clear_input_audio_buffer())
+        # Clear buffered audio only for OpenAI. This was added to prevent echo
+        # there, but xAI has different realtime behavior and should not get this
+        # extra client event.
+        if self.realtime_ai_provider.get_provider_name() == "openai":
+            asyncio.create_task(self._clear_input_audio_buffer())
 
     async def _clear_input_audio_buffer(self):
         """Clear OpenAI's input audio buffer to prevent echo."""
@@ -346,7 +357,10 @@ class BillySession:
     async def _on_response_done(self, data: dict[str, Any]):
         if self.state._skip_post_response_once:
             response = data.get("response") or {}
-            status_details = response.get("status_details") or {}
+            raw_status_details = response.get("status_details")
+            status_details = (
+                raw_status_details if isinstance(raw_status_details, dict) else {}
+            )
             cancelled_by_client = (
                 status_details.get("type") == "cancelled"
                 and status_details.get("reason") == "client_cancelled"
@@ -397,7 +411,10 @@ class BillySession:
             self.state._skip_post_response_once = False
 
         response = data.get("response") or {}
-        status_details = response.get("status_details") or {}
+        raw_status_details = response.get("status_details")
+        status_details = (
+            raw_status_details if isinstance(raw_status_details, dict) else {}
+        )
         error = status_details.get("error")
         if error:
             error_type = (error.get("type") or error.get("code") or "error").lower()
@@ -766,12 +783,13 @@ class BillySession:
             if self.ws is None:
                 try:
                     persona_voice = persona_manager.get_current_persona_voice()
+                    provider_name = self.realtime_ai_provider.get_provider_name()
                     logger.info(
                         f"Using persona '{persona_manager.current_persona}' voice '{persona_voice}' for session startup",
                         "🎭",
                     )
                     self.ws = await self.realtime_ai_provider.connect(
-                        instructions=get_instructions_with_user_context(),
+                        instructions=get_instructions_with_user_context(provider_name),
                         tools=get_tools_for_current_mode(),
                         server_vad_params=SERVER_VAD_PARAMS[TURN_EAGERNESS],
                         interrupt_response=False,
@@ -974,7 +992,12 @@ class BillySession:
             error: dict[str, Any] = data.get("error") or {}
             code = error.get("code", "error").lower()
             message = error.get("message", "Unknown error")
-            if code == "response_cancel_not_active":
+            normalized_message = str(message).strip().lower()
+            if code == "response_cancel_not_active" or (
+                code == "invalid_request_error"
+                and "cancellation failed" in normalized_message
+                and "no active response found" in normalized_message
+            ):
                 logger.verbose(
                     "Ignoring non-fatal cancel race: no active response to cancel.",
                     "ℹ️",

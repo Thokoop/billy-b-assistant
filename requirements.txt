@@ -13,6 +13,9 @@ flask
 flask-sock
 simple-websocket
 lgpio
+rpi-ws281x
+adafruit-blinka
+adafruit-circuitpython-neopixel-spi
 packaging
 pvporcupine
 openwakeword

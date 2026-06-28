@@ -155,9 +155,10 @@ def get_tool_instructions(model: str | None = None) -> str:
 
 # === XAI Config ===
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+XAI_MODEL = os.getenv("XAI_MODEL", "grok-voice-latest").strip()
 
 # === Provider Config ===
-REALTIME_AI_PROVIDER = os.getenv("REALTIME_AI_PROVIDER", None)
+REALTIME_AI_PROVIDER = os.getenv("REALTIME_AI_PROVIDER", "openai").strip().lower()
 
 # === Modes ===
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -227,6 +228,13 @@ SERVER_VAD_PARAMS = {
 
 # === GPIO Config ===
 BUTTON_PIN = 27 if BILLY_PINS == "legacy" else 24  # legacy=pin 13, new=pin 18
+STATUS_LED_ENABLED = os.getenv("STATUS_LED_ENABLED", "false").lower() == "true"
+STATUS_LED_BACKEND = os.getenv("STATUS_LED_BACKEND", "auto").strip().lower()
+STATUS_LED_PIN = int(os.getenv("STATUS_LED_PIN", "18"))
+STATUS_LED_COUNT = max(1, int(os.getenv("STATUS_LED_COUNT", "1")))
+STATUS_LED_BRIGHTNESS = float(os.getenv("STATUS_LED_BRIGHTNESS", "0.2"))
+STATUS_LED_DMA_CHANNEL = int(os.getenv("STATUS_LED_DMA_CHANNEL", "10"))
+STATUS_LED_PWM_CHANNEL = int(os.getenv("STATUS_LED_PWM_CHANNEL", "0"))
 
 # === MQTT Config ===
 MQTT_HOST = os.getenv("MQTT_HOST", "")
@@ -251,6 +259,10 @@ FORCE_PASS_CHANGE = os.getenv("FORCE_PASS_CHANGE", "false").lower() == "true"
 SHOW_RC_VERSIONS = os.getenv("SHOW_RC_VERSIONS", "False")
 FLAP_ON_BOOT = os.getenv("FLAP_ON_BOOT", "false").lower() == "true"
 MOCKFISH = os.getenv("MOCKFISH", "false").lower() == "true"
+WIFI_COUNTRY = (os.getenv("WIFI_COUNTRY", "US") or "").strip().upper() or "US"
+WIFI_ONBOARDING_MODE = os.getenv("WIFI_ONBOARDING_MODE", "legacy").strip().lower()
+if WIFI_ONBOARDING_MODE not in {"legacy", "unified"}:
+    WIFI_ONBOARDING_MODE = "legacy"
 
 # === News Digest Config ===
 NEWS_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NEWS_REQUEST_TIMEOUT_SECONDS", "6"))
