@@ -6,7 +6,7 @@
 
 {% block main_content %}
 <!-- Section 2–4 in responsive grid layout -->
-<main id="main-content" class="max-w-6xl mx-auto">
+<main id="main-content" class="max-w-6xl mx-auto pb-28">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
         {% include "components/user-profile-main.html" %}
         {% include "components/persona-form.html" %}
@@ -23,4 +23,5 @@
 
 <!-- News Sources Modal -->
 {% include "components/news-sources-modal.html" %}
+{% include "components/knowledge-modal.html" %}
 {% endblock %}

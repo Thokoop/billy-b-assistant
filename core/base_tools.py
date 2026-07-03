@@ -175,6 +175,28 @@ def get_base_tools() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "search_local_knowledge",
+            "type": "function",
+            "description": "Search Billy's uploaded local knowledge files such as PDFs, spreadsheets, notes, manuals, and household documents. Use this when the answer may be in uploaded files instead of general world knowledge.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What to look up in the uploaded local knowledge",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5,
+                        "description": "How many matching snippets to return",
+                    },
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
     ]
 
 

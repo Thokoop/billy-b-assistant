@@ -559,6 +559,17 @@
                             USB Webcam
                             </option>
                         </select>
+                        <input type="hidden"
+                               id="CAMERA_ROTATION"
+                               name="CAMERA_ROTATION"
+                               value="{{ config.get('CAMERA_ROTATION', '0') }}">
+                        <button type="button" id="camera-rotation-btn"
+                                class="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2 rounded flex gap-2 items-center cursor-pointer whitespace-nowrap"
+                                title="Rotate camera orientation">
+                            <span id="camera-rotation-icon"
+                                  class="material-icons text-sm transition-transform duration-200">arrow_upward</span>
+                            <span id="camera-rotation-label">0°</span>
+                        </button>
                         <button type="button" id="test-camera-btn"
                                 class="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded flex gap-2 items-center cursor-pointer whitespace-nowrap">
                             <span class="material-icons text-sm">photo_camera</span>

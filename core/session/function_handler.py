@@ -7,6 +7,7 @@ from typing import Any
 
 from ..config import PERSONALITY, TEXT_ONLY_MODE
 from ..ha import send_conversation_prompt
+from ..knowledge_manager import knowledge_manager
 from ..logger import logger
 from ..news_digest import get_news_digest
 from ..persona import update_persona_ini
@@ -35,6 +36,7 @@ class FunctionHandler:
             "switch_persona": self._handle_switch_persona,
             "get_news_digest": self._handle_get_news_digest,
             "describe_scene": self._handle_describe_scene,
+            "search_local_knowledge": self._handle_search_local_knowledge,
         }
 
         handler = handlers.get(function_name)
@@ -494,6 +496,62 @@ class FunctionHandler:
                     "content": [{"type": "input_text", "text": prompt}],
                 },
             })
+        self.session.state._triggered_new_response = True
+        await self.session._ws_send_json({"type": "response.create"})
+
+    async def _handle_search_local_knowledge(
+        self, raw_args: str | None, call_id: str | None = None
+    ):
+        """Handle retrieval from Billy's uploaded local knowledge index."""
+        args = self._parse_json_args(raw_args, "search_local_knowledge")
+        query = str(args.get("query") or "").strip()
+        top_k = int(args.get("top_k") or 3)
+
+        result = await asyncio.to_thread(
+            knowledge_manager.search,
+            query,
+            top_k=top_k,
+        )
+
+        if call_id:
+            await self.session._ws_send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result),
+                },
+            })
+            await asyncio.sleep(0.1)
+
+        if result.get("ok") and result.get("matches"):
+            prompt = (
+                "Answer the user's question using this local knowledge search result: "
+                f"{json.dumps(result)}. Quote or paraphrase only what is supported by the snippets. "
+                "Do not mention filenames, documents, PDFs, or internal knowledge sources unless the user explicitly asks where the information came from. "
+                "If the snippets are incomplete, say so briefly."
+            )
+        elif result.get("ok"):
+            prompt = (
+                "The local knowledge search found no useful matches. "
+                f"Search result: {json.dumps(result)}. "
+                "Say you could not find that in uploaded knowledge and ask one concise follow-up question if helpful."
+            )
+        else:
+            prompt = (
+                "The local knowledge search failed. "
+                f"Error result: {json.dumps(result)}. "
+                "Apologize briefly and ask the user to try again."
+            )
+
+        await self.session._ws_send_json({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            },
+        })
         self.session.state._triggered_new_response = True
         await self.session._ws_send_json({"type": "response.create"})
 

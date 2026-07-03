@@ -74,6 +74,7 @@ CONFIG_KEYS = [
     "NEWS_REQUEST_TIMEOUT_SECONDS",
     "CAMERA_HARDWARE",
     "CAMERA_DEVICE_INDEX",
+    "CAMERA_ROTATION",
     "FOLLOW_UP_RETRY_LIMIT",
     "WAKE_WORD_ENABLED",
     "WAKE_WORD_BACKEND",
@@ -1251,13 +1252,13 @@ def wifi_save():
 
     if not ssid:
         return jsonify({"error": "SSID is required"}), 400
-    if not test_connection and not _is_unified_wifi_hotspot_onboarding():
-        return jsonify({
-            "error": "Test the Wi-Fi connection successfully before saving"
-        }), 400
 
     active_before = _get_active_wifi_connection()
+    previous_connection_name = (
+        str(active_before.get("name") or "").strip() if active_before else ""
+    )
     target_name = ssid
+    finalize_warnings: list[str] = []
 
     try:
         if test_connection:
@@ -1297,17 +1298,42 @@ def wifi_save():
                 )
                 return jsonify({"error": error}), 400
         else:
+            attempt_connection_name = (
+                f"{WIFI_TEST_PREFIX}{uuid.uuid4().hex[:8]}"
+                if previous_connection_name and previous_connection_name == target_name
+                else target_name
+            )
             success, detail = _wifi_connect(
                 ssid,
                 password,
                 country,
-                connection_name=target_name,
+                connection_name=attempt_connection_name,
                 autoconnect=True,
             )
             if not success:
+                if previous_connection_name and previous_connection_name != target_name:
+                    _activate_wifi_connection(previous_connection_name)
                 if _is_unified_wifi_hotspot_onboarding():
                     _restore_unified_wifi_onboarding_hotspot()
                 return jsonify({"error": detail}), 400
+
+            if attempt_connection_name != target_name:
+                _delete_wifi_connection(target_name)
+                rename_result = _run_wifi_command([
+                    "sudo",
+                    "nmcli",
+                    "connection",
+                    "modify",
+                    attempt_connection_name,
+                    "connection.id",
+                    target_name,
+                ])
+                if rename_result.returncode != 0:
+                    finalize_warnings.append(
+                        rename_result.stderr.strip()
+                        or rename_result.stdout.strip()
+                        or "Wi-Fi connected, but the saved connection name could not be updated"
+                    )
 
         _set_wifi_country(country)
         stop_errors = _stop_wifi_onboarding_services()
@@ -1316,7 +1342,7 @@ def wifi_save():
             "ssid": ssid,
             "country": country,
             "onboarding_stopped": True,
-            "warnings": stop_errors,
+            "warnings": stop_errors + finalize_warnings,
         })
     except Exception as exc:
         if _is_unified_wifi_hotspot_onboarding():
@@ -1416,6 +1442,7 @@ def list_camera_devices():
 def camera_preview():
     data = request.get_json(silent=True) or {}
     selection = str(data.get("selection") or "none").strip().lower()
+    rotation = data.get("rotation", 0)
 
     camera_hardware = "none"
     camera_device_index = 0
@@ -1432,6 +1459,7 @@ def camera_preview():
     result = describe_scene({
         "camera_hardware": camera_hardware,
         "camera_device_index": camera_device_index,
+        "camera_rotation": rotation,
         "capture_timeout_seconds": 4,
         "usb_scan_fallback": False,
         "fresh_frame": True,

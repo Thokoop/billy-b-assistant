@@ -515,6 +515,7 @@ const LogPanel = (() => {
             toggleMotionBtn: document.getElementById("toggle-motion-btn"),
             powerBtn: document.getElementById("power-btn"),
             powerDropdown: document.getElementById("power-dropdown"),
+            stopBillyBtn: document.getElementById("stop-billy-btn"),
             rebootBillyBtn: document.getElementById("reboot-billy-btn"),
             shutdownBillyBtn: document.getElementById("shutdown-billy-btn"),
             toggleReleaseBtn: document.getElementById("current-version"),
@@ -575,6 +576,16 @@ const LogPanel = (() => {
             elements.saveEnvBtn.addEventListener("click", saveEnv);
         }
         
+        if (elements.stopBillyBtn) {
+            elements.stopBillyBtn.addEventListener("click", async () => {
+                if (window.ServiceStatus?.handleServiceAction) {
+                    await window.ServiceStatus.handleServiceAction("stop");
+                }
+                if (elements.powerDropdown) {
+                    elements.powerDropdown.classList.add("hidden");
+                }
+            });
+        }
         elements.rebootBillyBtn.addEventListener("click", rebootBilly);
         elements.shutdownBillyBtn.addEventListener("click", shutdownBilly);
         

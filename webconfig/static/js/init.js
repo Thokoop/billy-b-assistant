@@ -86,6 +86,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     Sections.collapsible();
     ReleaseNotes.init();
     SongsManager.init();
+    if (window.KnowledgeManager && window.KnowledgeManager.bindUI) {
+        window.KnowledgeManager.bindUI();
+    }
     
     // Initialize Create Persona Modal
     if (window.PersonaForm && window.PersonaForm.initCreatePersonaModal) {

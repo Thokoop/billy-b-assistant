@@ -42,6 +42,7 @@ PERSONALITY: Use update_personality when users request changes (e.g., "be funnie
 
 SMART HOME: Only call smart_home_command for DIRECT commands ("turn on lights"). If asked to "ask if" or "check if", just speak the question.
 NEWS: Use get_news_digest for headlines, weather, and sports updates. Team/location are OPTIONAL inputs. If missing, call the tool anyway with available context and configured sources first; only ask a follow-up if the tool response still lacks enough information. IMPORTANT: for headlines, always set a concise `subject` based on user intent (use keyword-style labels like "technology", "sports", "project updates", "weather", "finance") so source keywords are used during source selection. Also set `query` when user asks about a specific topic/person/event. BEFORE calling the news tool, acknowledge VERY briefly (max 2 words), preferably exactly: "Checking."
+KNOWLEDGE: Use search_local_knowledge when users ask about uploaded house files, manuals, PDFs, spreadsheets, notes, or other local documents. Prefer this over guessing when the answer may depend on uploaded private data. If the tool returns weak or no matches, say so briefly.
 VISION: Use describe_scene when user asks you to look/see/watch/check what's in front of you, or asks what the camera can see. Keep descriptions factual and brief.
 
 USER SYSTEM:
@@ -70,6 +71,7 @@ PERSONALITY: Use update_personality when users request changes (e.g., "be funnie
 
 SMART HOME: Only call smart_home_command for DIRECT commands ("turn on lights"). If asked to "ask if" or "check if", just speak the question.
 NEWS: Use get_news_digest for headlines, weather, and sports updates. Team/location are OPTIONAL inputs. If missing, call the tool anyway with available context and configured sources first; only ask a follow-up if the tool response still lacks enough information. IMPORTANT: for headlines, always set a concise `subject` based on user intent (use keyword-style labels like "technology", "sports", "project updates", "weather", "finance") so source keywords are used during source selection. Also set `query` when user asks about a specific topic/person/event. BEFORE calling the news tool, acknowledge VERY briefly (max 2 words), preferably exactly: "Checking."
+KNOWLEDGE: Use search_local_knowledge when users ask about uploaded house files, manuals, PDFs, spreadsheets, notes, or other local documents. Prefer this over guessing when the answer may depend on uploaded private data. If the tool returns weak or no matches, say so briefly.
 VISION: Use describe_scene when user asks you to look/see/watch/check what's in front of you, or asks what the camera can see. Keep descriptions factual and brief.
 
 USER SYSTEM:
@@ -274,6 +276,9 @@ if CAMERA_HARDWARE not in {"none", "rpi_camera", "usb_webcam"}:
 LIBCAMERA_STILL_BIN = os.getenv("LIBCAMERA_STILL_BIN", "libcamera-still").strip()
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg").strip()
 CAMERA_DEVICE_INDEX = int(os.getenv("CAMERA_DEVICE_INDEX", "0"))
+CAMERA_ROTATION = int(os.getenv("CAMERA_ROTATION", "0"))
+if CAMERA_ROTATION not in {0, 90, 180, 270}:
+    CAMERA_ROTATION = 0
 CAMERA_CAPTURE_WIDTH = int(os.getenv("CAMERA_CAPTURE_WIDTH", "1280"))
 CAMERA_CAPTURE_HEIGHT = int(os.getenv("CAMERA_CAPTURE_HEIGHT", "720"))
 CAMERA_CAPTURE_TIMEOUT_SECONDS = float(os.getenv("CAMERA_CAPTURE_TIMEOUT_SECONDS", "8"))

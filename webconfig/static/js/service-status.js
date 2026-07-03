@@ -75,6 +75,7 @@ const ServiceStatus = (() => {
         const statusEl = document.getElementById("service-status");
         const controlsEl = document.getElementById("service-controls");
         const logoEl = document.getElementById("status-logo");
+        const stopDropdownBtn = document.getElementById("stop-billy-btn");
 
         statusEl.textContent = `(${status})`;
         statusEl.classList.remove("text-emerald-500", "text-amber-500", "text-rose-500");
@@ -106,6 +107,12 @@ const ServiceStatus = (() => {
             logoEl.src = logoSrc;
         }
 
+        if (stopDropdownBtn) {
+            const showStop = status === "active";
+            stopDropdownBtn.classList.toggle("hidden", !showStop);
+            stopDropdownBtn.classList.toggle("flex", showStop);
+        }
+
         controlsEl.innerHTML = "";
         const createButton = (label, action, color, iconName) => {
             const btn = document.createElement("button");
@@ -132,7 +139,6 @@ const ServiceStatus = (() => {
             const restartBtn = createButton("Restart", "restart", "amber", "restart_alt");
             controlsEl.appendChild(restartBtn);
             restartButtonRef = restartBtn;
-            controlsEl.appendChild(createButton("Stop", "stop", "rose", "stop"));
         } else {
             controlsEl.textContent = "Unknown status.";
             restartButtonRef = null;
@@ -204,6 +210,7 @@ const ServiceStatus = (() => {
         updateServiceStatusUI,
         getCachedStatus,
         isRestartInProgress,
+        handleServiceAction,
     };
 
     // Explicitly expose so other files can reliably check restart state.

@@ -32,7 +32,7 @@
             if (data.update_available) {
                 const latestSpan = document.getElementById("latest-version");
                 if (latestSpan) {
-                    latestSpan.textContent = `Update to: ${data.latest}`;
+                    latestSpan.textContent = `${data.latest}`;
                     latestSpan.classList.remove("hidden");
                 }
                 if (updateBtn) {
@@ -45,7 +45,7 @@
 
     if (updateBtn) {
         updateBtn.addEventListener("click", () => {
-        if (!confirm("Are you sure you want to update Billy to the latest version?")) return;
+        if (!confirm("Are you sure you want to update Billy to the latest version?\n\nThis can take a few minutes. Don't power off the device.")) return;
         setButtonLoading(updateBtn, true);
         sessionStorage.setItem("billy:reload_on_ws_reconnect", "1");
         if (window.LoadingOverlay && window.LoadingOverlay.show) {

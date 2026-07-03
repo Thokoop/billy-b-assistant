@@ -20,3 +20,6 @@ packaging
 pvporcupine
 openwakeword
 onnxruntime
+pypdf
+openpyxl
+Pillow

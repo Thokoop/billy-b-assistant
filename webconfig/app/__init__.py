@@ -27,6 +27,7 @@ def create_app() -> Flask:
     # Late imports to avoid circulars
     from . import websocket
     from .routes.audio import bp as audio_bp
+    from .routes.knowledge import knowledge_bp
     from .routes.misc import bp as misc_bp
     from .routes.persona import bp as persona_bp
     from .routes.profiles import profiles_bp
@@ -42,6 +43,7 @@ def create_app() -> Flask:
     app.register_blueprint(persona_bp)
     app.register_blueprint(profiles_bp)
     app.register_blueprint(audio_bp)
+    app.register_blueprint(knowledge_bp)
     app.register_blueprint(misc_bp)
     app.register_blueprint(songs_bp)
 

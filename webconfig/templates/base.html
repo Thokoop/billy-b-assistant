@@ -6,6 +6,19 @@
     <title>{% block title %}Billy Bassistant{% endblock %}</title>
     <link href="../static/css/styles.css" rel="stylesheet">
     <link rel="icon" href="../static/favicon.ico" type="image/x-icon">
+    <style>
+        #log-container.log-fullscreen {
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-height: none !important;
+            margin-top: 0 !important;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            z-index: 60;
+        }
+    </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="text-white font-sans">
@@ -14,7 +27,38 @@
     {% block main_content %}{% endblock %}
 
     {% block footer %}
-    <footer class="backdrop-blur-xs fixed bottom-0 p-4 left-0 w-full h-20 shadow-[0_-6px_12px_rgba(0,0,0,0.2)]">
+    <footer class="fixed bottom-0 left-0 z-20 w-full shadow-[0_-6px_12px_rgba(0,0,0,0.2)]">
+        <div class="w-full p-2 backdrop-blur-sm">
+                <div class="flex flex-wrap items-center justify-center gap-2">
+                        <button id="songs-btn"
+                                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
+                                title="Manage Songs">
+                            <span class="material-icons">library_music</span>
+                            <span class="text-xs hidden md:block">Songs</span>
+                        </button>
+
+                        <button id="news-sources-btn"
+                                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
+                                title="Manage News Sources">
+                            <span class="material-icons">newspaper</span>
+                            <span class="text-xs hidden md:block">News</span>
+                        </button>
+
+                        <button id="knowledge-btn"
+                                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
+                                title="Knowledge">
+                            <span class="material-icons">library_books</span>
+                            <span class="text-xs hidden md:block">Knowledge</span>
+                        </button>
+
+                        <button id="user-profile-btn"
+                                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
+                                title="Settings">
+                            <span class="material-icons">settings</span>
+                            <span class="text-xs hidden md:block">Settings</span>
+                        </button>
+                </div>
+        </div>
     </footer>
     {% endblock %}
 
@@ -50,6 +94,7 @@
     <script src="{{ url_for('static', filename='js/websocket.js') }}"></script>
     <script src="{{ url_for('static', filename='js/pin-profile.js') }}"></script>
     <script src="{{ url_for('static', filename='js/settings-form.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/knowledge-manager.js') }}"></script>
     <script src="{{ url_for('static', filename='js/persona-form.js') }}"></script>
     <script src="{{ url_for('static', filename='js/settings-panel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/wakeup-clips.js') }}"></script>

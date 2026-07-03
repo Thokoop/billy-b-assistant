@@ -74,9 +74,13 @@ const SettingsForm = (() => {
     const bindCameraPreview = () => {
         const button = document.getElementById("test-camera-btn");
         const select = document.getElementById("CAMERA_HARDWARE");
+        const rotationInput = document.getElementById("CAMERA_ROTATION");
+        const rotationButton = document.getElementById("camera-rotation-btn");
+        const rotationIcon = document.getElementById("camera-rotation-icon");
+        const rotationLabel = document.getElementById("camera-rotation-label");
         const image = document.getElementById("camera-preview-image");
         const status = document.getElementById("camera-preview-status");
-        if (!button || !select || !image || !status) return;
+        if (!button || !select || !image || !status || !rotationInput || !rotationButton || !rotationIcon || !rotationLabel) return;
 
         const setStatus = (text, isError = false) => {
             status.textContent = text;
@@ -89,13 +93,37 @@ const SettingsForm = (() => {
             image.classList.add("hidden");
         };
 
+        const normalizeRotation = (value) => {
+            const parsed = Number.parseInt(String(value || "0"), 10);
+            if (Number.isNaN(parsed)) return 0;
+            const normalized = ((parsed % 360) + 360) % 360;
+            return [0, 90, 180, 270].includes(normalized) ? normalized : 0;
+        };
+
+        const updateRotationUi = (value) => {
+            const rotation = normalizeRotation(value);
+            rotationInput.value = String(rotation);
+            rotationLabel.textContent = `${rotation}°`;
+            rotationIcon.style.transform = `rotate(${rotation}deg)`;
+        };
+
+        updateRotationUi(rotationInput.value);
+
         select.addEventListener("change", () => {
             clearPreview();
             setStatus("Camera selection changed. Run test again.");
         });
 
+        rotationButton.addEventListener("click", () => {
+            const nextRotation = (normalizeRotation(rotationInput.value) + 90) % 360;
+            updateRotationUi(nextRotation);
+            clearPreview();
+            setStatus(`Orientation set to ${nextRotation}°. Run test again.`);
+        });
+
         button.addEventListener("click", async () => {
             const selection = String(select.value || "none");
+            const rotation = normalizeRotation(rotationInput.value);
             button.disabled = true;
             button.classList.add("opacity-60", "cursor-not-allowed");
             setStatus("Capturing preview...");
@@ -103,7 +131,7 @@ const SettingsForm = (() => {
                 const response = await fetch("/camera/preview", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({selection}),
+                    body: JSON.stringify({selection, rotation}),
                 });
                 const data = await response.json();
                 if (!response.ok || !data.ok) {
@@ -187,6 +215,17 @@ const SettingsForm = (() => {
                 }
             }
         });
+
+        const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
+        const cameraRotationLabel = document.getElementById("camera-rotation-label");
+        const cameraRotationIcon = document.getElementById("camera-rotation-icon");
+        if (cameraRotationInput && cameraRotationLabel && cameraRotationIcon) {
+            const parsed = Number.parseInt(String(cfg?.CAMERA_ROTATION || "0"), 10);
+            const rotation = [0, 90, 180, 270].includes(parsed) ? parsed : 0;
+            cameraRotationInput.value = String(rotation);
+            cameraRotationLabel.textContent = `${rotation}°`;
+            cameraRotationIcon.style.transform = `rotate(${rotation}deg)`;
+        }
     };
 
     const saveDropdownSelections = () => {
@@ -318,6 +357,20 @@ const SettingsForm = (() => {
                             }
                         });
                         await populateCameraHardwareDropdown(refreshData.config);
+                        const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
+                        const cameraRotationLabel = document.getElementById("camera-rotation-label");
+                        const cameraRotationIcon = document.getElementById("camera-rotation-icon");
+                        const rotationValue = Number.parseInt(String(refreshData.config.CAMERA_ROTATION || "0"), 10);
+                        const normalizedRotation = [0, 90, 180, 270].includes(rotationValue) ? rotationValue : 0;
+                        if (cameraRotationInput) {
+                            cameraRotationInput.value = String(normalizedRotation);
+                        }
+                        if (cameraRotationLabel) {
+                            cameraRotationLabel.textContent = `${normalizedRotation}°`;
+                        }
+                        if (cameraRotationIcon) {
+                            cameraRotationIcon.style.transform = `rotate(${normalizedRotation}deg)`;
+                        }
                         const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
                         if (ledBrightness && refreshData.config.STATUS_LED_BRIGHTNESS) {
                             ledBrightness.value = refreshData.config.STATUS_LED_BRIGHTNESS;
@@ -621,6 +674,20 @@ const SettingsForm = (() => {
             }
         });
         populateCameraHardwareDropdown(config);
+        const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
+        const cameraRotationLabel = document.getElementById("camera-rotation-label");
+        const cameraRotationIcon = document.getElementById("camera-rotation-icon");
+        const rotationValue = Number.parseInt(String(config.CAMERA_ROTATION || "0"), 10);
+        const normalizedRotation = [0, 90, 180, 270].includes(rotationValue) ? rotationValue : 0;
+        if (cameraRotationInput) {
+            cameraRotationInput.value = String(normalizedRotation);
+        }
+        if (cameraRotationLabel) {
+            cameraRotationLabel.textContent = `${normalizedRotation}°`;
+        }
+        if (cameraRotationIcon) {
+            cameraRotationIcon.style.transform = `rotate(${normalizedRotation}deg)`;
+        }
         const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
         if (ledBrightness && config.STATUS_LED_BRIGHTNESS) {
             ledBrightness.value = config.STATUS_LED_BRIGHTNESS;
