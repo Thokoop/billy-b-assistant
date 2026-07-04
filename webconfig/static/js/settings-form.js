@@ -329,74 +329,12 @@ const SettingsForm = (() => {
                 }
             }
 
-            // Auto-refresh configuration instead of restarting services
             try {
-                const refreshResponse = await fetch("/config/auto-refresh", {method: "POST"});
-                const refreshData = await refreshResponse.json();
-                
-                if (refreshData.status === "ok") {
-                    showNotification("Settings saved and applied", "success");
-                    
-                    // Update UI with new configuration
-                    if (refreshData.config) {
-                        // Update dropdowns with new values
-                        const dropdowns = [
-                            'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-                            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
-                            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
-                        ];
-                        dropdowns.forEach(id => {
-                            const element = document.getElementById(id);
-                            if (element && refreshData.config[id]) {
-                                const value = id === 'OPENAI_MODEL'
-                                    ? normalizeModelValue(refreshData.config[id])
-                                    : refreshData.config[id];
-                                if (setSelectValueSafely(element, value)) {
-                                    localStorage.setItem(`dropdown_${id}`, value);
-                                }
-                            }
-                        });
-                        await populateCameraHardwareDropdown(refreshData.config);
-                        const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
-                        const cameraRotationLabel = document.getElementById("camera-rotation-label");
-                        const cameraRotationIcon = document.getElementById("camera-rotation-icon");
-                        const rotationValue = Number.parseInt(String(refreshData.config.CAMERA_ROTATION || "0"), 10);
-                        const normalizedRotation = [0, 90, 180, 270].includes(rotationValue) ? rotationValue : 0;
-                        if (cameraRotationInput) {
-                            cameraRotationInput.value = String(normalizedRotation);
-                        }
-                        if (cameraRotationLabel) {
-                            cameraRotationLabel.textContent = `${normalizedRotation}°`;
-                        }
-                        if (cameraRotationIcon) {
-                            cameraRotationIcon.style.transform = `rotate(${normalizedRotation}deg)`;
-                        }
-                        const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
-                        if (ledBrightness && refreshData.config.STATUS_LED_BRIGHTNESS) {
-                            ledBrightness.value = refreshData.config.STATUS_LED_BRIGHTNESS;
-                        }
-                        
-                        // Refresh user profile panel if it exists
-                        if (window.UserProfilePanel && window.UserProfilePanel.refreshUserProfile) {
-                            window.UserProfilePanel.refreshUserProfile();
-                        }
-                    }
-                } else {
-                    console.error("Auto-refresh failed, falling back to restart:", refreshData.error || "Auto-refresh failed");
-                    await fetch("/restart-billy", {method: "POST"});
-                    showNotification("Settings saved – Billy restarted", "success");
-                    return;
-                }
+                await fetch("/restart", {method: "POST"});
+                showNotification("Settings saved — restarting Billy services in background", "success");
             } catch (error) {
-                console.error("Auto-refresh failed, falling back to restart:", error);
-                // Fallback to restart Billy service if auto-refresh fails
-                await fetch("/restart-billy", {method: "POST"});
-                showNotification("Settings saved – Billy restarted", "success");
-            }
-
-            if (saveResult.audio_restart_required) {
-                await fetch("/restart-billy", {method: "POST"});
-                showNotification("Audio settings changed – Billy restarted", "success");
+                console.error("Failed to restart Billy services after save:", error);
+                showNotification("Settings saved, but the background restart failed", "warning", 5000);
             }
 
             if (portChanged || hostnameChanged) {
@@ -1195,7 +1133,7 @@ const SettingsForm = (() => {
         const editToggleBtn = document.getElementById("wifi-edit-toggle-btn");
         const editToggleLabel = document.getElementById("wifi-edit-toggle-label");
         const cancelBtn = document.getElementById("wifi-cancel-btn");
-        const networkSelect = document.getElementById("wifi-network-select");
+        const networkList = document.getElementById("wifi-network-list");
         const ssidInput = document.getElementById("wifi-ssid");
         const ssidField = document.getElementById("wifi-ssid-field");
         const passwordInput = document.getElementById("wifi-password");
@@ -1206,7 +1144,7 @@ const SettingsForm = (() => {
         const testResultEl = document.getElementById("wifi-test-result");
         const errorResultEl = document.getElementById("wifi-error-result");
         const banner = document.getElementById("wifi-onboarding-banner");
-        if (!form || !wifiModal || !wifiModalCloseBtn || !wifiModalDescription || !scanBtn || !saveBtn || !saveLabel || !saveIcon || !editToggleBtn || !editToggleLabel || !cancelBtn || !networkSelect || !ssidInput || !ssidField || !passwordInput || !countrySelect || !unifiedFields || !internetSection || !statusEl || !testResultEl || !errorResultEl) {
+        if (!form || !wifiModal || !wifiModalCloseBtn || !wifiModalDescription || !scanBtn || !saveBtn || !saveLabel || !saveIcon || !editToggleBtn || !editToggleLabel || !cancelBtn || !networkList || !ssidInput || !ssidField || !passwordInput || !countrySelect || !unifiedFields || !internetSection || !statusEl || !testResultEl || !errorResultEl) {
             return;
         }
 
@@ -1216,6 +1154,8 @@ const SettingsForm = (() => {
         const legacyHotspotOnboarding = onboardingActive && !unifiedConfigured;
         let hotspotActive = false;
         let savedFingerprint = "";
+        let selectedNetworkValue = "";
+        let hasLoadedNetworksOnce = false;
         const MANUAL_SSID_VALUE = "__manual__";
         const legacyOnboardingMessage = "Legacy Wi-Fi setup is active. Open billy.local:8080 to scan, test, and save Wi-Fi without disconnecting from Billy_Bassistant.";
 
@@ -1250,6 +1190,9 @@ const SettingsForm = (() => {
             editToggleBtn.classList.add("hidden");
             document.documentElement.classList.add("overflow-hidden");
             document.body.classList.add("overflow-hidden");
+            if (!hasLoadedNetworksOnce) {
+                loadNetworks();
+            }
         };
 
         const closeWifiModal = () => {
@@ -1275,12 +1218,92 @@ const SettingsForm = (() => {
             syncSaveButton();
         };
 
+        const updateSelectedNetworkCard = () => {
+            networkList.querySelectorAll(".wifi-network-item").forEach((item) => {
+                const isSelected = item.dataset.ssid === selectedNetworkValue;
+                item.classList.toggle("border-emerald-500", isSelected);
+                item.classList.toggle("bg-emerald-900/20", isSelected);
+                item.classList.toggle("border-zinc-700", !isSelected);
+                item.classList.toggle("bg-zinc-800", !isSelected);
+            });
+        };
+
         const syncManualSsidVisibility = () => {
-            const showManual = networkSelect.value === MANUAL_SSID_VALUE;
+            const showManual = selectedNetworkValue === MANUAL_SSID_VALUE;
             ssidField.classList.toggle("hidden", !showManual);
             if (!showManual) {
-                ssidInput.value = networkSelect.value || "";
+                ssidInput.value = selectedNetworkValue || "";
             }
+            updateSelectedNetworkCard();
+        };
+
+        const signalIconFor = (signal) => {
+            const strength = Number(signal) || 0;
+            if (strength >= 75) return "network_wifi_3_bar";
+            if (strength >= 50) return "network_wifi_2_bar";
+            if (strength >= 25) return "network_wifi_1_bar";
+            return "network_wifi";
+        };
+
+        const createNetworkListItem = (network) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
+            button.dataset.ssid = network.ssid || "";
+            button.dataset.manual = "false";
+
+            const signalIcon = signalIconFor(network.signal);
+            const isSecure = network.security && network.security !== "open";
+            const securityIcon = isSecure ? "lock" : "lock_open";
+            const securityColor = isSecure ? "text-zinc-300" : "text-zinc-500";
+            const activeBadge = network.active
+                ? '<span class="text-xs text-emerald-400">Connected</span>'
+                : "";
+
+            button.innerHTML = `
+                <span class="flex items-center justify-between gap-3">
+                    <span class="min-w-0">
+                        <span class="block truncate font-medium">${network.ssid || "Hidden network"}</span>
+                        ${activeBadge}
+                    </span>
+                    <span class="flex shrink-0 items-center gap-2">
+                        <span class="material-icons text-zinc-300">${signalIcon}</span>
+                        <span class="material-icons ${securityColor}">${securityIcon}</span>
+                    </span>
+                </span>
+            `;
+            return button;
+        };
+
+        const createManualNetworkListItem = () => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
+            button.dataset.ssid = MANUAL_SSID_VALUE;
+            button.dataset.manual = "true";
+            button.innerHTML = `
+                <span class="flex items-center justify-between gap-3">
+                    <span class="font-medium">Enter SSID manually</span>
+                    <span class="material-icons text-zinc-400">edit</span>
+                </span>
+            `;
+            return button;
+        };
+
+        const renderNetworkList = (networks = []) => {
+            networkList.innerHTML = "";
+            if (!networks.length) {
+                const emptyState = document.createElement("div");
+                emptyState.className = "rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-400";
+                emptyState.textContent = "No networks found yet. Scan again or enter the SSID manually.";
+                networkList.appendChild(emptyState);
+            } else {
+                networks.forEach((network) => {
+                    networkList.appendChild(createNetworkListItem(network));
+                });
+            }
+            networkList.appendChild(createManualNetworkListItem());
+            updateSelectedNetworkCard();
         };
 
         const syncSectionVisibility = () => {
@@ -1429,32 +1452,9 @@ const SettingsForm = (() => {
                     return;
                 }
                 const networks = Array.isArray(data.networks) ? data.networks : [];
-                networkSelect.innerHTML = "";
-                if (!networks.length) {
-                    networkSelect.innerHTML = '<option value="">Choose a network</option>';
-                    const manualOption = document.createElement("option");
-                    manualOption.value = MANUAL_SSID_VALUE;
-                    manualOption.textContent = "Enter SSID manually";
-                    networkSelect.appendChild(manualOption);
-                    syncManualSsidVisibility();
-                    return;
-                }
-                networkSelect.innerHTML = '<option value="">Choose a network</option>';
-                networks.forEach((network) => {
-                    const option = document.createElement("option");
-                    option.value = network.ssid || "";
-                    const security = network.security && network.security !== "open"
-                        ? `, ${network.security}`
-                        : "";
-                    const active = network.active ? " connected" : "";
-                    option.textContent = `${network.ssid} (${network.signal}%)${security}${active}`;
-                    networkSelect.appendChild(option);
-                });
-                const manualOption = document.createElement("option");
-                manualOption.value = MANUAL_SSID_VALUE;
-                manualOption.textContent = "Enter SSID manually";
-                networkSelect.appendChild(manualOption);
+                renderNetworkList(networks);
                 syncManualSsidVisibility();
+                hasLoadedNetworksOnce = true;
             } catch (error) {
                 showError(error.message || String(error));
             } finally {
@@ -1462,8 +1462,14 @@ const SettingsForm = (() => {
             }
         };
 
-        networkSelect.addEventListener("change", () => {
+        networkList.addEventListener("click", (event) => {
+            const item = event.target.closest(".wifi-network-item");
+            if (!item) return;
+            selectedNetworkValue = item.dataset.ssid || "";
             syncManualSsidVisibility();
+            if (selectedNetworkValue === MANUAL_SSID_VALUE) {
+                ssidInput.focus();
+            }
             invalidateSuccessfulTest();
         });
 
@@ -1545,6 +1551,7 @@ const SettingsForm = (() => {
         applyOnboardingLock();
         forceOnboardingModalOpen();
         syncSectionVisibility();
+        renderNetworkList();
         syncManualSsidVisibility();
         syncSaveButton();
         syncOnboardingUiState();

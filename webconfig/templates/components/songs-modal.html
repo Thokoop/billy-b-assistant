@@ -2,24 +2,24 @@
 <div id="songs-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
     <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col shadow-2xl">
         <!-- Fixed Header -->
-        <div class="flex justify-between items-center p-4 border-b border-zinc-700 flex-shrink-0 relative w-full">
-            <div class="flex justify-between items-center relative w-full">
+        <div class="flex justify-between items-center p-4 border-b border-zinc-700 flex-shrink-0">
+            <div class="flex items-center gap-3 min-w-0">
                 <!-- Back button (left) -->
-                <button id="back-to-songs-list-btn" class="text-zinc-400 hover:text-white transition-colors hidden absolute left-0">
+                <button id="back-to-songs-list-btn" class="text-zinc-400 hover:text-white transition-colors hidden">
                     <span class="material-icons">arrow_back</span>
                 </button>
-                
-                <!-- Title (center) -->
-                <h3 class="text-lg font-semibold text-white flex items-center gap-2 mx-auto">
+
+                <!-- Title (left) -->
+                <h3 class="text-lg font-semibold text-white flex items-center gap-2">
                     <span class="material-icons text-emerald-400">library_music</span>
                     <span id="songs-modal-title">Song Manager</span>
                 </h3>
-                
-                <!-- Close button (right) -->
-                <button id="close-songs-modal" class="text-zinc-400 hover:text-white transition-colors flex absolute right-0">
-                    <span class="material-icons">close</span>
-                </button>
             </div>
+
+            <!-- Close button (right) -->
+            <button id="close-songs-modal" class="text-zinc-400 hover:text-white transition-colors flex">
+                <span class="material-icons">close</span>
+            </button>
         </div>
 
         <!-- Scrollable Content -->
@@ -29,9 +29,9 @@
                 <div class="mb-4 flex justify-between items-center">
                     <p class="text-sm text-zinc-400">Manage custom songs for Billy to perform</p>
                     <button id="create-song-btn"
-                            class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm py-2 px-4 rounded flex gap-2 items-center">
-                        <span class="material-icons text-sm">add</span>
-                        New Song
+                            class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white w-11 h-11 rounded flex items-center justify-center"
+                            title="New song">
+                        <span class="material-icons">add</span>
                     </button>
                 </div>
 
@@ -323,4 +323,3 @@
         </div>
     </div>
 </div>
-

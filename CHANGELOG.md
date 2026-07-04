@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.3.0] — 2026-06-25
+## [2.3.0] — 2026-07-05
 
 ### Added
 - **openWakeWord Wake-word Support**: Added `openwakeword` as a local wake-word backend with ONNX wake-word model selection from `wakewords/`.
@@ -12,12 +12,14 @@ All notable changes to this project will be documented in this file.
 - **Grok Model Selection**: Added an `xAI Model` dropdown so Grok voice-capable models can be selected directly from the Web UI.
 - **Unified Wi-Fi Settings**: Added Wi-Fi country, network scan, manual SSID entry, and save flow inside the main Billy Web UI. 
 - **Unified Captive Onboarding**: Added NetworkManager-managed open hotspot captive-portal-style for onboarding while preserving the legacy `wifi_setup.py` flow for existing builds through .env variable based mode selection. Default: `WIFI_ONBOARDING_MODE=legacy`
+- **Dedicated Wi-Fi Setup Modal**: Added a dedicated Wi-Fi setup modal for the unified onboarding flow, separate from the main settings save flow.
 
 ### Changed
 - **Generic Wake-word Uploads**: Wake-word upload flow now accepts both Porcupine `.ppn` keywords and openWakeWord `.onnx` models, stores them in `wakewords/`, and switches the selected backend automatically.
 - **Wake-word Provider Settings UI**: Wake-word settings now show provider-specific controls for Porcupine and openWakeWord, including ONNX model selection and threshold configuration for openWakeWord.
 - **Realtime Provider Settings**: Added a provider selector with provider-specific API key and model fields, while keeping `OpenAI` as the default unless explicitly changed.
 - **Internet Settings Layout**: Moved device hostname and Web UI port into Internet Settings and renamed General Settings to API Settings.
+- **Main Navigation Styling**: Moved feature navigation to footer. Simplified header navigation.
 
 ### Fixed
 - **Session Stop Shortcut**: A double-press on the device button during an active session now ends the session immediately.

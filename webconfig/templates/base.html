@@ -27,37 +27,35 @@
     {% block main_content %}{% endblock %}
 
     {% block footer %}
-    <footer class="fixed bottom-0 left-0 z-20 w-full shadow-[0_-6px_12px_rgba(0,0,0,0.2)]">
-        <div class="w-full p-2 backdrop-blur-sm">
-                <div class="flex flex-wrap items-center justify-center gap-2">
-                        <button id="songs-btn"
-                                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
-                                title="Manage Songs">
-                            <span class="material-icons">library_music</span>
-                            <span class="text-xs hidden md:block">Songs</span>
-                        </button>
+    <footer class="fixed bottom-2 left-0 z-20 w-full">
+        <div class="mx-auto flex w-max flex-nowrap items-center justify-start gap-1.5 md:gap-2 rounded-[1.75rem] md:rounded-[2rem] border border-white/20 bg-zinc-800/45 p-1.5 md:p-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-md">
+                <button id="songs-btn"
+                        class="bg-transparent hover:bg-white/12 transition-colors text-white text-sm py-2 px-3 md:py-3 md:px-5 rounded-[1.35rem] md:rounded-[1.6rem] flex flex-col gap-1.5 md:gap-2 items-center justify-center cursor-pointer min-w-20 md:min-w-28 shrink-0"
+                        title="Manage Songs">
+                    <span class="material-icons text-[30px] md:!text-4xl">library_music</span>
+                    <span class="text-xs">Songs</span>
+                </button>
 
-                        <button id="news-sources-btn"
-                                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
-                                title="Manage News Sources">
-                            <span class="material-icons">newspaper</span>
-                            <span class="text-xs hidden md:block">News</span>
-                        </button>
+                <button id="news-sources-btn"
+                        class="bg-transparent hover:bg-white/12 transition-colors text-white text-sm py-2 px-3 md:py-3 md:px-5 rounded-[1.35rem] md:rounded-[1.6rem] flex flex-col gap-1.5 md:gap-2 items-center justify-center cursor-pointer min-w-20 md:min-w-28 shrink-0"
+                        title="Manage News Sources">
+                    <span class="material-icons text-[30px] md:!text-4xl">newspaper</span>
+                    <span class="text-xs">News</span>
+                </button>
 
-                        <button id="knowledge-btn"
-                                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
-                                title="Knowledge">
-                            <span class="material-icons">library_books</span>
-                            <span class="text-xs hidden md:block">Knowledge</span>
-                        </button>
+                <button id="knowledge-btn"
+                        class="bg-transparent hover:bg-white/12 transition-colors text-white text-sm py-2 px-3 md:py-3 md:px-5 rounded-[1.35rem] md:rounded-[1.6rem] flex flex-col gap-1.5 md:gap-2 items-center justify-center cursor-pointer min-w-20 md:min-w-28 shrink-0"
+                        title="Knowledge">
+                    <span class="material-icons text-[30px] md:!text-4xl">library_books</span>
+                    <span class="text-xs">Knowledge</span>
+                </button>
 
-                        <button id="user-profile-btn"
-                                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
-                                title="Settings">
-                            <span class="material-icons">settings</span>
-                            <span class="text-xs hidden md:block">Settings</span>
-                        </button>
-                </div>
+                <button id="user-profile-btn"
+                        class="bg-transparent hover:bg-white/12 transition-colors text-white text-sm py-2 px-3 md:py-3 md:px-5 rounded-[1.35rem] md:rounded-[1.6rem] flex flex-col gap-1.5 md:gap-2 items-center justify-center cursor-pointer min-w-20 md:min-w-28 shrink-0"
+                        title="Settings">
+                    <span class="material-icons text-[30px] md:!text-4xl">settings</span>
+                    <span class="text-xs">Settings</span>
+                </button>
         </div>
     </footer>
     {% endblock %}

@@ -61,7 +61,7 @@
 
             <div>
                 <div class="flex flex-wrap items-center justify-between gap-3">
-                    <label for="wifi-network-select" class="block font-semibold text-sm text-slate-300">
+                    <label class="block font-semibold text-sm text-slate-300">
                         Nearby networks
                     </label>
                     <button type="button"
@@ -71,11 +71,24 @@
                         Scan networks
                     </button>
                 </div>
-                <select id="wifi-network-select"
-                        class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                    <option value="">Choose a network</option>
-                    <option value="__manual__">Enter SSID manually</option>
-                </select>
+                <div id="wifi-network-list"
+                     class="mt-1 space-y-2 max-h-72 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900/40 p-2">
+                    <button type="button"
+                            class="wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500"
+                            data-ssid=""
+                            data-manual="false">
+                        <span class="text-sm text-zinc-400">Choose a network</span>
+                    </button>
+                    <button type="button"
+                            class="wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500"
+                            data-ssid="__manual__"
+                            data-manual="true">
+                        <span class="flex items-center justify-between gap-3">
+                            <span class="font-medium">Enter SSID manually</span>
+                            <span class="material-icons text-zinc-400">edit</span>
+                        </span>
+                    </button>
+                </div>
             </div>
 
             <div class="grid gap-4 md:grid-cols-2">
