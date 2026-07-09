@@ -114,9 +114,9 @@ const ServiceStatus = (() => {
         }
 
         controlsEl.innerHTML = "";
-        const createButton = (label, action, color, iconName) => {
+        const createButton = (label, action, colorClass, iconName) => {
             const btn = document.createElement("button");
-            btn.className = `flex items-center transition-all gap-1 bg-${color}-500 hover:bg-${color}-400 text-zinc-800 font-semibold py-1 px-2 rounded`;
+            btn.className = `secondary-action ${colorClass} text-sm p-2`;
 
             const icon = document.createElement("i");
             icon.className = "material-icons";
@@ -124,7 +124,7 @@ const ServiceStatus = (() => {
             btn.appendChild(icon);
 
             const labelSpan = document.createElement("span");
-            labelSpan.className = "hidden md:inline";
+            labelSpan.className = "hidden text-sm md:inline";
             labelSpan.textContent = label;
             btn.appendChild(labelSpan);
 
@@ -133,10 +133,10 @@ const ServiceStatus = (() => {
         };
 
         if (status === "inactive" || status === "failed") {
-            controlsEl.appendChild(createButton("Start", "start", "emerald", "play_arrow"));
+            controlsEl.appendChild(createButton("Start", "start", "secondary-action--emerald secondary-action--hover--emerald", "play_arrow"));
             restartButtonRef = null;
         } else if (status === "active") {
-            const restartBtn = createButton("Restart", "restart", "amber", "restart_alt");
+            const restartBtn = createButton("Restart", "restart", "secondary-action--hover--amber", "restart_alt");
             controlsEl.appendChild(restartBtn);
             restartButtonRef = restartBtn;
         } else {

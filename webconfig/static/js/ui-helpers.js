@@ -181,3 +181,183 @@ const LoadingOverlay = (() => {
 })();
 
 window.LoadingOverlay = LoadingOverlay;
+
+// ===================== MOBILE SPLIT VIEW =====================
+const MobileSplitView = (() => {
+    const mobileQuery = "(max-width: 47.98rem)";
+    const transitionMs = 180;
+    const slideDistance = 24;
+    let resizeBound = false;
+
+    const isMobileViewport = () => window.matchMedia(mobileQuery).matches;
+
+    const setVisible = (pane, visible) => {
+        if (!pane) return;
+        pane.classList.toggle("hidden", !visible);
+    };
+
+    const clearPaneStyles = (pane) => {
+        if (!pane) return;
+        pane.style.position = "";
+        pane.style.inset = "";
+        pane.style.width = "";
+        pane.style.zIndex = "";
+        pane.style.willChange = "";
+    };
+
+    const applyStaticState = (root) => {
+        if (!root) return;
+
+        const masterPane = root.querySelector("[data-mobile-split-master]");
+        const detailPane = root.querySelector("[data-mobile-split-detail]");
+        const backBtn = root.querySelector("[data-mobile-split-back]");
+        const isDetailActive = root.dataset.mobileSplitState === "detail";
+        const isMobile = isMobileViewport();
+        const hideMaster = isMobile && isDetailActive;
+        const hideDetail = isMobile && !isDetailActive;
+
+        clearPaneStyles(masterPane);
+        clearPaneStyles(detailPane);
+        root.style.position = "";
+        root.style.overflow = "";
+        root.style.minHeight = "";
+
+        setVisible(masterPane, !hideMaster);
+        setVisible(detailPane, !hideDetail);
+
+        if (backBtn) {
+            backBtn.classList.toggle("hidden", !hideMaster);
+            backBtn.classList.toggle("flex", hideMaster);
+        }
+
+    };
+
+    const animateStateChange = (root, nextState) => {
+        if (!root || !isMobileViewport() || !window.Element?.prototype?.animate) {
+            root.dataset.mobileSplitState = nextState;
+            applyStaticState(root);
+            return;
+        }
+
+        if (root.dataset.mobileSplitAnimating === "true") {
+            root.dataset.mobileSplitState = nextState;
+            return;
+        }
+
+        const masterPane = root.querySelector("[data-mobile-split-master]");
+        const detailPane = root.querySelector("[data-mobile-split-detail]");
+        const backBtn = root.querySelector("[data-mobile-split-back]");
+        const currentState = root.dataset.mobileSplitState || "list";
+
+        if (!masterPane || !detailPane || currentState === nextState) {
+            root.dataset.mobileSplitState = nextState;
+            applyStaticState(root);
+            return;
+        }
+
+        const showingDetail = nextState === "detail";
+        const outgoing = showingDetail ? masterPane : detailPane;
+        const incoming = showingDetail ? detailPane : masterPane;
+        const direction = showingDetail ? 1 : -1;
+
+        setVisible(masterPane, true);
+        setVisible(detailPane, true);
+        root.dataset.mobileSplitAnimating = "true";
+
+        const outgoingHeight = outgoing.offsetHeight;
+        const incomingHeight = incoming.offsetHeight;
+        root.style.minHeight = `${Math.max(outgoingHeight, incomingHeight)}px`;
+        root.style.position = "relative";
+        root.style.overflow = "hidden";
+
+        [outgoing, incoming].forEach((pane, index) => {
+            pane.style.position = "absolute";
+            pane.style.inset = "0";
+            pane.style.width = "100%";
+            pane.style.zIndex = index === 0 ? "1" : "2";
+            pane.style.willChange = "transform, opacity";
+        });
+
+        backBtn?.classList.remove("hidden");
+        backBtn?.classList.add("flex");
+
+        const outgoingAnimation = outgoing.animate(
+            [
+                { opacity: 1, transform: "translateX(0)" },
+                { opacity: 0, transform: `translateX(${-direction * slideDistance}px)` },
+            ],
+            {
+                duration: transitionMs,
+                easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+                fill: "forwards",
+            }
+        );
+
+        const incomingAnimation = incoming.animate(
+            [
+                { opacity: 0, transform: `translateX(${direction * slideDistance}px)` },
+                { opacity: 1, transform: "translateX(0)" },
+            ],
+            {
+                duration: transitionMs,
+                easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+                fill: "forwards",
+            }
+        );
+
+        Promise.allSettled([outgoingAnimation.finished, incomingAnimation.finished]).finally(() => {
+            root.dataset.mobileSplitAnimating = "false";
+            root.dataset.mobileSplitState = nextState;
+            applyStaticState(root);
+        });
+    };
+
+    const bindSplit = (root) => {
+        if (!root) return;
+
+        if (!root.dataset.mobileSplitState) {
+            root.dataset.mobileSplitState = "list";
+        }
+
+        if (root.dataset.mobileSplitBound !== "true") {
+            const backBtn = root.querySelector("[data-mobile-split-back]");
+            backBtn?.addEventListener("click", () => {
+                showList(root.id);
+            });
+            root.dataset.mobileSplitBound = "true";
+        }
+
+        applyStaticState(root);
+    };
+
+    const bindAll = () => {
+        document.querySelectorAll("[data-mobile-split]").forEach((root) => {
+            bindSplit(root);
+        });
+
+        if (!resizeBound) {
+            window.addEventListener("resize", () => {
+                document.querySelectorAll("[data-mobile-split]").forEach((root) => {
+                    applyStaticState(root);
+                });
+            });
+            resizeBound = true;
+        }
+    };
+
+    const showDetail = (splitId) => {
+        const root = document.getElementById(splitId);
+        if (!root) return;
+        animateStateChange(root, "detail");
+    };
+
+    const showList = (splitId) => {
+        const root = document.getElementById(splitId);
+        if (!root) return;
+        animateStateChange(root, "list");
+    };
+
+    return { bindAll, showDetail, showList };
+})();
+
+window.MobileSplitView = MobileSplitView;

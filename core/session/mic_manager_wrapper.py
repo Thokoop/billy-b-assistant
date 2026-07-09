@@ -2,10 +2,10 @@
 
 import asyncio
 import time
-
-import numpy as np
+from collections import deque
 
 from .. import audio
+from ..audio import calculate_input_rms, mic_input_samples_for_meter
 from ..config import SILENCE_THRESHOLD, TEXT_ONLY_MODE
 from ..logger import logger
 from ..mic import MicManager
@@ -28,6 +28,9 @@ class MicManagerWrapper:
         self._last_local_activity_rms = 0.0
         self._last_timeout_progress_log = 0.0
         self._timeout_countdown_started_at = 0.0
+        self._prebuffered_audio = deque()
+        self._prebuffered_audio_samples = 0
+        self._prebuffer_seconds = 3.0
 
     def start(self, *, retry=True):
         """Try to open the mic with optional retry on failure."""
@@ -37,6 +40,7 @@ class MicManagerWrapper:
         try:
             self._mic_data_started = False
             self._logged_waiting_for_wakeup = False
+            self._clear_prebuffer()
             if self.mic is None:
                 self.mic = MicManager()
 
@@ -66,6 +70,44 @@ class MicManagerWrapper:
                 logger.warning(f"Error stopping mic: {e}")
             self.mic_running = False
         self._timeout_countdown_active = False
+        self._clear_prebuffer()
+
+    def _clear_prebuffer(self):
+        self._prebuffered_audio.clear()
+        self._prebuffered_audio_samples = 0
+
+    def _store_prebuffer(self, samples):
+        if samples is None or len(samples) == 0:
+            return
+        chunk = samples.copy()
+        self._prebuffered_audio.append(chunk)
+        self._prebuffered_audio_samples += len(chunk)
+        max_samples = int(
+            (audio.MIC_RATE or audio.PROVIDER_MIC_RATE) * self._prebuffer_seconds
+        )
+        while self._prebuffered_audio_samples > max_samples and self._prebuffered_audio:
+            dropped = self._prebuffered_audio.popleft()
+            self._prebuffered_audio_samples -= len(dropped)
+
+    def flush_prebuffer(self):
+        """Send audio captured after wake-up playback but before the session was ready."""
+        if not self._prebuffered_audio:
+            return
+        if self.session.ws is None or self.session.loop is None:
+            return
+        chunks = len(self._prebuffered_audio)
+        samples = self._prebuffered_audio_samples
+        while self._prebuffered_audio:
+            audio.send_mic_audio(
+                self.session.ws,
+                self._prebuffered_audio.popleft(),
+                self.session.loop,
+            )
+        self._prebuffered_audio_samples = 0
+        logger.info(
+            f"Flushed startup mic prebuffer ({chunks} chunks, {samples} samples).",
+            "🎤",
+        )
 
     async def start_after_playback(self, delay: float = 0.6, retries: int = 3) -> bool:
         """Open mic after playback with retry logic."""
@@ -162,15 +204,8 @@ class MicManagerWrapper:
             logger.info("Mic data now being sent", "🎤")
             self._mic_data_started = True
 
-        samples = indata[:, 0]
-        samples_f32 = samples.astype(np.float32, copy=False)
-        rms = float(np.sqrt(np.mean(np.square(samples_f32))))
-        if np.issubdtype(samples.dtype, np.floating):
-            # Keep SILENCE_THRESHOLD semantics in int16-equivalent units (0-32768)
-            # even if backend provides normalized float samples (-1..1).
-            max_abs = float(np.max(np.abs(samples_f32))) if samples_f32.size else 0.0
-            if max_abs <= 1.5:
-                rms *= 32768.0
+        samples = mic_input_samples_for_meter(indata)
+        rms = calculate_input_rms(indata)
         self.last_rms = rms
         self.session.state.observe_rms(rms)
         now = time.time()
@@ -203,6 +238,11 @@ class MicManagerWrapper:
             self.session.state.increment_loud_mic_chunks()
 
         self.session.state.increment_mic_chunks()
+        if self.session.ws is None or not self.session.session_initialized:
+            self._store_prebuffer(samples)
+            return
+        if self._prebuffered_audio:
+            self.flush_prebuffer()
         audio.send_mic_audio(self.session.ws, samples, self.session.loop)
 
     async def timeout_checker(self):
@@ -216,6 +256,10 @@ class MicManagerWrapper:
         while self.session.session_active.is_set():
             now = time.time()
             if not self.mic_running:
+                await asyncio.sleep(0.2)
+                continue
+
+            if not TEXT_ONLY_MODE and not audio.playback_done_event.is_set():
                 await asyncio.sleep(0.2)
                 continue
 

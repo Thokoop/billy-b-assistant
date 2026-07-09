@@ -1,6 +1,7 @@
 // ===================== WAKEUP CLIPS =====================
 async function loadWakeupClips() {
     const container = document.getElementById("wakeup-sound-list");
+    if (!container) return;
     container.innerHTML = "";
     try {
         const res = await fetch("/wakeup");
@@ -13,8 +14,8 @@ async function loadWakeupClips() {
             return;
         } else {
             const label = document.createElement("label");
-            label.className = "flex items-center justify-between font-semibold text-sm text-slate-300 mb-1";
-            label.innerHtml = `Words or phrases that Billy will randomly say on activation:`;
+            label.className = "flex items-center justify-between text-sm text-slate-300 mb-1";
+            label.textContent = "Words or phrases that Billy will randomly say on activation:";
             container.appendChild(label);
         }
         clips.sort((a, b) => a.index - b.index).forEach(({ index, phrase, has_audio }) => {
@@ -22,15 +23,15 @@ async function loadWakeupClips() {
             row.className = "flex items-center space-x-2";
             row.dataset.index = index;
             row.innerHTML = `
-                <input type="text" class="text-input w-full rounded bg-zinc-800 border border-zinc-700 px-2 py-1" value="${phrase}">
-                <button type="button" class="wakeup-generate-btn text-white hover:text-amber-400" title="Generate .wav">
-                    <i class="material-icons align-middle">auto_fix_high</i>
+                <input type="text" class="text-input w-full rounded bg-zinc-800 border border-zinc-700 p-2" value="${phrase}">
+                <button type="button" class="wakeup-generate-btn secondary-action secondary-action--hover--amber h-11 w-11 p-0 shrink-0" title="Generate .wav">
+                    <i class="material-icons text-[22px] leading-none">auto_fix_high</i>
                 </button>
-                <button type="button" class="wakeup-play-btn text-white hover:text-emerald-400 ${!has_audio ? 'invisible' : ''}" title="Play .wav">
-                    <i class="material-icons align-middle">play_arrow</i>
+                <button type="button" class="wakeup-play-btn secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0 ${!has_audio ? 'invisible' : ''}" title="Play .wav">
+                    <i class="material-icons text-[22px] leading-none">play_arrow</i>
                 </button>
-                <button type="button" class="remove-wakeup-row text-rose-500 hover:text-rose-400" title="Remove">
-                    <i class="material-icons align-middle">remove_circle_outline</i>
+                <button type="button" class="remove-wakeup-row secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0" title="Remove">
+                    <i class="material-icons text-[22px] leading-none">delete</i>
                 </button>
             `;
             container.appendChild(row);
@@ -43,6 +44,7 @@ async function loadWakeupClips() {
 
 function addWakeupSound(index = null, phrase = "", hasAudio = false) {
     const container = document.getElementById("wakeup-sound-list");
+    if (!container) return;
     const rows = container.querySelectorAll("div[data-index]");
     const usedIndices = Array.from(rows).map(row => parseInt(row.dataset.index));
     const nextIndex = index ?? (usedIndices.length > 0 ? Math.max(...usedIndices) + 1 : 1);
@@ -50,26 +52,31 @@ function addWakeupSound(index = null, phrase = "", hasAudio = false) {
     row.className = "flex items-center space-x-2";
     row.dataset.index = nextIndex;
     row.innerHTML = `
-        <input type="text" class="text-input w-full rounded bg-zinc-800 border border-zinc-700 px-2 py-1" value="${phrase}" placeholder="word or phrase">
-        <button type="button" class="wakeup-generate-btn text-white hover:text-amber-400" title="Generate .wav">
-            <i class="material-icons align-middle">auto_fix_high</i>
+        <input type="text" class="text-input w-full rounded bg-zinc-800 border border-zinc-700 p-2" value="${phrase}" placeholder="word or phrase">
+        <button type="button" class="wakeup-generate-btn secondary-action secondary-action--hover--amber h-11 w-11 p-0 shrink-0" title="Generate .wav">
+            <i class="material-icons text-[22px] leading-none">auto_fix_high</i>
         </button>
-        <button type="button" class="wakeup-play-btn text-white hover:text-emerald-400 ${!hasAudio ? 'invisible' : ''}" title="Play .wav">
-            <i class="material-icons align-middle">play_arrow</i>
+        <button type="button" class="wakeup-play-btn secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0 ${!hasAudio ? 'invisible' : ''}" title="Play .wav">
+            <i class="material-icons text-[22px] leading-none">play_arrow</i>
         </button>
-        <button type="button" class="remove-wakeup-row text-rose-500 hover:text-rose-400" title="Remove">
-            <i class="material-icons align-middle">remove_circle_outline</i>
+        <button type="button" class="remove-wakeup-row secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0" title="Remove">
+            <i class="material-icons text-[22px] leading-none">delete</i>
         </button>
     `;
     container.appendChild(row);
 }
 
-document.getElementById("wakeup-sound-list").addEventListener("click", async (e) => {
-    const row = e.target.closest(".flex");
-    if (!row) return;
-    const clipIndex = row.dataset.index;
-    const input = row.querySelector("input[type='text']");
-    const phrase = input && input.value && input.value.trim();
+function bindWakeupClips() {
+    const wakeupSoundList = document.getElementById("wakeup-sound-list");
+    if (!wakeupSoundList || wakeupSoundList.dataset.bound === "true") return;
+    wakeupSoundList.dataset.bound = "true";
+
+    wakeupSoundList.addEventListener("click", async (e) => {
+        const row = e.target.closest("div[data-index]");
+        if (!row) return;
+        const clipIndex = row.dataset.index;
+        const input = row.querySelector("input[type='text']");
+        const phrase = input && input.value && input.value.trim();
 
     if (e.target.closest(".wakeup-play-btn")) {
         const clipIndex = e.target.closest("div[data-index]") && e.target.closest("div[data-index]").dataset.index;
@@ -170,6 +177,7 @@ document.getElementById("wakeup-sound-list").addEventListener("click", async (e)
             showNotification("Remove failed: " + err.message, "error");
         }
     }
-});
+    });
+}
 
-
+window.bindWakeupClips = bindWakeupClips;

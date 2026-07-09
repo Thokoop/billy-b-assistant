@@ -51,6 +51,7 @@ CONFIG_KEYS = [
     "BILLY_PINS",
     "MIC_TIMEOUT_SECONDS",
     "SILENCE_THRESHOLD",
+    "MIC_GAIN",
     "MQTT_HOST",
     "MQTT_PORT",
     "MQTT_USERNAME",
@@ -311,14 +312,38 @@ def _set_wifi_onboarding_active(active: bool) -> None:
 
 
 def _run_wifi_command(
-    args: list[str], *, check: bool = False
+    args: list[str], *, check: bool = False, timeout: float = 20.0
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
         args,
         check=check,
         capture_output=True,
         text=True,
+        timeout=timeout,
     )
+
+
+def _split_nmcli_terse_line(line: str, expected_parts: int) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    escaped = False
+
+    for char in line:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == ":" and len(parts) < expected_parts - 1:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+
+    parts.append("".join(current))
+    return parts
 
 
 def _list_active_wifi_connections() -> list[dict[str, str]]:
@@ -339,7 +364,7 @@ def _list_active_wifi_connections() -> list[dict[str, str]]:
             line = raw_line.strip()
             if not line:
                 continue
-            parts = line.split(":")
+            parts = _split_nmcli_terse_line(line, 3)
             if len(parts) < 3:
                 continue
             name, conn_type, device = parts[0], parts[1], parts[2]
@@ -391,6 +416,38 @@ def _delete_wifi_connection(name: str) -> None:
     if not name:
         return
     _run_wifi_command(["sudo", "nmcli", "connection", "delete", name], check=False)
+
+
+def _set_wifi_autoconnect(
+    connection_name: str,
+    enabled: bool,
+    *,
+    priority: int | None = None,
+) -> tuple[bool, str]:
+    if not connection_name:
+        return False, "Missing connection name"
+
+    args = [
+        "sudo",
+        "nmcli",
+        "connection",
+        "modify",
+        connection_name,
+        "connection.autoconnect",
+        "yes" if enabled else "no",
+    ]
+    if priority is not None:
+        args.extend(["connection.autoconnect-priority", str(priority)])
+
+    result = _run_wifi_command(args)
+    if result.returncode != 0:
+        return (
+            False,
+            result.stderr.strip()
+            or result.stdout.strip()
+            or "Failed to update Wi-Fi connection settings",
+        )
+    return True, connection_name
 
 
 def _activate_wifi_connection(name: str) -> tuple[bool, str]:
@@ -524,6 +581,32 @@ def _restore_unified_wifi_onboarding_hotspot() -> None:
             )
 
 
+def _friendly_wifi_error_message(error: str, *, password_provided: bool) -> str:
+    message = str(error or "").strip()
+    lowered = message.lower()
+
+    if "secrets were required" in lowered:
+        return (
+            "This Wi-Fi network requires a password."
+            if not password_provided
+            else "Billy could not join this Wi-Fi network. Check the password and try again."
+        )
+    if "activation failed" in lowered and "password" in lowered:
+        return (
+            "Billy could not join this Wi-Fi network. Check the password and try again."
+        )
+    if "no network with ssid" in lowered:
+        return "Billy could not find that Wi-Fi network. Scan again and try once more."
+    if "ssid not found" in lowered:
+        return "Billy could not find that Wi-Fi network. Scan again and try once more."
+    if "connection profile creation failed" in lowered:
+        return "Billy could not save this Wi-Fi network. Try again."
+    if "timed out" in lowered:
+        return "Billy could not join this Wi-Fi network in time. Try again in a moment."
+
+    return message or "Billy could not join this Wi-Fi network. Try again."
+
+
 def _wifi_connect(
     ssid: str,
     password: str,
@@ -590,26 +673,16 @@ def _wifi_connect(
                 or create_result.stdout.strip()
                 or "Wi-Fi connection profile creation failed"
             )
-            if "Secrets were required" in error and not password:
-                error = "This network requires a password."
             _delete_wifi_connection(connection_name)
-            return False, error
-
-        modify_result = _run_wifi_command([
-            "sudo",
-            "nmcli",
-            "connection",
-            "modify",
-            connection_name,
-            "connection.autoconnect",
-            "yes" if autoconnect else "no",
-        ])
-        if modify_result.returncode != 0:
-            return False, (
-                modify_result.stderr.strip()
-                or modify_result.stdout.strip()
-                or "Failed to update Wi-Fi connection settings"
+            return False, _friendly_wifi_error_message(
+                error,
+                password_provided=bool(password),
             )
+
+        modify_ok, modify_error = _set_wifi_autoconnect(connection_name, autoconnect)
+        if not modify_ok:
+            _delete_wifi_connection(connection_name)
+            return False, modify_error
 
         up_result = _run_wifi_command([
             "sudo",
@@ -627,7 +700,10 @@ def _wifi_connect(
                 or "Wi-Fi connection failed"
             )
             _delete_wifi_connection(connection_name)
-            return False, error
+            return False, _friendly_wifi_error_message(
+                error,
+                password_provided=bool(password),
+            )
 
         return True, connection_name
     except Exception as exc:
@@ -853,15 +929,28 @@ def _reset_git_worktree() -> dict:
 
 def delayed_restart():
     time.sleep(1.5)
+    subprocess.run(["sudo", "systemctl", "stop", "billy.service"], check=False)
+    time.sleep(1.0)
+    subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=False)
     subprocess.run(["sudo", "systemctl", "restart", "billy-webconfig.service"])
-    subprocess.run(["sudo", "systemctl", "restart", "billy.service"])
 
 
-@bp.route("/")
-def index():
-    return render_template(
-        "index.html",
-        config={k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
+def delayed_billy_restart():
+    time.sleep(1.0)
+    subprocess.run(["sudo", "systemctl", "stop", "billy.service"], check=False)
+    time.sleep(1.0)
+    subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=False)
+
+
+def delayed_system_reboot():
+    time.sleep(2.0)
+    subprocess.Popen(["sudo", "shutdown", "-r", "now"])
+
+
+def _page_context(current_page: str) -> dict:
+    return {
+        "current_page": current_page,
+        "config": {k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
         | {
             "VOICE_OPTIONS": [
                 "alloy",
@@ -878,7 +967,37 @@ def index():
             "WIFI_COUNTRIES": WIFI_COUNTRIES,
             "WIFI_ONBOARDING_ACTIVE": _is_wifi_onboarding_active(),
         },
-    )
+    }
+
+
+@bp.route("/")
+def index():
+    return redirect("/personas")
+
+
+@bp.route("/profiles")
+def profiles_page():
+    return render_template("profiles.html", **_page_context("profiles"))
+
+
+@bp.route("/personas")
+def personas_page():
+    return render_template("personas.html", **_page_context("personas"))
+
+
+@bp.route("/songs-page")
+def songs_page():
+    return render_template("songs.html", **_page_context("songs"))
+
+
+@bp.route("/library")
+def library_page():
+    return render_template("library.html", **_page_context("library"))
+
+
+@bp.route("/settings")
+def settings_page():
+    return render_template("settings.html", **_page_context("settings"))
 
 
 def _captive_portal_redirect():
@@ -1071,6 +1190,7 @@ def save():
         "SPEAKER_PREFERENCE",
         "MIC_TIMEOUT_SECONDS",
         "SILENCE_THRESHOLD",
+        "MIC_GAIN",
     }
     for key, value in data.items():
         if key in CONFIG_KEYS:
@@ -1080,6 +1200,24 @@ def save():
                 except (TypeError, ValueError):
                     parsed = 1
                 value = str(max(0, min(5, parsed)))
+            elif key == "SILENCE_THRESHOLD":
+                try:
+                    parsed = float(str(value).strip())
+                except (TypeError, ValueError):
+                    parsed = 1000.0
+                value = str(max(0.0, min(32768.0, parsed)))
+                if value.endswith(".0"):
+                    value = value[:-2]
+            elif key == "MIC_GAIN":
+                raw_value = str(value).strip().lower()
+                if raw_value not in {"", "max", "maximum", "default"}:
+                    try:
+                        parsed = int(float(raw_value))
+                    except (TypeError, ValueError):
+                        raw_value = "max"
+                    else:
+                        raw_value = str(max(0, parsed))
+                value = raw_value or "max"
             elif key == "STATUS_LED_BRIGHTNESS":
                 try:
                     parsed = float(str(value).strip())
@@ -1113,7 +1251,7 @@ def wifi_status():
         "device": active.get("device") if active else "",
         "onboarding_active": _is_wifi_onboarding_active(),
         "onboarding_mode": str(getattr(core_config, "WIFI_ONBOARDING_MODE", "legacy")),
-        "country": str(getattr(core_config, "WIFI_COUNTRY", "US")),
+        "country": str(getattr(core_config, "WIFI_COUNTRY", "NL")),
         "hotspot_active": hotspot_active,
     })
 
@@ -1126,7 +1264,16 @@ def wifi_networks():
         }), 409
     try:
         _run_wifi_command(["sudo", "systemctl", "start", "NetworkManager"], check=False)
+        _run_wifi_command(
+            ["sudo", "nmcli", "device", "set", "wlan0", "managed", "yes"],
+            check=False,
+        )
         _run_wifi_command(["sudo", "nmcli", "radio", "wifi", "on"], check=False)
+        _run_wifi_command(
+            ["sudo", "nmcli", "dev", "wifi", "rescan", "ifname", "wlan0"],
+            check=False,
+        )
+        time.sleep(2)
         result = _run_wifi_command([
             "nmcli",
             "-t",
@@ -1137,8 +1284,6 @@ def wifi_networks():
             "list",
             "ifname",
             "wlan0",
-            "--rescan",
-            "yes",
         ])
         if result.returncode != 0:
             error = (
@@ -1152,7 +1297,7 @@ def wifi_networks():
             line = raw_line.strip()
             if not line:
                 continue
-            parts = line.split(":")
+            parts = _split_nmcli_terse_line(line, 4)
             if len(parts) < 4:
                 continue
             ssid = parts[0].strip()
@@ -1198,7 +1343,7 @@ def wifi_test():
     ssid = str(data.get("ssid") or "").strip()
     password = str(data.get("password") or "")
     country = (
-        str(data.get("country") or getattr(core_config, "WIFI_COUNTRY", "US"))
+        str(data.get("country") or getattr(core_config, "WIFI_COUNTRY", "NL"))
         .strip()
         .upper()
     )
@@ -1244,7 +1389,7 @@ def wifi_save():
     ssid = str(data.get("ssid") or "").strip()
     password = str(data.get("password") or "")
     country = (
-        str(data.get("country") or getattr(core_config, "WIFI_COUNTRY", "US"))
+        str(data.get("country") or getattr(core_config, "WIFI_COUNTRY", "NL"))
         .strip()
         .upper()
     )
@@ -1258,90 +1403,91 @@ def wifi_save():
         str(active_before.get("name") or "").strip() if active_before else ""
     )
     target_name = ssid
+    temporary_name = test_connection or f"{WIFI_TEST_PREFIX}{uuid.uuid4().hex[:8]}"
     finalize_warnings: list[str] = []
 
     try:
         if test_connection:
-            if (
-                active_before
-                and active_before.get("name") == target_name
-                and target_name != test_connection
-            ):
-                _delete_wifi_connection(target_name)
-            _run_wifi_command([
-                "sudo",
-                "nmcli",
-                "connection",
-                "modify",
-                test_connection,
-                "connection.id",
-                target_name,
-                "connection.autoconnect",
-                "yes",
-            ])
-            up_result = _run_wifi_command([
-                "sudo",
-                "nmcli",
-                "connection",
-                "up",
-                target_name,
-                "ifname",
-                "wlan0",
-            ])
-            if up_result.returncode != 0:
-                if _is_unified_wifi_hotspot_onboarding():
-                    _restore_unified_wifi_onboarding_hotspot()
-                error = (
-                    up_result.stderr.strip()
-                    or up_result.stdout.strip()
-                    or "Wi-Fi save failed"
-                )
-                return jsonify({"error": error}), 400
+            temporary_name = test_connection
         else:
-            attempt_connection_name = (
-                f"{WIFI_TEST_PREFIX}{uuid.uuid4().hex[:8]}"
-                if previous_connection_name and previous_connection_name == target_name
-                else target_name
-            )
             success, detail = _wifi_connect(
                 ssid,
                 password,
                 country,
-                connection_name=attempt_connection_name,
-                autoconnect=True,
+                connection_name=temporary_name,
+                autoconnect=False,
             )
             if not success:
-                if previous_connection_name and previous_connection_name != target_name:
+                if previous_connection_name:
                     _activate_wifi_connection(previous_connection_name)
                 if _is_unified_wifi_hotspot_onboarding():
                     _restore_unified_wifi_onboarding_hotspot()
                 return jsonify({"error": detail}), 400
 
-            if attempt_connection_name != target_name:
-                _delete_wifi_connection(target_name)
-                rename_result = _run_wifi_command([
-                    "sudo",
-                    "nmcli",
-                    "connection",
-                    "modify",
-                    attempt_connection_name,
-                    "connection.id",
-                    target_name,
-                ])
-                if rename_result.returncode != 0:
-                    finalize_warnings.append(
-                        rename_result.stderr.strip()
-                        or rename_result.stdout.strip()
-                        or "Wi-Fi connected, but the saved connection name could not be updated"
-                    )
+        if temporary_name != target_name:
+            _delete_wifi_connection(target_name)
+            rename_result = _run_wifi_command([
+                "sudo",
+                "nmcli",
+                "connection",
+                "modify",
+                temporary_name,
+                "connection.id",
+                target_name,
+            ])
+            if rename_result.returncode != 0:
+                _delete_wifi_connection(temporary_name)
+                if previous_connection_name:
+                    _activate_wifi_connection(previous_connection_name)
+                if _is_unified_wifi_hotspot_onboarding():
+                    _restore_unified_wifi_onboarding_hotspot()
+                return jsonify({
+                    "error": rename_result.stderr.strip()
+                    or rename_result.stdout.strip()
+                    or "Wi-Fi connected, but the saved connection name could not be updated",
+                }), 400
+
+        autoconnect_ok, autoconnect_error = _set_wifi_autoconnect(
+            target_name,
+            True,
+            priority=100,
+        )
+        if not autoconnect_ok:
+            _delete_wifi_connection(target_name)
+            if previous_connection_name:
+                _activate_wifi_connection(previous_connection_name)
+            if _is_unified_wifi_hotspot_onboarding():
+                _restore_unified_wifi_onboarding_hotspot()
+            return jsonify({"error": autoconnect_error}), 400
+
+        activate_ok, activate_detail = _activate_wifi_connection(target_name)
+        if not activate_ok:
+            _delete_wifi_connection(target_name)
+            if previous_connection_name:
+                _activate_wifi_connection(previous_connection_name)
+            if _is_unified_wifi_hotspot_onboarding():
+                _restore_unified_wifi_onboarding_hotspot()
+            return jsonify({"error": activate_detail}), 400
+
+        if previous_connection_name and previous_connection_name != target_name:
+            previous_ok, previous_detail = _set_wifi_autoconnect(
+                previous_connection_name,
+                True,
+                priority=0,
+            )
+            if not previous_ok:
+                finalize_warnings.append(previous_detail)
 
         _set_wifi_country(country)
+        _cleanup_test_wifi_connections()
         stop_errors = _stop_wifi_onboarding_services()
+        threading.Thread(target=delayed_system_reboot, daemon=True).start()
         return jsonify({
             "ok": True,
             "ssid": ssid,
             "country": country,
             "onboarding_stopped": True,
+            "rebooting": True,
             "warnings": stop_errors + finalize_warnings,
         })
     except Exception as exc:

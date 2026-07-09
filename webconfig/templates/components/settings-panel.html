@@ -4,7 +4,7 @@
         <!-- Fixed Header -->
         <div class="flex justify-between items-center p-4 border-b border-zinc-700 flex-shrink-0 relative">
             <!-- Title (center) -->
-            <h3 class="text-lg font-semibold text-white flex items-center gap-2 mx-auto">
+            <h3 class="text-lg text-white flex items-center gap-2 mx-auto">
                 <span class="material-icons text-emerald-400">settings</span>
                 Settings
             </h3>
@@ -28,7 +28,7 @@
                     <div class="flex rounded shadow overflow-hidden border border-emerald-500">
                         <button
                                 id="save-btn"
-                                class="bg-emerald-500 hover:bg-emerald-400 text-zinc-800 font-semibold py-2 px-4 flex items-center gap-1 focus:outline-none"
+                                class="bg-emerald-600 hover:bg-emerald-500  text-white py-2 px-4 flex items-center gap-1 focus:outline-none"
                                 type="submit"
                                 form="config-form"
                         >
@@ -38,20 +38,20 @@
                         <button
                                 id="dropdown-btn"
                                 type="button"
-                                class="dropdown-toggle bg-emerald-500 hover:bg-emerald-400 text-zinc-800 px-2 flex items-center"
+                                class="dropdown-toggle bg-emerald-600 hover:bg-emerald-500  text-white px-2 flex items-center"
                                 onclick="toggleDropdown(this)"
                         >
                             <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
                         </button>
                     </div>
                     <!-- Dropdown -->
-                    <div class="dropdown-menu absolute bottom-0 right-0 w-full text-zinc-800 border border-emerald-500  backdrop-blur-xs  rounded  z-20 hidden">
+                    <div class="dropdown-menu absolute bottom-0 right-0 w-full text-white border border-emerald-500  backdrop-blur-xs  rounded  z-20 hidden">
                         <button onclick="exportSettings()"
-                                class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-400 cursor-pointer">
+                                class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500  cursor-pointer">
                             <span class="material-icons">file_download</span>
                             Export Settings
                         </button>
-                        <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-500/80relative bg-emerald-500 hover:bg-emerald-400 cursor-pointer">
+                        <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-500/80relative bg-emerald-600 hover:bg-emerald-500  cursor-pointer">
                             <span class="material-icons">file_upload</span>
                             <span>Import Settings</span>
                             <input type="file" accept=".env" onchange="importSettings(this)" class="hidden"/>

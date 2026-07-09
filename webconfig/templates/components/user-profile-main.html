@@ -1,126 +1,136 @@
 <!-- User Profile Column (consistent with Persona) -->
 <section class="space-y-4 md:space-y-6">
-    <form id="profile-form" class="p-4">
-        <!-- Profile Selector -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-bold text-slate-200 flex items-center">
-                    <span class="material-icons mr-2 text-emerald-400">person</span>
-                    User Profiles
-                </h3>
-                <button type="button" 
-                        class="flex items-center justify-center w-8 h-8 bg-emerald-500 hover:bg-emerald-400 text-white rounded transition-colors"
-                        title="Start a conversation with Billy to create a new profile"
-                        onclick="window.UserProfilePanel.showNewProfileInfo()">
-                    <span class="material-icons text-base">add</span>
+    <form id="profile-form">
+        <div id="profile-split-view" data-mobile-split class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            <div data-mobile-split-master class="md:sticky md:top-16">
+                <!-- Profile Selector -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 xl:mb-0">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg text-slate-200 flex items-center">
+                            <span class="material-icons mr-2 text-emerald-400">person</span>
+                            User Profiles
+                        </h3>
+                        <button type="button" 
+                                class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0"
+                                title="Start a conversation with Billy to create a new profile"
+                                onclick="window.UserProfilePanel.showNewProfileInfo()">
+                            <span class="material-icons">add</span>
+                        </button>
+                    </div>
+                    <div id="profile-list-main" class="space-y-1">
+                        <!-- Profile list will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <div data-mobile-split-detail class="min-w-0">
+                <button id="profile-mobile-back-btn"
+                        data-mobile-split-back
+                        type="button"
+                        class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white mb-4 md:hidden">
+                    <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+                    <span>Back</span>
                 </button>
-            </div>
-            <div id="profile-list-main" class="space-y-1">
-                <!-- Profile list will be populated here -->
-            </div>
-        </div>
+                <!-- Profile Settings (Collapsible) -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+                     id="section-profile-settings-main">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">manage_accounts</span>
+                        Profile Settings
+                        <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                    </h3>
 
-        <!-- Profile Settings (Collapsible) -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
-             id="section-profile-settings-main">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">manage_accounts</span>
-                Profile Settings
-                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-            </h3>
-
-            <div class="space-y-6">
-                <!-- Display Name -->
-                <div>
-                    <label class="flex justify-between items-center font-semibold text-sm text-slate-300 relative mb-3">
-                        Display Name
-                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
-                              onclick="toggleTooltip(this)">
-                            help_outline
-                        </span>
-                    </label>
-                    <div class="relative">
-                        <div data-tooltip>
-                            How your name appears in the interface. Useful if Billy mispronounces your name (e.g., "Tom" instead of "Thom").
+                    <div class="space-y-6">
+                        <!-- Display Name -->
+                        <div>
+                            <label class="flex justify-between items-center text-sm text-slate-300 relative mb-3">
+                                Display Name
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                      onclick="toggleTooltip(this)">
+                                    help_outline
+                                </span>
+                            </label>
+                            <div class="relative">
+                                <div data-tooltip>
+                                    How your name appears in the interface. Useful if Billy mispronounces your name (e.g., "Tom" instead of "Thom").
+                                </div>
+                                <input type="text" id="display-name-input-main" class="w-full bg-zinc-800 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Enter display name">
+                            </div>
                         </div>
-                        <input type="text" id="display-name-input-main" class="w-full bg-zinc-800 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Enter display name">
+
+                        <!-- Persona Selection -->
+                        <div>
+                            <h4 class="text-sm text-zinc-300 mb-3">Preferred Persona</h4>
+                            <div>
+                                <select id="persona-select-main" class="w-full bg-zinc-800 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                    <!-- Options will be populated dynamically -->
+                                </select>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Persona Selection -->
-                <div>
-                    <h4 class="text-sm font-medium text-zinc-300 mb-3">Preferred Persona</h4>
-                    <div>
-                        <select id="persona-select-main" class="w-full bg-zinc-800 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                            <!-- Options will be populated dynamically -->
-                        </select>
+                <!-- Stats Section (Collapsible) -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+                     id="section-stats-main">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">analytics</span>
+                        Stats
+                        <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                    </h3>
+
+                    <div id="stats-content-main" class="space-y-2">
+                        <p class="text-sm text-zinc-400 italic">Loading stats...</p>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Stats Section (Collapsible) -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
-             id="section-stats-main">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">analytics</span>
-                Stats
-                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-            </h3>
+                <!-- Memories Section (Collapsible) -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+                     id="section-memories-main">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">psychology</span>
+                        Memories
+                        <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                    </h3>
 
-            <div id="stats-content-main" class="space-y-2">
-                <p class="text-sm text-zinc-400 italic">Loading stats...</p>
-            </div>
-        </div>
-
-        <!-- Memories Section (Collapsible) -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
-             id="section-memories-main">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">psychology</span>
-                Memories
-                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-            </h3>
-
-            <div id="memories-list-main" class="space-y-2 overflow-y-auto max-h-screen">
-                <p class="text-sm text-zinc-400 italic">No memories yet</p>
+                    <div id="memories-list-main" class="space-y-2 overflow-y-auto max-h-screen">
+                        <p class="text-sm text-zinc-400 italic">No memories yet</p>
+                    </div>
+                </div>
+                <div class="relative pt-0 md:py-4">
+                    <div class="flex justify-end">
+                        <div class="relative inline-block">
+                            <div class="flex rounded shadow overflow-hidden border border-emerald-500">
+                                <button id="update-persona-btn-main" 
+                                        class="bg-emerald-600 hover:bg-emerald-500  text-black py-2 px-4 flex items-center gap-1 focus:outline-none"
+                                        type="button">
+                                    <span class="material-icons align-middle">save</span>
+                                    Save User Profile
+                                </button>
+                                <button id="dropdown-btn-main"
+                                        type="button"
+                                        class="dropdown-toggle bg-emerald-600 hover:bg-emerald-500  text-black px-2 flex items-center"
+                                        onclick="toggleDropdown(this)">
+                                    <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
+                                </button>
+                            </div>
+                            <div class="dropdown-menu absolute bottom-0 right-0 w-full text-black border border-emerald-500 backdrop-blur-xs rounded z-20 hidden">
+                                <button onclick="downloadUserProfile()"
+                                        class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500  cursor-pointer">
+                                    <span class="material-icons">file_download</span>
+                                    Download Profile
+                                </button>
+                                <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500  cursor-pointer">
+                                    <span class="material-icons">file_upload</span>
+                                    <span>Upload Profile</span>
+                                    <input type="file" accept=".ini" onchange="uploadUserProfile(this)" class="hidden"/>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
     </form>
-
-    <div class="relative p-4 pt-0">
-        <div class="flex justify-center">
-            <div class="relative inline-block">
-                <!-- Split button -->
-                <div class="flex rounded shadow overflow-hidden border border-emerald-500">
-                    <button id="update-persona-btn-main" 
-                            class="bg-emerald-500 hover:bg-emerald-400 text-zinc-800 font-semibold py-2 px-4 flex items-center gap-1 focus:outline-none"
-                            type="button">
-                        <span class="material-icons align-middle">save</span>
-                        Save User Profile
-                    </button>
-                    <button id="dropdown-btn-main"
-                            type="button"
-                            class="dropdown-toggle bg-emerald-500 hover:bg-emerald-400 text-zinc-800 px-2 flex items-center"
-                            onclick="toggleDropdown(this)">
-                        <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
-                    </button>
-                </div>
-                <!-- Dropdown -->
-                <div class="dropdown-menu absolute bottom-0 right-0 w-full text-zinc-800 border border-emerald-500 backdrop-blur-xs rounded z-20 hidden">
-                    <button onclick="downloadUserProfile()"
-                            class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-400 cursor-pointer">
-                        <span class="material-icons">file_download</span>
-                        Download Profile
-                    </button>
-                    <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-400 cursor-pointer">
-                        <span class="material-icons">file_upload</span>
-                        <span>Upload Profile</span>
-                        <input type="file" accept=".ini" onchange="uploadUserProfile(this)" class="hidden"/>
-                    </label>
-                </div>
-            </div>
-        </div>
-    </div>
 </section>

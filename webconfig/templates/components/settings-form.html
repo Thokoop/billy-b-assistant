@@ -1,7 +1,7 @@
 <!-- Settings Form -->
 <section>
     <form id="config-form"
-          class="p-6"
+          class="md:pt-2"
           data-wifi-onboarding-active="{{ 'true' if WIFI_ONBOARDING_ACTIVE else 'false' }}"
           data-wifi-onboarding-mode="{{ config.get('WIFI_ONBOARDING_MODE', 'legacy') }}">
         <div id="wifi-onboarding-banner"
@@ -9,10 +9,12 @@
             Billy is in Wi-Fi setup mode. Finish Internet setup first, then the rest of the settings will unlock.
         </div>
 
+        <div class="settings-columns">
+
         <!-- Internet Settings -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-internet">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">wifi</span>
                 Internet Settings
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -21,7 +23,7 @@
             <div id="wifi-unified-fields" class="space-y-4">
                 <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
                     <div>
-                        <div class="text-white font-medium text-sm">Wi-Fi connection</div>
+                        <div class="text-white text-sm">Wi-Fi connection</div>
                         <div id="wifi-connection-status" class="text-sm text-zinc-300 mt-1">Checking connection...</div>
                     </div>
                     <div class="flex items-center gap-3">
@@ -36,7 +38,7 @@
 
                 <div class="flex items-end gap-4">
                     <div class="flex-1 min-w-0">
-                        <label for="hostname" class="block font-semibold text-sm text-slate-300">Device
+                        <label for="hostname" class="block text-sm text-slate-300">Device
                             Hostname</label>
                         <div class="flex items-center mt-1 gap-2">
                             <input
@@ -52,7 +54,7 @@
                         </div>
                     </div>
                     <div class="w-40 shrink-0">
-                        <label for="FLASK_PORT" class="block font-semibold text-sm text-slate-300">Web UI
+                        <label for="FLASK_PORT" class="block text-sm text-slate-300">Web UI
                             Port</label>
                         <input
                                 id="FLASK_PORT"
@@ -71,16 +73,16 @@
         </div>
 
         <!-- Software Settings -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-software">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">settings</span>
                 API Settings
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
             </h3>
 
             <div class="mb-4">
-                <label for="REALTIME_AI_PROVIDER" class="block font-semibold text-sm text-slate-300">
+                <label for="REALTIME_AI_PROVIDER" class="block text-sm text-slate-300">
                     Realtime API Provider
                 </label>
                 <select id="REALTIME_AI_PROVIDER" name="REALTIME_AI_PROVIDER"
@@ -99,7 +101,7 @@
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}style="display:none"{% endif %}>
                 <label for="OPENAI_API_KEY"
-                       class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                       class="flex justify-between items-center text-sm text-slate-300 relative">
                     OpenAI API Key
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -139,7 +141,7 @@
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}style="display:none"{% endif %}>
                 <label for="XAI_API_KEY"
-                       class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                       class="flex justify-between items-center text-sm text-slate-300 relative">
                     xAI API Key
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -172,7 +174,7 @@
                  data-api-provider="xai"
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}style="display:none"{% endif %}>
-                <label for="XAI_MODEL" class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                <label for="XAI_MODEL" class="flex justify-between items-center text-sm text-slate-300 relative">
                     xAI Realtime API Model
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -206,7 +208,7 @@
                  data-api-provider="openai"
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}style="display:none"{% endif %}>
-                <label for="OPENAI_MODEL" class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                <label for="OPENAI_MODEL" class="flex justify-between items-center text-sm text-slate-300 relative">
                     OpenAI Realtime API Model
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -268,7 +270,7 @@
             <div class="grid gap-4 md:grid-cols-2 mb-4">
                 <div>
                     <label for="TURN_EAGERNESS"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         Turn Detection Eagerness
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -293,7 +295,7 @@
 
                 <div>
                     <label for="FOLLOW_UP_RETRY_LIMIT"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         Follow-up Retry Limit
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -322,9 +324,9 @@
         </div>
 
         <!-- Wake-word Settings -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-wakeword">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">hearing</span>
                 Wake-word Settings
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -332,7 +334,7 @@
 
             <div class="grid gap-4 md:grid-cols-2">
                 <div>
-                    <label for="WAKE_WORD_ENABLED" class="block font-semibold text-sm text-slate-300">Wake-word enabled</label>
+                    <label for="WAKE_WORD_ENABLED" class="block text-sm text-slate-300">Wake-word enabled</label>
                     <select id="WAKE_WORD_ENABLED" name="WAKE_WORD_ENABLED"
                             class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
                         <option value="false" {% if config.get('WAKE_WORD_ENABLED', 'false') == 'false' %}selected{% endif %}>Disabled</option>
@@ -341,7 +343,7 @@
                 </div>
 
                 <div>
-                    <label for="WAKE_WORD_BACKEND" class="block font-semibold text-sm text-slate-300">Backend</label>
+                    <label for="WAKE_WORD_BACKEND" class="block text-sm text-slate-300">Backend</label>
                     <select id="WAKE_WORD_BACKEND" name="WAKE_WORD_BACKEND"
                             class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
                         <option value="porcupine" {% if config.get('WAKE_WORD_BACKEND', 'porcupine') == 'porcupine' %}selected{% endif %}>Porcupine</option>
@@ -351,7 +353,7 @@
 
                 <div class="relative wakeword-provider-only" data-wakeword-provider="porcupine" style="grid-column: 1 / -1;">
                     <label for="PORCUPINE_ACCESS_KEY"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         Porcupine AccessKey
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               data-tooltip-target="porcupine-accesskey-tooltip"
@@ -382,7 +384,7 @@
 
                 <div class="wakeword-provider-only" data-wakeword-provider="porcupine">
                     <label for="WAKE_WORD_PORCUPINE_KEYWORD_PATH"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         Porcupine keyword (.ppn) path
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -404,7 +406,7 @@
 
                 <div class="wakeword-provider-only" data-wakeword-provider="porcupine">
                     <label for="WAKE_WORD_PORCUPINE_SENSITIVITY"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         Porcupine sensitivity (0-1)
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -424,7 +426,7 @@
 
                 <div class="wakeword-provider-only" data-wakeword-provider="openwakeword">
                     <label for="WAKE_WORD_OPENWAKEWORD_MODEL_PATH"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         openWakeWord model (.onnx) path
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -446,7 +448,7 @@
 
                 <div class="wakeword-provider-only" data-wakeword-provider="openwakeword">
                     <label for="WAKE_WORD_OPENWAKEWORD_THRESHOLD"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         openWakeWord threshold (0-1)
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -465,7 +467,7 @@
             </div>
 
             <div class="mt-3 p-3 rounded border border-zinc-700 bg-zinc-900/40">
-                <label for="wakeword-keyword-file" class="block font-semibold text-sm text-slate-300 mb-1">Wake-word file upload (.ppn or .onnx)</label>
+                <label for="wakeword-keyword-file" class="block text-sm text-slate-300 mb-1">Wake-word file upload (.ppn or .onnx)</label>
                 <div class="flex flex-wrap gap-2 items-center">
                     <input type="file" id="wakeword-keyword-file" accept=".ppn,.onnx"
                            class="text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-zinc-700 file:px-3 file:py-2 file:text-slate-100 hover:file:bg-zinc-600">
@@ -482,16 +484,16 @@
         </div>
 
         <!-- Hardware Settings -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-hardware">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">build</span>
                 Hardware Settings
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
             </h3>
 
             <div class="mb-4" id="hardware-version-row">
-                <label for="BILLY_MODEL" class="block font-semibold text-sm text-slate-300">
+                <label for="BILLY_MODEL" class="block text-sm text-slate-300">
                     Billy Version
                 </label>
                 <select id="BILLY_MODEL" name="BILLY_MODEL"
@@ -508,7 +510,7 @@
             </div>
 
             <div class="mb-4">
-                <label for="MIC_PREFERENCE" class="block font-semibold text-sm text-slate-300 mb-1">
+                <label for="MIC_PREFERENCE" class="block text-sm text-slate-300 mb-1">
                     Microphone Device
                 </label>
                 <select id="MIC_PREFERENCE" name="MIC_PREFERENCE"
@@ -518,7 +520,7 @@
             </div>
 
             <div class="mb-4">
-                <label for="SPEAKER_PREFERENCE" class="block font-semibold text-sm text-slate-300 mb-1">
+                <label for="SPEAKER_PREFERENCE" class="block text-sm text-slate-300 mb-1">
                     Speaker Device
                 </label>
                 <select id="SPEAKER_PREFERENCE" name="SPEAKER_PREFERENCE"
@@ -529,7 +531,7 @@
 
             <div class="mb-4 relative">
                 <label for="CAMERA_HARDWARE"
-                       class="flex justify-between items-center font-semibold text-sm text-slate-300">
+                       class="flex justify-between items-center text-sm text-slate-300">
                     Camera Device
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">help_outline</span>
@@ -600,7 +602,7 @@
 
                     <div class="grid gap-4 md:grid-cols-2 mt-1 mb-3">
                         <div>
-                            <label for="STATUS_LED_ENABLED" class="block font-semibold text-sm text-slate-300 mb-1">
+                            <label for="STATUS_LED_ENABLED" class="block text-sm text-slate-300 mb-1">
                                 Status LED enabled
                             </label>
                             <select id="STATUS_LED_ENABLED" name="STATUS_LED_ENABLED"
@@ -610,11 +612,11 @@
                             </select>
                         </div>
                         <div class="flex flex-col justify-between">
-                            <label for="STATUS_LED_BRIGHTNESS" class="block font-semibold text-sm text-slate-300 mb-1">
+                            <label for="STATUS_LED_BRIGHTNESS" class="block text-sm text-slate-300 mb-1">
                                 LED brightness
                             </label>
                             <div class="flex gap-2 items-center mt-1 grow">
-                                <div class="w-20 text-sm font-medium text-gray-200">
+                                <div class="w-20 text-sm text-gray-200">
                                     <span id="status-led-brightness-value">{{ ((config.get('STATUS_LED_BRIGHTNESS', '0.2')|float) * 100)|round|int }}%</span>
                                 </div>
                                 <label for="STATUS_LED_BRIGHTNESS" class="sr-only">LED brightness</label>
@@ -655,7 +657,7 @@
 
             <div class="mb-4">
                 <label for="RUN_MODE"
-                       class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                       class="flex justify-between items-center text-sm text-slate-300 relative">
                     Motor test
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">help_outline</span>
@@ -685,9 +687,9 @@
         </div>
 
         <!-- Audio -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-audio">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">volume_up</span>
                 Audio Settings
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -700,7 +702,7 @@
 
             <div class="flex mb-4 gap-4">
                 <div class="flex-1/2 flex flex-col justify-between">
-                    <label for="MIC_TIMEOUT_SECONDS" class="flex justify-between items-center font-semibold text-sm text-slate-300">
+                    <label for="MIC_TIMEOUT_SECONDS" class="flex justify-between items-center text-sm text-slate-300">
                         Mic Timeout (s)
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">
@@ -720,7 +722,7 @@
                 </div>
 
                 <div class="flex-1/2 flex flex-col justify-between">
-                    <label for="SILENCE_THRESHOLD" class="block font-semibold text-sm text-slate-300">Silence
+                    <label for="SILENCE_THRESHOLD" class="block text-sm text-slate-300">Speech
                         Threshold (0-32768)
                     </label>
                     <input type="number" step="1" min="0" max="32768" id="SILENCE_THRESHOLD"
@@ -730,8 +732,8 @@
             </div>
 
             <div class="mb-4">
-                <label class="flex items-center justify-between font-semibold text-sm text-slate-300 mb-1">
-                    Microphone level & Silence Threshold
+                <label class="flex items-center justify-between text-sm text-slate-300 mb-1">
+                    Microphone level & Speech Threshold
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
                         help_outline
@@ -740,44 +742,70 @@
 
                 <div class="flex gap-2 mb-4 relative">
                     <div data-tooltip>
-                        Click "Test" to start a live microphone level preview.<br/>
-                        You can drag the red line to adjust the <b>silence threshold</b>.<br/>
+                        Click "Test levels" to start a live microphone level preview and save a short test recording.<br/>
+                        You can drag the red line to adjust the <b>speech threshold</b>.<br/>
+                        During testing, <b>Current</b> shows the latest RMS level and <b>Peak</b> shows the loudest level seen in the current test.<br/>
+                        The thin white marker shows peak RMS; the thin cyan marker shows average RMS over the last 10 seconds.<br/>
+                        The test recording is gated by the speech threshold, so only audio above the red line is saved, with a short release to avoid clipped syllables.<br/>
                         Billy will only consider audio as "speaking" when the bar crosses this threshold. <br/>
-                        Adjust the <b>silence threshold</b> and/or <b>gain</b> so that in your normal environment,
+                        Adjust the <b>speech threshold</b> and/or <b>gain</b> so that in your normal environment,
                         the volume bar stays below the red line while idle (background noise) but
                         jumps above it when you speak. Restart Billy after completion.
                     </div>
 
-                    <!-- Mic level bar container -->
-                    <div id="mic-bar-container"
-                         class="relative mt-2 h-4 w-full rounded-full bg-zinc-700 overflow-hidden">
-                        <!-- Fill bar -->
-                        <div id="mic-level-bar"
-                             class="absolute left-0 top-0 h-full w-0 bg-emerald-500 transition-all duration-100"
-                        ></div>
+                    <div class="flex-1 min-w-0">
+                        <!-- Mic level bar container -->
+                        <div id="mic-bar-container"
+                             class="relative mt-2 h-4 w-full rounded-full bg-zinc-700 overflow-hidden">
+                            <!-- Fill bar -->
+                            <div id="mic-level-bar"
+                                 class="absolute left-0 top-0 h-full w-0 bg-emerald-500 transition-all duration-100"
+                            ></div>
 
-                        <!-- Threshold line -->
-                        <div id="threshold-line"
-                             class="absolute top-0 bottom-0 w-[2px] bg-red-500 cursor-ew-resize"
-                             style="left: 10%;"
-                             draggable="false">
+                            <div id="mic-average-line"
+                                 class="absolute top-0 bottom-0 hidden"
+                                 style="left: 0%; width: 1px; transform: translateX(-50%); background-color: #67e8f9; box-shadow: 0 0 0 1px rgba(8, 47, 73, 0.65); z-index: 20;"
+                                 title="10-second average RMS">
+                            </div>
+                            <div id="mic-peak-line"
+                                 class="absolute top-0 bottom-0 hidden"
+                                 style="left: 0%; width: 1px; transform: translateX(-50%); background-color: #ffffff; box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.75); z-index: 21;"
+                                 title="Peak RMS during this test">
+                            </div>
+
+                            <!-- Threshold line -->
+                            {% set speech_threshold_percent = ((config.get('SILENCE_THRESHOLD', '1000') | float) / 32768 * 100) | round(4) %}
+                            <div id="threshold-line"
+                                 class="absolute top-0 bottom-0 bg-red-500 cursor-ew-resize"
+                                 style="left: {{ speech_threshold_percent }}%; width: 4px; transform: translateX(-50%);"
+                                 draggable="false">
+                            </div>
                         </div>
+
+                        <div id="mic-record-status" class="mt-2 text-xs text-slate-400 min-h-5">No test recording yet.</div>
                     </div>
 
                     <button type="button" id="mic-check-btn"
-                            class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center px-2 py-1 rounded shadow w-20 flex gap-1.5 cursor-pointer">
+                            class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center px-2 py-1 rounded shadow w-28 flex gap-1.5 cursor-pointer">
                         <span class="material-icons align-middle">mic</span>
-                        Test
+                        Test levels
+                    </button>
+                    <button type="button" id="mic-record-play-btn"
+                            class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center justify-center px-2 py-1 rounded shadow w-16 flex cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Play recording"
+                            aria-label="Play recording"
+                            disabled>
+                        <span class="material-icons align-middle">play_arrow</span>
                     </button>
                 </div>
 
                 <!-- Mic Gain Slider -->
                 <div class="mb-8 flex gap-2 items-center">
-                    <div class="w-20 text-sm font-medium text-gray-200">
-                        Gain: <span id="mic-gain-value">8</span>
+                    <div class="w-20 text-sm text-gray-200">
+                        Gain: <span id="mic-gain-value">16</span>
                     </div>
                     <label for="mic-gain" class="sr-only">Microphone Gain</label>
-                    <input type="range" id="mic-gain" min="0" max="16" step="1" value="8" class="hidden">
+                    <input type="range" id="mic-gain" min="0" max="16" step="1" value="16" class="hidden">
                     <div
                             class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
                             id="mic-gain-bar"
@@ -786,10 +814,11 @@
                         <div
                                 class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
                                 id="mic-gain-fill"
-                                style="width: 50%;"
-                                data-value="8"
+                                style="width: 100%;"
+                                data-value="16"
                         ></div>
                     </div>
+                    <div id="mic-gain-status" class="hidden text-sm text-amber-200"></div>
                 </div>
             </div>
 
@@ -800,7 +829,7 @@
 
             <!-- Speaker Volume Slider -->
             <div class="mb-4">
-                <label for="speaker-volume" class="block font-semibold text-sm text-slate-300 mb-1">
+                <label for="speaker-volume" class="block text-sm text-slate-300 mb-1">
                     Speaker Volume
                 </label>
                 <div class="flex gap-2 items-center">
@@ -832,16 +861,16 @@
         </div>
 
         <!-- MQTT Settings -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-mqtt">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">cloud_queue</span>
                 MQTT Settings
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
             </h3>
 
             <div class="mb-4">
-                <label for="MQTT_HOST" class="block font-semibold text-sm text-slate-300">MQTT Host</label>
+                <label for="MQTT_HOST" class="block text-sm text-slate-300">MQTT Host</label>
                 <input
                         id="MQTT_HOST"
                         name="MQTT_HOST"
@@ -853,7 +882,7 @@
 
             <div class="flex flex-wrap mb-4 gap-4">
                 <div class="w-full md:w-[calc(50%-0.5rem)]">
-                    <label for="MQTT_USERNAME" class="block font-semibold text-sm text-slate-300">MQTT
+                    <label for="MQTT_USERNAME" class="block text-sm text-slate-300">MQTT
                         Username</label>
                     <input
                             id="MQTT_USERNAME"
@@ -864,7 +893,7 @@
                     >
                 </div>
                 <div class="w-full md:w-[calc(50%-0.5rem)]">
-                    <label for="MQTT_PASSWORD" class="block font-semibold text-sm text-slate-300">MQTT
+                    <label for="MQTT_PASSWORD" class="block text-sm text-slate-300">MQTT
                         Password</label>
                     <div class="relative">
                         <input
@@ -887,15 +916,15 @@
         </div>
 
         <!-- Home Assistant -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-ha">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">home</span>
                 Home Assistant
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
             </h3>
             <div class="mb-4">
-                <label for="HA_HOST" class="block font-semibold text-sm text-slate-300">Home Assistant
+                <label for="HA_HOST" class="block text-sm text-slate-300">Home Assistant
                     Host</label>
                 <input
                         id="HA_HOST"
@@ -907,7 +936,7 @@
             </div>
 
             <div class="mb-4">
-                <label for="HA_TOKEN" class="block font-semibold text-sm text-slate-300">Home Assistant
+                <label for="HA_TOKEN" class="block text-sm text-slate-300">Home Assistant
                     Token</label>
                 <div class="relative">
                     <input
@@ -928,7 +957,7 @@
             </div>
 
             <div>
-                <label for="HA_LANG" class="block font-semibold text-sm text-slate-300 mb-1">Language
+                <label for="HA_LANG" class="block text-sm text-slate-300 mb-1">Language
                 </label>
                 {% set ha_languages = [
                 ('EN', 'English'), ('NL', 'Dutch'), ('IT', 'Italian'), ('FR', 'French'),
@@ -949,10 +978,9 @@
             </div>
         </div>
 
-
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
              id="section-advanced-settings">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
                 <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">tune</span>
                 Advanced Settings
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -961,7 +989,7 @@
             <div class="space-y-4">
                 <div class="mb-4 relative">
                     <label for="BILLY_PINS_SELECT"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300">
+                           class="flex justify-between items-center text-sm text-slate-300">
                         Pin Layout
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -985,7 +1013,7 @@
 
                 <div class="mb-4">
                     <label for="RUN_MODE"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         Mode
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -1012,7 +1040,7 @@
                 <div class="flex items-center justify-between p-3">
                     <div class="flex items-center gap-3">
                         <div>
-                            <div class="text-white font-medium text-sm">Startup flap animation</div>
+                            <div class="text-white text-sm">Startup flap animation</div>
                             <div class="text-xs text-zinc-400">Play the flap animation when Billy boots</div>
                         </div>
                     </div>
@@ -1031,7 +1059,7 @@
                 <div class="flex items-center justify-between p-3">
                     <div class="flex items-center gap-3">
                         <div>
-                            <div class="text-white font-medium text-sm">UI Animations & Effects</div>
+                            <div class="text-white text-sm">UI Animations & Effects</div>
                             <div class="text-xs text-zinc-400">Enable or disable interface animations, transitions and effects</div>
                         </div>
                     </div>
@@ -1048,7 +1076,7 @@
                 <div class="flex items-center justify-between p-3">
                     <div class="flex items-center gap-3">
                         <div>
-                            <div class="text-white font-medium text-sm">Show Release Candidate software updates</div>
+                            <div class="text-white text-sm">Show Release Candidate software updates</div>
                             <div class="text-xs text-zinc-400">Enable to get early access to new software features</div>
                         </div>
                     </div>
@@ -1064,15 +1092,15 @@
                 </div>
                 <div id="env-editor-card" class="flex flex-row justify-between gap-3 p-3 rounded-lg border border-zinc-700 bg-amber-500/20 hover:bg-amber-500/30 hover:border-amber-400 transition-colors cursor-pointer">
                     <div>
-                        <div class="text-white font-medium text-sm">.env Editor</div>
-                        <div class="text-xs text-zinc-400 mb-1">
+                        <div class="text-white text-sm">.env Editor</div>
+                        <div class="text-xs text-zinc-400 my-1">
                             Edit low-level environment values (advanced)
                         </div>
                     </div>
                     <div id="env-editor-btn-wrapper" class="flex items-center justify-end hidden">
                         <button id="open-env-editor-modal-btn"
                                 type="button"
-                                class="bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold py-2 px-4 rounded flex gap-2 items-center cursor-pointer"
+                                class="bg-amber-600 text-black text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer"
                                 title="Open .env file editor">
                             <span class="material-icons">admin_panel_settings</span>
                             Edit .env
@@ -1081,20 +1109,147 @@
                 </div>
 
                 <!-- Reset to Defaults -->
-                <div id="reset-defaults-card" class="flex flex-row justify-between gap-3 p-3 rounded-lg border border-zinc-700 bg-rose-500/10 hover:border-rose-500 transition-colors cursor-pointer">
+                <div id="reset-defaults-card" class="flex flex-row justify-between gap-3 p-3 rounded-lg border border-zinc-700 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/30 transition-colors cursor-pointer">
                     <div>
-                        <div class="text-white font-medium text-sm">Reset to Defaults</div>
-                        <div class="text-xs text-zinc-400 mb-1">
+                        <div class="text-white text-sm">Reset to Defaults</div>
+                        <div class="text-xs text-zinc-400 my-1">
                             Select parts of the configuration to reset
                         </div>
                     </div>
                     <div id="factory-reset-btn-wrapper" class="flex items-center justify-end hidden">
                         <button id="factory-reset-btn"
                                 type="button"
-                                class="bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold py-2 px-4 rounded flex gap-2 items-center">
+                                class="bg-rose-600 text-black text-sm  py-2 px-4 rounded flex gap-2 items-center">
                             <span class="material-icons">restart_alt</span>
                             Reset to Defaults
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+             id="section-software-version">
+            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                <span class="material-icons text-black group-hover:text-emerald-400 transition-colors">system_update_alt</span>
+                    <span>Software Version</span>
+                    <span data-release-badge
+                          class="hidden items-center rounded-full bg-amber-500/16 px-2 py-0.5 text-[11px] leading-none text-amber-300 border border-amber-400/30">
+                        Update available
+                    </span>
+                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+            </h3>
+
+            <div class="space-y-4">
+                <div class="bg-zinc-900/40 border border-zinc-700 rounded-lg p-4 shadow-lg">
+                    <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div class="min-w-0">
+                            <h4 id="release-title" class="flex items-center gap-3 text-sm text-emerald-300">
+                                <span class="material-icons text-emerald-400 select-none" aria-hidden="true">campaign</span>
+                                <span>Release Notes</span>
+                            </h4>
+                            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
+                                <span>Installed: <span id="software-current-version">...</span></span>
+                                <span>Latest: <span id="software-latest-version">...</span></span>
+                            </div>
+                        </div>
+                        <button id="update-btn"
+                                type="button"
+                                class="hidden bg-amber-600 text-black text-sm py-2 px-4 rounded gap-2 items-center cursor-pointer shadow-[0_18px_38px_rgba(245,158,11,0.25)]">
+                            <span class="material-icons align-middle">system_update_alt</span>
+                            <span id="latest-version"></span>
+                        </button>
+                    </div>
+
+                    <div id="release-body" class="mt-4 text-sm text-emerald-100 prose prose-invert max-w-none">
+                        Loading release notes…
+                    </div>
+
+                    <a id="release-link"
+                       href="#"
+                       target="_blank"
+                       rel="noopener"
+                       class="hidden items-center flex gap-1 text-emerald-300 hover:text-emerald-200 mt-4">
+                        <span class="material-icons text-xs" aria-hidden="true">open_in_new</span>
+                        <span class="underline">View on GitHub</span>
+                    </a>
+                </div>
+
+                <div id="support-section" class="bg-zinc-900/40 border border-red-600 rounded-lg p-4 shadow-lg">
+                    <h4 class="flex items-center gap-3 text-sm text-red-300 mb-4">
+                        <span class="material-icons text-red-400 select-none" aria-hidden="true">favorite</span>
+                        <span>Support Development</span>
+                    </h4>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-6 items-center">
+                        <div class="flex flex-col items-center justify-center space-y-4">
+                            <img src="../static/images/qrcode.png"
+                                 alt="PayPal QR code"
+                                 class="w-36 h-36 object-contain select-none"
+                                 draggable="false">
+
+                            <a href="https://paypal.me/thomkoopman050"
+                               target="_blank"
+                               rel="noopener"
+                               class="w-auto inline-flex items-center justify-center gap-2 text-xs text-black bg-rose-600 hover:bg-rose-500 p-2 rounded shadow">
+                                <span class="material-icons">open_in_new</span>
+                                <span>Open PayPal.me</span>
+                            </a>
+                        </div>
+
+                        <div class="flex flex-col justify-center text-center sm:text-left space-y-2">
+                            <p class="text-sm text-zinc-200">
+                                Billy's software is provided free of charge and it'll stay that way.
+                            </p>
+                            <p class="text-xs text-zinc-400">
+                                I build and maintain it in my spare time for fun.<br>
+                                If you enjoy Billy and like to support ongoing development, consider a small donation.<br>
+                                It's always much appreciated, never required.
+                            </p>
+                            <p class="text-xs text-zinc-400">
+                                Thanks,<br>
+                                Thom Koopman (ThingsFromThom)
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div>
+
+        <div class="pt-2 md:py-4 sticky bottom-[100px] md:bottom-[120px] z-20">
+            <div class="flex justify-center">
+                <div class="relative inline-block">
+                    <div class="flex rounded overflow-hidden shadow-lg">
+                        <button
+                                id="save-btn"
+                                class="bg-emerald-600  backdrop-blur-sm text-black py-2 px-4 flex items-center gap-1 focus:outline-none"
+                                type="submit"
+                                form="config-form"
+                        >
+                            <span class="material-icons align-middle">save</span>
+                            Save Settings
+                        </button>
+                        <button
+                                id="dropdown-btn"
+                                type="button"
+                                class="dropdown-toggle bg-emerald-600 backdrop-blur-sm  text-black px-2 flex items-center"
+                                onclick="toggleDropdown(this)"
+                        >
+                            <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
+                        </button>
+                    </div>
+                    <div class="dropdown-menu absolute bottom-0 right-0 w-full text-black border border-emerald-500 backdrop-blur-xs rounded z-20 hidden">
+                        <button onclick="exportSettings()"
+                                class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600  cursor-pointer">
+                            <span class="material-icons">file_download</span>
+                            Export Settings
+                        </button>
+                        <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600  cursor-pointer">
+                            <span class="material-icons">file_upload</span>
+                            <span>Import Settings</span>
+                            <input type="file" accept=".env" onchange="importSettings(this)" class="hidden"/>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -1107,7 +1262,7 @@
 <div id="factory-reset-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
     <div class="bg-zinc-900/60 backdrop-blur-xs border border-zinc-700 rounded-lg w-full max-w-xl mx-4 shadow-2xl">
         <div class="flex justify-between items-center p-4 border-b border-zinc-700">
-            <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+            <h3 class="text-lg text-white flex items-center gap-2">
                 <span class="material-icons text-rose-400">restart_alt</span>
                 Reset to Defaults
             </h3>
@@ -1116,7 +1271,7 @@
             </button>
         </div>
         <div class="p-6 space-y-4">
-            <div class="font-semibold">Select parts of the configuration to reset:</div>
+            <div>Select parts of the configuration to reset:</div>
             
             <p class="text-sm text-rose-200/80">These actions can not be undone.</p>
             <div class="space-y-3">

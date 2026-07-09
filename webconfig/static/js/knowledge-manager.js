@@ -2,29 +2,30 @@ const KnowledgeManager = (() => {
     let selectedFolderId = "";
     let isCreateFolderOpen = false;
     let isUploadOpen = false;
+    let elements = {};
 
-    const elements = {
-        modal: document.getElementById("knowledge-modal"),
-        openBtn: document.getElementById("knowledge-btn"),
-        closeBtn: document.getElementById("close-knowledge-modal"),
-        foldersList: document.getElementById("knowledge-folders-list"),
-        documentsList: document.getElementById("knowledge-documents-list"),
-        summary: document.getElementById("knowledge-summary"),
-        selectedFolderLabel: document.getElementById("knowledge-selected-folder-label"),
-        selectedFolderStats: document.getElementById("knowledge-selected-folder-stats"),
-        showCreateFolderBtn: document.getElementById("knowledge-show-create-folder-btn"),
-        createFolderPanel: document.getElementById("knowledge-create-folder-panel"),
-        cancelCreateFolderBtn: document.getElementById("knowledge-cancel-create-folder-btn"),
-        showUploadBtn: document.getElementById("knowledge-show-upload-btn"),
-        showUploadIcon: document.getElementById("knowledge-show-upload-icon"),
-        uploadPanel: document.getElementById("knowledge-upload-panel"),
-        newFolderInput: document.getElementById("knowledge-new-folder-input"),
-        createFolderBtn: document.getElementById("knowledge-create-folder-btn"),
-        fileInput: document.getElementById("knowledge-file-input"),
-        triggerTopics: document.getElementById("knowledge-trigger-topics"),
-        uploadBtn: document.getElementById("knowledge-upload-btn"),
-        reindexBtn: document.getElementById("knowledge-reindex-btn"),
-        saveTopicsBtn: document.getElementById("knowledge-save-topics-btn"),
+    const refreshElements = () => {
+        elements = {
+            foldersList: document.getElementById("knowledge-folders-list"),
+            documentsList: document.getElementById("knowledge-documents-list"),
+            summary: document.getElementById("knowledge-summary"),
+            selectedFolderLabel: document.getElementById("knowledge-selected-folder-label"),
+            selectedFolderStats: document.getElementById("knowledge-selected-folder-stats"),
+            showCreateFolderBtn: document.getElementById("knowledge-show-create-folder-btn"),
+            createFolderPanel: document.getElementById("knowledge-create-folder-panel"),
+            cancelCreateFolderBtn: document.getElementById("knowledge-cancel-create-folder-btn"),
+            showUploadBtn: document.getElementById("knowledge-show-upload-btn"),
+            showUploadIcon: document.getElementById("knowledge-show-upload-icon"),
+            uploadPanel: document.getElementById("knowledge-upload-panel"),
+            newFolderInput: document.getElementById("knowledge-new-folder-input"),
+            createFolderBtn: document.getElementById("knowledge-create-folder-btn"),
+            fileInput: document.getElementById("knowledge-file-input"),
+            triggerTopics: document.getElementById("knowledge-trigger-topics"),
+            uploadBtn: document.getElementById("knowledge-upload-btn"),
+            reindexBtn: document.getElementById("knowledge-reindex-btn"),
+            saveTopicsBtn: document.getElementById("knowledge-save-topics-btn"),
+        };
+        return elements;
     };
 
     const escapeHtml = (value) => String(value || "")
@@ -50,6 +51,7 @@ const KnowledgeManager = (() => {
     };
 
     const renderSummary = (summary = {}) => {
+        refreshElements();
         if (!elements.summary) return;
         const folders = summary.folder_count || 0;
         const documents = summary.document_count || 0;
@@ -58,6 +60,7 @@ const KnowledgeManager = (() => {
     };
 
     const setCreateFolderOpen = (open) => {
+        refreshElements();
         isCreateFolderOpen = open;
         if (elements.createFolderPanel) {
             elements.createFolderPanel.classList.toggle("hidden", !open);
@@ -71,15 +74,18 @@ const KnowledgeManager = (() => {
     };
 
     const setUploadOpen = (open) => {
+        refreshElements();
         isUploadOpen = open;
         if (elements.uploadPanel) {
             elements.uploadPanel.classList.toggle("hidden", !open);
         }
         if (elements.showUploadIcon) {
-            elements.showUploadIcon.textContent = open ? "close" : "upload_file";
+            elements.showUploadIcon.textContent = open ? "close" : "add";
         }
         if (elements.showUploadBtn) {
             elements.showUploadBtn.title = open ? "Close upload" : "Add file";
+            elements.showUploadBtn.classList.toggle("secondary-action--hover--emerald", !open);
+            elements.showUploadBtn.classList.toggle("secondary-action--hover--rose", open);
         }
         if (!open && elements.fileInput) {
             elements.fileInput.value = "";
@@ -87,6 +93,7 @@ const KnowledgeManager = (() => {
     };
 
     const syncSelectedFolder = (folders = []) => {
+        refreshElements();
         if (!folders.length) {
             selectedFolderId = "";
             if (elements.triggerTopics) {
@@ -138,6 +145,7 @@ const KnowledgeManager = (() => {
     };
 
     const renderFolders = (folders = []) => {
+        refreshElements();
         if (!elements.foldersList) return;
         if (!folders.length) {
             elements.foldersList.innerHTML = '<div class="text-sm text-zinc-400">No folders yet.</div>';
@@ -153,12 +161,12 @@ const KnowledgeManager = (() => {
 
             return `
                 <div
-                    class="knowledge-folder-card rounded-lg border ${isSelected ? "border-cyan-500 bg-zinc-900/70" : "border-zinc-700 bg-zinc-950/40"} p-3"
+                    class="knowledge-folder-card rounded-lg border ${isSelected ? "border-emerald-500 bg-zinc-900/70" : "border-zinc-700 bg-zinc-950/40"} p-3"
                     data-folder-id="${escapeHtml(folder.id)}"
                 >
                     <div class="flex items-center justify-between gap-3">
                         <button type="button" class="knowledge-folder-select min-w-0 flex-1 text-left cursor-pointer">
-                            <div class="text-sm font-semibold text-slate-100">${escapeHtml(folder.label)}</div>
+                            <div class="text-sm text-slate-100">${escapeHtml(folder.label)}</div>
                             <div class="text-xs text-zinc-400 mt-1 break-words">${triggerText}</div>
                         </button>
                         <div class="flex items-center gap-3 shrink-0">
@@ -168,13 +176,13 @@ const KnowledgeManager = (() => {
                             </div>
                             <button
                                 type="button"
-                                class="knowledge-delete-folder-row-btn bg-zinc-800 hover:bg-rose-600 text-zinc-300 hover:text-white w-8 h-8 rounded flex items-center justify-center ${canDelete ? "" : "opacity-50 cursor-not-allowed"}"
+                                class="knowledge-delete-folder-row-btn secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0 ${canDelete ? "" : "opacity-50 cursor-not-allowed"}"
                                 data-folder-id="${escapeHtml(folder.id)}"
                                 data-folder-label="${escapeHtml(folder.label)}"
                                 ${canDelete ? "" : "disabled"}
                                 title="Delete folder"
                             >
-                                <span class="material-icons text-base">delete</span>
+                                <span class="material-icons">delete</span>
                             </button>
                         </div>
                     </div>
@@ -186,6 +194,7 @@ const KnowledgeManager = (() => {
             button.addEventListener("click", () => {
                 const card = button.closest(".knowledge-folder-card");
                 selectedFolderId = card?.dataset.folderId || "";
+                window.MobileSplitView?.showDetail("knowledge-split-view");
                 loadKnowledgeState();
             });
         });
@@ -203,6 +212,7 @@ const KnowledgeManager = (() => {
     };
 
     const renderDocuments = (folder) => {
+        refreshElements();
         if (!elements.documentsList) return;
         const documents = folder?.documents || [];
 
@@ -217,18 +227,19 @@ const KnowledgeManager = (() => {
             return `
                 <div class="rounded border border-zinc-700 bg-zinc-950/60 p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div class="min-w-0 flex-1 overflow-hidden">
-                        <div class="text-sm font-semibold text-slate-100 whitespace-nowrap overflow-hidden" title="${escapeHtml(doc.filename)}">${escapeHtml(displayName)}</div>
+                        <div class="text-sm text-slate-100 whitespace-nowrap overflow-hidden" title="${escapeHtml(doc.filename)}">${escapeHtml(displayName)}</div>
                         <div class="text-xs text-zinc-400 mt-1">
                             ${escapeHtml(doc.extension)} • ${doc.chunk_count} chunks • ${escapeHtml(uploaded)}
                         </div>
                     </div>
                     <button
                         type="button"
-                        class="knowledge-delete-file-btn self-start md:self-auto bg-rose-600 hover:bg-rose-500 text-white text-sm px-3 py-1.5 rounded"
+                        class="knowledge-delete-file-btn secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0 self-start md:self-auto"
                         data-document-id="${escapeHtml(doc.id)}"
                         data-filename="${escapeHtml(doc.filename)}"
+                        title="Delete file"
                     >
-                        Delete
+                        <span class="material-icons">delete</span>
                     </button>
                 </div>
             `;
@@ -260,6 +271,7 @@ const KnowledgeManager = (() => {
     };
 
     const renderSelectedFolder = (folder) => {
+        refreshElements();
         if (elements.selectedFolderLabel) {
             elements.selectedFolderLabel.textContent = folder?.label || "Selected Folder";
         }
@@ -280,6 +292,7 @@ const KnowledgeManager = (() => {
     };
 
     const loadKnowledgeState = async () => {
+        refreshElements();
         try {
             const response = await fetch("/knowledge/folders");
             const data = await response.json();
@@ -293,20 +306,8 @@ const KnowledgeManager = (() => {
         }
     };
 
-    const openModal = async () => {
-        if (!elements.modal) return;
-        elements.modal.classList.remove("hidden");
-        setCreateFolderOpen(false);
-        setUploadOpen(false);
-        await loadKnowledgeState();
-    };
-
-    const closeModal = () => {
-        if (!elements.modal) return;
-        elements.modal.classList.add("hidden");
-    };
-
     const createFolder = async () => {
+        refreshElements();
         const label = elements.newFolderInput?.value?.trim() || "";
         if (!label) {
             showNotification("Enter a folder name", "warning");
@@ -346,6 +347,7 @@ const KnowledgeManager = (() => {
     };
 
     const deleteFolder = async (folderId = selectedFolderId, folderLabel = elements.selectedFolderLabel?.textContent || "this folder") => {
+        refreshElements();
         if (!folderId) {
             showNotification("Select a folder first", "warning");
             return;
@@ -375,6 +377,7 @@ const KnowledgeManager = (() => {
     };
 
     const uploadDocument = async () => {
+        refreshElements();
         const file = elements.fileInput?.files?.[0];
         if (!file) {
             showNotification("Choose a file to upload", "warning");
@@ -422,6 +425,7 @@ const KnowledgeManager = (() => {
     };
 
     const reindex = async () => {
+        refreshElements();
         if (!selectedFolderId) {
             showNotification("Select a folder first", "warning");
             return;
@@ -458,6 +462,7 @@ const KnowledgeManager = (() => {
     };
 
     const saveFolderSettings = async () => {
+        refreshElements();
         if (!selectedFolderId) {
             showNotification("Select a folder first", "warning");
             return;
@@ -493,10 +498,27 @@ const KnowledgeManager = (() => {
     };
 
     const bindUI = () => {
-        if (!elements.modal) return;
+        refreshElements();
+        const hasKnowledgeUi = !!(
+            elements.foldersList &&
+            elements.documentsList &&
+            elements.showCreateFolderBtn &&
+            elements.showUploadBtn
+        );
+        if (!hasKnowledgeUi) return;
 
-        elements.openBtn?.addEventListener("click", openModal);
-        elements.closeBtn?.addEventListener("click", closeModal);
+        const root = elements.foldersList?.closest("#main-content");
+        if (root?.dataset.knowledgeBound === "true") {
+            setCreateFolderOpen(false);
+            setUploadOpen(false);
+            loadKnowledgeState();
+            return;
+        }
+
+        if (root) {
+            root.dataset.knowledgeBound = "true";
+        }
+
         elements.showCreateFolderBtn?.addEventListener("click", () => setCreateFolderOpen(!isCreateFolderOpen));
         elements.cancelCreateFolderBtn?.addEventListener("click", () => setCreateFolderOpen(false));
         elements.showUploadBtn?.addEventListener("click", () => setUploadOpen(!isUploadOpen));
@@ -512,16 +534,9 @@ const KnowledgeManager = (() => {
             }
         });
 
-        let mouseDownOnBackdrop = false;
-        elements.modal.addEventListener("mousedown", (event) => {
-            mouseDownOnBackdrop = event.target === elements.modal;
-        });
-        elements.modal.addEventListener("mouseup", (event) => {
-            if (mouseDownOnBackdrop && event.target === elements.modal) {
-                closeModal();
-            }
-            mouseDownOnBackdrop = false;
-        });
+        setCreateFolderOpen(false);
+        setUploadOpen(false);
+        loadKnowledgeState();
     };
 
     return { bindUI, loadKnowledgeState };

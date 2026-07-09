@@ -91,36 +91,55 @@ else:
 # Collect all pins we actually use
 motor_pins = [p for p in (MOUTH, HEAD, TAIL, GND_1, GND_2, GND_3) if p is not None]
 
-# Claim/initialize
-for pin in motor_pins:
-    try:
-        lgpio.gpio_claim_output(h, pin)
-        lgpio.gpio_write(h, pin, 0)
-    except lgpio.error as e:
-        if "GPIO busy" in str(e) or "busy" in str(e).lower():
-            # Pin is already claimed (likely from a previous crashed instance)
-            # Try to free it first, then claim it again
-            logger.warning(
-                f"GPIO pin {pin} is busy, attempting to free and reclaim...", "⚠️"
-            )
-            try:
-                # Try to free the pin (may fail if not claimed by this handle, but worth trying)
-                with contextlib.suppress(lgpio.error, Exception):
-                    lgpio.gpio_free(h, pin)
-                # Wait a bit for the kernel to clean up
-                time.sleep(0.2)
-                # Now try to claim it again
+
+def _is_gpio_busy_error(exc: Exception) -> bool:
+    return "busy" in str(exc).lower()
+
+
+def _release_claimed_pins(claimed_pins: list[int]):
+    for claimed_pin in reversed(claimed_pins):
+        with contextlib.suppress(lgpio.error, Exception):
+            lgpio.gpio_write(h, claimed_pin, 0)
+        with contextlib.suppress(lgpio.error, Exception):
+            lgpio.gpio_free(h, claimed_pin)
+
+
+def _claim_motor_pins() -> bool:
+    global _gpio_active
+    if MOCKFISH or not lgpio_available:
+        return True
+
+    max_attempts = 12
+    claimed_pins: list[int] = []
+    for attempt in range(1, max_attempts + 1):
+        claimed_pins.clear()
+        try:
+            for pin in motor_pins:
                 lgpio.gpio_claim_output(h, pin)
+                claimed_pins.append(pin)
                 lgpio.gpio_write(h, pin, 0)
-                logger.info(f"Successfully reclaimed GPIO pin {pin}", "✅")
-            except Exception as free_error:
-                logger.error(
-                    f"Failed to free/reclaim GPIO pin {pin}: {free_error}", "❌"
-                )
+            return True
+        except lgpio.error as e:
+            _release_claimed_pins(claimed_pins)
+            if not _is_gpio_busy_error(e):
                 raise
-        else:
-            # Some other GPIO error - re-raise it
-            raise
+
+            wait_seconds = min(0.25 * attempt, 1.5)
+            logger.warning(
+                f"GPIO pin is busy during motor setup (attempt {attempt}/{max_attempts}); waiting {wait_seconds:.2f}s before retry.",
+                "⚠️",
+            )
+            time.sleep(wait_seconds)
+
+    logger.error(
+        "Motor GPIO pins are still busy after retrying. Disabling motor output so Billy can keep running.",
+        "❌",
+    )
+    _gpio_active = False
+    return False
+
+
+_claim_motor_pins()
 
 # === State ===
 _head_tail_lock = Lock()
@@ -441,10 +460,8 @@ def cleanup_gpio():
     """Close GPIO chip handle to prevent memory corruption on shutdown."""
     global _gpio_active
     try:
-        _gpio_active = (
-            False  # Mark GPIO as inactive before closing to prevent new operations
-        )
-        stop_all_motors()  # This will now safely skip if handle is invalid
+        stop_all_motors()
+        _gpio_active = False
         time.sleep(0.1)  # Give any pending timer threads a moment to check the flag
 
         # Free all GPIO pins before closing the chip handle

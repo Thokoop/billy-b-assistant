@@ -1,8 +1,11 @@
 <!-- Wi-Fi Setup Modal -->
-<div id="wifi-setup-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+<div id="wifi-setup-modal"
+     class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden"
+     data-wifi-onboarding-active="{{ 'true' if WIFI_ONBOARDING_ACTIVE else 'false' }}"
+     data-wifi-onboarding-mode="{{ config.get('WIFI_ONBOARDING_MODE', 'legacy') }}">
     <div class="bg-zinc-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+            <h3 class="text-lg text-white flex items-center gap-2">
                 <span class="material-icons text-emerald-400">wifi</span>
                 Wi-Fi Setup
             </h3>
@@ -15,53 +18,38 @@
             Choose your Wi-Fi network and save the connection for Billy.
         </p>
 
+        {% set wifi_countries = [
+        ('AE', 'United Arab Emirates'), ('AU', 'Australia'), ('AT', 'Austria'),
+        ('BE', 'Belgium'), ('BR', 'Brazil'), ('CA', 'Canada'),
+        ('CH', 'Switzerland'), ('CN', 'China'), ('CZ', 'Czech Republic'),
+        ('DE', 'Germany'), ('DK', 'Denmark'), ('ES', 'Spain'),
+        ('FI', 'Finland'), ('FR', 'France'), ('GB', 'United Kingdom'),
+        ('HK', 'Hong Kong'), ('IN', 'India'), ('IE', 'Ireland'),
+        ('IT', 'Italy'), ('JP', 'Japan'), ('KR', 'South Korea'),
+        ('MX', 'Mexico'), ('MY', 'Malaysia'), ('NL', 'Netherlands'),
+        ('NO', 'Norway'), ('NZ', 'New Zealand'), ('PL', 'Poland'),
+        ('PT', 'Portugal'), ('SE', 'Sweden'), ('SG', 'Singapore'),
+        ('TH', 'Thailand'), ('TW', 'Taiwan'), ('US', 'United States'),
+        ('ZA', 'South Africa')
+        ] %}
+
         <div class="space-y-4">
             <div>
-                <label for="WIFI_COUNTRY" class="block font-semibold text-sm text-slate-300">
-                    Wi-Fi country
-                </label>
-                <select id="WIFI_COUNTRY" name="WIFI_COUNTRY"
+                <label for="wifi-country-modal" class="block text-sm text-slate-300">Wi-Fi country</label>
+                <select id="wifi-country-modal"
+                        data-wifi-country-select
                         class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                    <option value="AE" {% if config.get('WIFI_COUNTRY', 'US') == 'AE' %}selected{% endif %}>United Arab Emirates (AE)</option>
-                    <option value="AU" {% if config.get('WIFI_COUNTRY', 'US') == 'AU' %}selected{% endif %}>Australia (AU)</option>
-                    <option value="AT" {% if config.get('WIFI_COUNTRY', 'US') == 'AT' %}selected{% endif %}>Austria (AT)</option>
-                    <option value="BE" {% if config.get('WIFI_COUNTRY', 'US') == 'BE' %}selected{% endif %}>Belgium (BE)</option>
-                    <option value="BR" {% if config.get('WIFI_COUNTRY', 'US') == 'BR' %}selected{% endif %}>Brazil (BR)</option>
-                    <option value="CA" {% if config.get('WIFI_COUNTRY', 'US') == 'CA' %}selected{% endif %}>Canada (CA)</option>
-                    <option value="CH" {% if config.get('WIFI_COUNTRY', 'US') == 'CH' %}selected{% endif %}>Switzerland (CH)</option>
-                    <option value="CN" {% if config.get('WIFI_COUNTRY', 'US') == 'CN' %}selected{% endif %}>China (CN)</option>
-                    <option value="CZ" {% if config.get('WIFI_COUNTRY', 'US') == 'CZ' %}selected{% endif %}>Czech Republic (CZ)</option>
-                    <option value="DE" {% if config.get('WIFI_COUNTRY', 'US') == 'DE' %}selected{% endif %}>Germany (DE)</option>
-                    <option value="DK" {% if config.get('WIFI_COUNTRY', 'US') == 'DK' %}selected{% endif %}>Denmark (DK)</option>
-                    <option value="ES" {% if config.get('WIFI_COUNTRY', 'US') == 'ES' %}selected{% endif %}>Spain (ES)</option>
-                    <option value="FI" {% if config.get('WIFI_COUNTRY', 'US') == 'FI' %}selected{% endif %}>Finland (FI)</option>
-                    <option value="FR" {% if config.get('WIFI_COUNTRY', 'US') == 'FR' %}selected{% endif %}>France (FR)</option>
-                    <option value="GB" {% if config.get('WIFI_COUNTRY', 'US') == 'GB' %}selected{% endif %}>United Kingdom (GB)</option>
-                    <option value="HK" {% if config.get('WIFI_COUNTRY', 'US') == 'HK' %}selected{% endif %}>Hong Kong (HK)</option>
-                    <option value="IN" {% if config.get('WIFI_COUNTRY', 'US') == 'IN' %}selected{% endif %}>India (IN)</option>
-                    <option value="IE" {% if config.get('WIFI_COUNTRY', 'US') == 'IE' %}selected{% endif %}>Ireland (IE)</option>
-                    <option value="IT" {% if config.get('WIFI_COUNTRY', 'US') == 'IT' %}selected{% endif %}>Italy (IT)</option>
-                    <option value="JP" {% if config.get('WIFI_COUNTRY', 'US') == 'JP' %}selected{% endif %}>Japan (JP)</option>
-                    <option value="KR" {% if config.get('WIFI_COUNTRY', 'US') == 'KR' %}selected{% endif %}>South Korea (KR)</option>
-                    <option value="MX" {% if config.get('WIFI_COUNTRY', 'US') == 'MX' %}selected{% endif %}>Mexico (MX)</option>
-                    <option value="MY" {% if config.get('WIFI_COUNTRY', 'US') == 'MY' %}selected{% endif %}>Malaysia (MY)</option>
-                    <option value="NL" {% if config.get('WIFI_COUNTRY', 'US') == 'NL' %}selected{% endif %}>Netherlands (NL)</option>
-                    <option value="NO" {% if config.get('WIFI_COUNTRY', 'US') == 'NO' %}selected{% endif %}>Norway (NO)</option>
-                    <option value="NZ" {% if config.get('WIFI_COUNTRY', 'US') == 'NZ' %}selected{% endif %}>New Zealand (NZ)</option>
-                    <option value="PL" {% if config.get('WIFI_COUNTRY', 'US') == 'PL' %}selected{% endif %}>Poland (PL)</option>
-                    <option value="PT" {% if config.get('WIFI_COUNTRY', 'US') == 'PT' %}selected{% endif %}>Portugal (PT)</option>
-                    <option value="SE" {% if config.get('WIFI_COUNTRY', 'US') == 'SE' %}selected{% endif %}>Sweden (SE)</option>
-                    <option value="SG" {% if config.get('WIFI_COUNTRY', 'US') == 'SG' %}selected{% endif %}>Singapore (SG)</option>
-                    <option value="TH" {% if config.get('WIFI_COUNTRY', 'US') == 'TH' %}selected{% endif %}>Thailand (TH)</option>
-                    <option value="TW" {% if config.get('WIFI_COUNTRY', 'US') == 'TW' %}selected{% endif %}>Taiwan (TW)</option>
-                    <option value="US" {% if config.get('WIFI_COUNTRY', 'US') == 'US' %}selected{% endif %}>United States (US)</option>
-                    <option value="ZA" {% if config.get('WIFI_COUNTRY', 'US') == 'ZA' %}selected{% endif %}>South Africa (ZA)</option>
+                {% for code, label in wifi_countries %}
+                <option value="{{ code }}" {% if config.get('WIFI_COUNTRY', 'NL') == code %}selected{% endif %}>
+                    {{ label }} ({{ code }})
+                </option>
+                {% endfor %}
                 </select>
             </div>
 
             <div>
                 <div class="flex flex-wrap items-center justify-between gap-3">
-                    <label class="block font-semibold text-sm text-slate-300">
+                    <label class="block text-sm text-slate-300">
                         Nearby networks
                     </label>
                     <button type="button"
@@ -84,7 +72,7 @@
                             data-ssid="__manual__"
                             data-manual="true">
                         <span class="flex items-center justify-between gap-3">
-                            <span class="font-medium">Enter SSID manually</span>
+                            <span>Enter SSID manually</span>
                             <span class="material-icons text-zinc-400">edit</span>
                         </span>
                     </button>
@@ -92,16 +80,17 @@
             </div>
 
             <div class="grid gap-4 md:grid-cols-2">
-                <div id="wifi-ssid-field" class="hidden">
-                    <label for="wifi-ssid" class="block font-semibold text-sm text-slate-300">Network name (SSID)</label>
+                <div id="wifi-ssid-field">
+                    <label for="wifi-ssid" class="block text-sm text-slate-300">Network name (SSID)</label>
                     <input id="wifi-ssid"
                            type="text"
                            class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                           disabled
                            placeholder="My Wi-Fi">
                 </div>
 
                 <div>
-                    <label for="wifi-password" class="block font-semibold text-sm text-slate-300">Password</label>
+                    <label for="wifi-password" class="block text-sm text-slate-300">Password</label>
                     <div class="relative">
                         <input id="wifi-password"
                                type="password"
@@ -123,16 +112,10 @@
 
             <div class="flex justify-center gap-3 pt-2">
                 <button type="button"
-                        id="wifi-cancel-btn"
-                        class="bg-zinc-700 hover:bg-zinc-600 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
-                    <span class="material-icons text-sm">close</span>
-                    Cancel
-                </button>
-                <button type="button"
                         id="wifi-save-btn"
-                        class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
+                        class="bg-emerald-600 hover:bg-emerald-500  text-black text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
                     <span id="wifi-save-icon" class="material-icons text-sm">save</span>
-                    <span id="wifi-save-label">Save Wi-Fi connection</span>
+                    <span id="wifi-save-label">Save Wi-Fi</span>
                 </button>
             </div>
         </div>

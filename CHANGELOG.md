@@ -4,15 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.3.0] — 2026-07-05
+## [2.3.0] — 2026-07-10
 
 ### Added
 - **openWakeWord Wake-word Support**: Added `openwakeword` as a local wake-word backend with ONNX wake-word model selection from `wakewords/`.
 - **Grok Realtime Support**: Added `xAI` as a Realtime API provider option with support for Grok voice models in Billy's runtime and Web UI settings.
 - **Grok Model Selection**: Added an `xAI Model` dropdown so Grok voice-capable models can be selected directly from the Web UI.
 - **Unified Wi-Fi Settings**: Added Wi-Fi country, network scan, manual SSID entry, and save flow inside the main Billy Web UI. 
-- **Unified Captive Onboarding**: Added NetworkManager-managed open hotspot captive-portal-style for onboarding while preserving the legacy `wifi_setup.py` flow for existing builds through .env variable based mode selection. Default: `WIFI_ONBOARDING_MODE=legacy`
+- **Unified Captive Onboarding**: Added NetworkManager-managed open hotspot captive-portal-style for onboarding while preserving the legacy `wifi_setup.py` flow for existing builds through .env variable based mode selection. `WIFI_ONBOARDING_MODE=unified` Default: `WIFI_ONBOARDING_MODE=legacy` 
 - **Dedicated Wi-Fi Setup Modal**: Added a dedicated Wi-Fi setup modal for the unified onboarding flow, separate from the main settings save flow.
+- **Mic Test Calibration UI**: Added a live mic test readout with current RMS, rolling 10-second average RMS, and peak RMS values, plus matching visual markers inside the microphone level bar to make threshold tuning easier.
+- **Mic Test Recording Playback**: Added a gated mic test recording flow so users can record and play back a short sample while testing microphone quality and speech-threshold behavior.
+- **Startup Mic Pre-buffer**: Added a short microphone pre-buffer during session startup so speech captured after the wake-up sound but before the realtime connection is fully ready can still be sent once the session initializes.
 
 ### Changed
 - **Generic Wake-word Uploads**: Wake-word upload flow now accepts both Porcupine `.ppn` keywords and openWakeWord `.onnx` models, stores them in `wakewords/`, and switches the selected backend automatically.
@@ -20,9 +23,11 @@ All notable changes to this project will be documented in this file.
 - **Realtime Provider Settings**: Added a provider selector with provider-specific API key and model fields, while keeping `OpenAI` as the default unless explicitly changed.
 - **Internet Settings Layout**: Moved device hostname and Web UI port into Internet Settings and renamed General Settings to API Settings.
 - **Main Navigation Styling**: Moved feature navigation to footer. Simplified header navigation.
+- **Mic Gain Persistence**: Added `MIC_GAIN` with a default of `max`, applies configured capture gain on startup, and saves Web UI mic gain changes to `.env`.
 
 ### Fixed
 - **Session Stop Shortcut**: A double-press on the device button during an active session now ends the session immediately.
+- **Mic RMS Consistency**: Shared the same local RMS calculation between the Web UI mic test and actual session mic handling, so the displayed calibration values match the threshold logic used during conversations.
 
 ---
 ---

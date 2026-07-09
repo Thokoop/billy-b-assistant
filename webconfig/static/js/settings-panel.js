@@ -18,91 +18,102 @@ class UserProfilePanel {
         this.lastConfigHash = null; // Track config hash for change detection
         this.defaultUser = 'guest';
         this.isUserInitiatedSwitch = false; // Prevent polling from triggering redundant loads during user actions
+        this.globalUiBound = false;
     }
 
     bindUI() {
         this.panel = document.getElementById('settings-panel');
-        if (!this.panel) return;
 
-        // User profile button click handler
-        const userProfileBtn = document.getElementById('user-profile-btn');
-        if (userProfileBtn) {
-            userProfileBtn.addEventListener('click', () => this.openSettingsModal());
-        }
-
-        // Close panel button
-        const closeBtn = document.getElementById('close-user-panel');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => this.closeSettingsModal());
-        }
-
-        // Click outside to close (only if both mousedown and mouseup on backdrop)
-        let mouseDownOnBackdrop = false;
-        
-        this.panel.addEventListener('mousedown', (e) => {
-            mouseDownOnBackdrop = e.target === this.panel;
-        });
-        
-        this.panel.addEventListener('mouseup', (e) => {
-            if (mouseDownOnBackdrop && e.target === this.panel) {
-                this.closeSettingsModal();
+        if (!this.globalUiBound) {
+            // User profile button click handler
+            const userProfileBtn = document.getElementById('user-profile-btn');
+            if (userProfileBtn && this.panel) {
+                userProfileBtn.addEventListener('click', () => this.openSettingsModal());
             }
-            mouseDownOnBackdrop = false;
-        });
 
-        // Set guest button
-        const setGuestBtn = document.getElementById('set-guest-btn');
-        if (setGuestBtn) {
-            setGuestBtn.addEventListener('click', () => this.setAsGuest());
-        }
+            // Close panel button
+            const closeBtn = document.getElementById('close-user-panel');
+            if (closeBtn && this.panel) {
+                closeBtn.addEventListener('click', () => this.closeSettingsModal());
+            }
 
-        // Default user select
-        const defaultUserSelect = document.getElementById('default-user-select');
-        if (defaultUserSelect) {
-            defaultUserSelect.addEventListener('change', (e) => this.updateDefaultUser(e.target.value));
+            // Click outside to close (only if both mousedown and mouseup on backdrop)
+            let mouseDownOnBackdrop = false;
+
+            if (this.panel) {
+                this.panel.addEventListener('mousedown', (e) => {
+                    mouseDownOnBackdrop = e.target === this.panel;
+                });
+
+                this.panel.addEventListener('mouseup', (e) => {
+                    if (mouseDownOnBackdrop && e.target === this.panel) {
+                        this.closeSettingsModal();
+                    }
+                    mouseDownOnBackdrop = false;
+                });
+            }
+
+            // Set guest button
+            const setGuestBtn = document.getElementById('set-guest-btn');
+            if (setGuestBtn) {
+                setGuestBtn.addEventListener('click', () => this.setAsGuest());
+            }
+
+            // Default user select
+            const defaultUserSelect = document.getElementById('default-user-select');
+            if (defaultUserSelect) {
+                defaultUserSelect.addEventListener('change', (e) => this.updateDefaultUser(e.target.value));
+            }
+
+            this.globalUiBound = true;
         }
 
         // Persona select & save buttons
         const personaSelect = document.getElementById('persona-select');
         const updatePersonaBtn = document.getElementById('update-persona-btn');
         const updatePersonaBtnMain = document.getElementById('update-persona-btn-main');
+        const profileForm = document.getElementById('profile-form');
 
-        if (personaSelect && updatePersonaBtn) {
+        if (personaSelect && updatePersonaBtn && updatePersonaBtn.dataset.bound !== 'true') {
             updatePersonaBtn.addEventListener('click', () => this.updatePersona());
             personaSelect.addEventListener('change', () => {
                 updatePersonaBtn.disabled = false;
             });
+            updatePersonaBtn.dataset.bound = 'true';
         }
-        if (updatePersonaBtnMain) {
+        if (updatePersonaBtnMain && updatePersonaBtnMain.dataset.bound !== 'true') {
             updatePersonaBtnMain.addEventListener('click', () => {
                 this.debugLog('VERBOSE', 'Save User Profile button clicked');
                 this.updatePersona();
             });
+            updatePersonaBtnMain.dataset.bound = 'true';
         }
 
         // Handle profile form submission to prevent page refresh
-        const profileForm = document.getElementById('profile-form');
-        if (profileForm) {
+        if (profileForm && profileForm.dataset.bound !== 'true') {
             profileForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 this.updatePersona();
             });
+            profileForm.dataset.bound = 'true';
+
+            // Bind profile settings toggle
+            this.bindProfileSettingsToggle();
+
+            // Bind profile action buttons
+            this.bindProfileActionButtons();
+
+            // Bind display name management
+            this.bindDisplayNameManagement();
         }
 
         // Load initial data
-        this.loadAllData();
+        if (profileForm) {
+            this.loadAllData(true);
+        }
 
         // Update debug level from UI
         this.updateDebugLevel();
-
-        // Bind profile settings toggle
-        this.bindProfileSettingsToggle();
-
-        // Bind profile action buttons
-        this.bindProfileActionButtons();
-
-        // Bind display name management
-        this.bindDisplayNameManagement();
     }
 
     async loadAllData(force = false) {
@@ -235,6 +246,12 @@ class UserProfilePanel {
     openSettingsModal() {
         if (this.panel) {
             this.panel.classList.remove('hidden');
+            const userProfileBtn = document.getElementById('user-profile-btn');
+            if (userProfileBtn) {
+                userProfileBtn.classList.add('bg-white/12');
+                userProfileBtn.classList.remove('!text-white');
+                userProfileBtn.classList.add('!text-emerald-400');
+            }
             this.loadAllData();
         }
     }
@@ -242,6 +259,12 @@ class UserProfilePanel {
     closeSettingsModal() {
         if (this.panel) {
             this.panel.classList.add('hidden');
+            const userProfileBtn = document.getElementById('user-profile-btn');
+            if (userProfileBtn) {
+                userProfileBtn.classList.remove('bg-white/12');
+                userProfileBtn.classList.remove('!text-emerald-400');
+                userProfileBtn.classList.add('!text-white');
+            }
         }
     }
 
@@ -325,13 +348,16 @@ class UserProfilePanel {
                     </button>
                     <span class="material-icons mr-3 ${isGuestActive ? 'text-emerald-400' : 'text-zinc-400'}">person_outline</span>
                     <div>
-                        <div class="text-white font-medium">Guest</div>
+                        <div class="text-white">Guest</div>
                         <div class="text-xs text-zinc-400">${isGuestDefault ? 'Default (auto-loads on boot)' : 'Anonymous'} • ${guestPersona} </div>
                     </div>
                 </div>
             `;
 
-            guestRow.addEventListener('click', () => this.setAsGuest());
+            guestRow.addEventListener('click', () => {
+                window.MobileSplitView?.showDetail('profile-split-view');
+                this.setAsGuest();
+            });
             profileList.appendChild(guestRow);
         }
 
@@ -386,27 +412,30 @@ class UserProfilePanel {
                     </button>
                     <span class="mr-3 material-icons ${isCurrent ? 'text-emerald-400' : 'text-zinc-400'}">${isGuestProfile ? 'person_outline' : 'person'}</span>
                     <div>
-                        <div class="text-white font-medium">${displayName}</div>
+                        <div class="text-white">${displayName}</div>
                         <div class="text-xs text-zinc-400">${profileDescription}</div>
                     </div>
                 </div>
                 <div class="flex items-center space-x-2">
                     ${!isGuestProfile ? `
-                    <button type="button" class="text-zinc-500 hover:text-amber-400 p-1 rounded transition-colors" 
+                    <button type="button" class="icon-action-btn icon-action-btn--edit" 
                             onclick="event.stopPropagation(); window.UserProfilePanel.editProfile('${profileName}')" 
                             title="Rename profile">
-                        <span class="material-icons text-sm">edit</span>
+                        <span class="material-icons">edit</span>
                     </button>
                     ` : ''}
-                    <button type="button" class="${profileName === currentUser ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-zinc-500 hover:text-rose-400'} p-1 rounded transition-colors" 
+                    <button type="button" class="${profileName === currentUser ? 'secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0 opacity-50 cursor-not-allowed' : 'secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0'}" 
                             onclick="event.stopPropagation(); ${profileName === currentUser ? 'window.UserProfilePanel.showCurrentUserDeleteMessage()' : `window.UserProfilePanel.deleteProfile('${profileName}')`}" 
                             title="${profileName === currentUser ? 'Cannot delete current user' : 'Delete profile'}">
-                        <span class="material-icons text-sm">delete</span>
+                        <span class="material-icons">delete</span>
                     </button>
                 </div>
             `;
 
-            row.addEventListener('click', () => this.setAsCurrentUser(profileName));
+            row.addEventListener('click', () => {
+                window.MobileSplitView?.showDetail('profile-split-view');
+                this.setAsCurrentUser(profileName);
+            });
             profileList.appendChild(row);
         });
     }
@@ -473,7 +502,7 @@ class UserProfilePanel {
                     <div class="mb-3 flex justify-center">
                         <span class="material-icons text-6xl text-emerald-400">person</span>
                     </div>
-                    <div class="text-white font-medium text-sm mb-1">${displayName}</div>
+                    <div class="text-white text-sm mb-1">${displayName}</div>
                     <div class="text-zinc-400 text-xs">${isDefault ? 'Default (auto-loads on startup)' : 'User'}</div>
                 </div>
                 <div class="absolute top-2 right-2">
@@ -662,17 +691,17 @@ class UserProfilePanel {
                         <div class="flex items-center gap-2">
                             <span class="material-icons text-cyan-400 text-sm">chat</span>
                             <span class="text-zinc-300">Interactions:</span>
-                            <span class="text-white font-medium">${interactionCount}</span>
+                            <span class="text-white">${interactionCount}</span>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="material-icons text-emerald-400 text-sm">person_add</span>
                             <span class="text-zinc-300">First met:</span>
-                            <span class="text-white font-medium">${formatDateTime(createdDate)}</span>
+                            <span class="text-white">${formatDateTime(createdDate)}</span>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="material-icons text-amber-400 text-sm">schedule</span>
                             <span class="text-zinc-300">Last seen:</span>
-                            <span class="text-white font-medium">${formatDateTime(lastSeen)}</span>
+                            <span class="text-white">${formatDateTime(lastSeen)}</span>
                         </div>
                     </div>
                 </div>
@@ -715,11 +744,11 @@ class UserProfilePanel {
                             </div>
                         </div>
                         <div class="flex items-center gap-1">
-                            <button type="button" class="text-zinc-500 hover:text-amber-400 transition-colors" data-memory-id="${memory.id || 'temp_' + memory.date}" onclick="event.stopPropagation(); window.UserProfilePanel.editMemory(this.dataset.memoryId)" title="Edit memory">
-                                <span class="material-icons text-sm">edit_note</span>
+                            <button type="button" class="icon-action-btn icon-action-btn--edit" data-memory-id="${memory.id || 'temp_' + memory.date}" onclick="event.stopPropagation(); window.UserProfilePanel.editMemory(this.dataset.memoryId)" title="Edit memory">
+                                <span class="material-icons">edit</span>
                             </button>
-                            <button type="button" class="text-zinc-500 hover:text-rose-400 transition-colors" data-memory-id="${memory.id || 'temp_' + memory.date}" onclick="event.stopPropagation(); window.UserProfilePanel.deleteMemory(this.dataset.memoryId)" title="Delete memory">
-                                <span class="material-icons text-sm">delete</span>
+                            <button type="button" class="secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0" data-memory-id="${memory.id || 'temp_' + memory.date}" onclick="event.stopPropagation(); window.UserProfilePanel.deleteMemory(this.dataset.memoryId)" title="Delete memory">
+                                <span class="material-icons">delete</span>
                             </button>
                         </div>
                     </div>
@@ -1117,7 +1146,7 @@ class UserProfilePanel {
         editForm.innerHTML = `
             <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg w-96 max-w-full mx-4 max-h-[90vh] flex flex-col shadow-2xl">
                 <div class="flex justify-between items-center p-6 border-b border-zinc-700 flex-shrink-0">
-                    <h3 class="text-lg font-semibold text-white flex items-center">
+                    <h3 class="text-lg text-white flex items-center">
                         <span class="material-icons mr-2 text-emerald-400">edit</span>
                         Edit Memory
                     </h3>
@@ -1129,11 +1158,11 @@ class UserProfilePanel {
                 <div class="flex-1 overflow-y-auto">
                     <form id="edit-memory-form" class="px-6 py-4">
                         <div class="mb-4">
-                            <label class="block text-sm font-medium text-zinc-300 mb-2">Memory</label>
+                            <label class="block text-sm text-zinc-300 mb-2">Memory</label>
                             <textarea id="edit-memory-text" class="w-full bg-zinc-700 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" rows="3" required>${memoryData.memory}</textarea>
                         </div>
                         <div class="mb-4">
-                            <label class="block text-sm font-medium text-zinc-300 mb-2">Category</label>
+                            <label class="block text-sm text-zinc-300 mb-2">Category</label>
                             <select id="edit-memory-category" class="w-full bg-zinc-700 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500">
                                 <option value="preference" ${memoryData.category === 'preference' ? 'selected' : ''}>Preference</option>
                                 <option value="fact" ${memoryData.category === 'fact' ? 'selected' : ''}>Fact</option>
@@ -1143,7 +1172,7 @@ class UserProfilePanel {
                             </select>
                         </div>
                         <div class="mb-4">
-                            <label class="block text-sm font-medium text-zinc-300 mb-2">Importance</label>
+                            <label class="block text-sm text-zinc-300 mb-2">Importance</label>
                             <select id="edit-memory-importance" class="w-full bg-zinc-700 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500">
                                 <option value="high" ${memoryData.importance === 'high' ? 'selected' : ''}>High</option>
                                 <option value="medium" ${memoryData.importance === 'medium' ? 'selected' : ''}>Medium</option>
@@ -1158,7 +1187,7 @@ class UserProfilePanel {
                         <button id="cancel-edit-memory" class="px-4 py-2 bg-zinc-600 hover:bg-zinc-500 text-white rounded transition-colors">
                             Cancel
                         </button>
-                        <button id="save-edit-memory" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-zinc-800 rounded transition-colors">
+                        <button id="save-edit-memory" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500  text-white rounded transition-colors">
                             Save Changes
                         </button>
                     </div>

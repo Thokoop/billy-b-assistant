@@ -32,6 +32,7 @@ TOOL_INSTRUCTIONS = """
 === CRITICAL: EVERY RESPONSE MUST END WITH conversation_state ===
 AFTER you speak, ALWAYS call conversation_state(expects_follow_up=true/false).
 Set expects_follow_up=true if you asked a question, false otherwise.
+If you provide suggested_prompt or expect the user may naturally continue, set expects_follow_up=true.
 NEVER skip this - the system breaks without it.
 NEVER speak or print tool calls out loud. Do NOT include text like
 "conversation_state(...)" in spoken output. Tool calls are internal only.
@@ -121,6 +122,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-realtime-mini")
 CONVERSATION_STATE_ENABLED_MODELS = {
     "gpt-realtime",
+    "gpt-realtime-mini",
     "gpt-realtime-1.5",
     "gpt-realtime-2",
 }
@@ -142,7 +144,9 @@ def _filter_vision_instruction_line(text: str) -> str:
 def is_conversation_state_enabled(model: str | None = None) -> bool:
     """Whether conversation_state tool/instructions should be enabled."""
     m = (model or os.getenv("OPENAI_MODEL", OPENAI_MODEL) or "").strip()
-    return m in CONVERSATION_STATE_ENABLED_MODELS
+    return m in CONVERSATION_STATE_ENABLED_MODELS or any(
+        m.startswith(f"{enabled}-") for enabled in CONVERSATION_STATE_ENABLED_MODELS
+    )
 
 
 def get_tool_instructions(model: str | None = None) -> str:
@@ -175,7 +179,21 @@ BILLY_PINS = os.getenv("BILLY_PINS", "new").strip().lower()
 SPEAKER_PREFERENCE = os.getenv("SPEAKER_PREFERENCE")
 MIC_PREFERENCE = os.getenv("MIC_PREFERENCE")
 MIC_TIMEOUT_SECONDS = int(os.getenv("MIC_TIMEOUT_SECONDS", "5"))
-SILENCE_THRESHOLD = float(os.getenv("SILENCE_THRESHOLD", "1000"))
+MIC_GAIN = os.getenv("MIC_GAIN", "max").strip()
+
+
+def _resolve_silence_threshold():
+    raw_value = os.getenv("SILENCE_THRESHOLD")
+    if raw_value in (None, ""):
+        return 1000.0
+
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return 1000.0
+
+
+SILENCE_THRESHOLD = _resolve_silence_threshold()
 CHUNK_MS = int(os.getenv("CHUNK_MS", "40"))
 FOLLOW_UP_RETRY_LIMIT = int(os.getenv("FOLLOW_UP_RETRY_LIMIT", "2"))
 PLAYBACK_VOLUME = 1
@@ -207,17 +225,17 @@ WAKE_WORD_OPENWAKEWORD_EMBEDDING_MODEL_PATH = os.getenv(
 if TURN_EAGERNESS not in {"low", "medium", "high"}:
     TURN_EAGERNESS = "medium"
 
-# Server VAD parameters based on eagerness
-# Lower silence_duration_ms = faster turn detection (more eager)
-# Higher threshold = less sensitive to noise (more conservative)
+# Server VAD parameters based on eagerness.
+# Eagerness should mainly control how long Billy waits before ending a turn.
+# Keep speech sensitivity consistent so "low" does not become "hard to hear".
 SERVER_VAD_PARAMS = {
     "low": {
-        "threshold": 0.9,
+        "threshold": 0.7,
         "prefix_padding_ms": 300,
         "silence_duration_ms": 1500,
     },
     "medium": {
-        "threshold": 0.9,
+        "threshold": 0.7,
         "prefix_padding_ms": 300,
         "silence_duration_ms": 1000,
     },

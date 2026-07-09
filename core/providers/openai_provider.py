@@ -71,7 +71,7 @@ class OpenAIProvider(RealtimeAIProvider):
                         "content": [
                             {
                                 "type": "input_text",
-                                "text": "Repeat this literal message:" + prompt,
+                                "text": prompt,
                             }
                         ],
                     },

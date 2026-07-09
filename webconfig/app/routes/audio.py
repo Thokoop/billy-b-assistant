@@ -1,17 +1,23 @@
 import configparser
+import contextlib
 import glob
 import json
 import os
 import queue
 import re
 import subprocess
+import threading
 import time
+import wave
+from collections import deque
 
 import numpy as np
 import paho.mqtt.client as mqtt
 import sounddevice as sd
+from dotenv import find_dotenv, set_key
 from flask import Blueprint, Response, jsonify, request, send_from_directory
 
+from core.audio import calculate_input_rms
 from core.wakeup import generate_wake_clip_async
 
 from ..core_imports import core_config
@@ -22,6 +28,30 @@ bp = Blueprint("audio", __name__)
 
 mic_check_running = False
 rms_queue = queue.Queue()
+mic_check_record_queue: queue.Queue[bytes] | None = None
+mic_check_started_at = 0.0
+mic_check_record_gate = True
+mic_check_record_threshold = float(core_config.SILENCE_THRESHOLD)
+MIC_CHECK_GATE_PREROLL_SECONDS = 0.25
+MIC_CHECK_GATE_RELEASE_SECONDS = 0.8
+mic_check_record_gate_open = False
+mic_check_record_preroll: deque[bytes] = deque()
+mic_check_record_preroll_max_chunks = 8
+mic_check_record_release_until = 0.0
+MIC_TEST_RECORDING_PATH = os.path.join(PROJECT_ROOT, "sounds", "mic-test-recording.wav")
+MIC_TEST_RECORDING_MAX_SECONDS = 30
+mic_recording_lock = threading.Lock()
+mic_recording_stop_event: threading.Event | None = None
+mic_recording_thread: threading.Thread | None = None
+mic_recording_started_at = 0.0
+mic_recording_error: str | None = None
+
+
+def _env_path() -> str:
+    found = find_dotenv(usecwd=True)
+    if found:
+        return found
+    return os.path.join(PROJECT_ROOT, ".env")
 
 
 def _is_usb_audio_device_name(name: str) -> bool:
@@ -214,6 +244,132 @@ def alsa_play_device(card_index):
     return "default" if card_index is None else f"plughw:{card_index},0"
 
 
+def _wav_duration_seconds(path: str) -> float:
+    with wave.open(path, "rb") as wav:
+        rate = wav.getframerate()
+        if rate <= 0:
+            return 0.0
+        return float(wav.getnframes()) / float(rate)
+
+
+def _play_wav_on_speaker(path: str, speaker_preference: str | None = None):
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+
+    duration = _wav_duration_seconds(path)
+    if duration <= 0:
+        raise RuntimeError("Audio file is empty or invalid")
+
+    card_index = get_usb_pcm_card_index(speaker_preference)
+    device = alsa_play_device(card_index)
+    process = subprocess.Popen(
+        ["aplay", "-q", "-D", device, path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    time.sleep(0.1)
+    if process.poll() is not None and process.returncode != 0:
+        _, stderr = process.communicate(timeout=1)
+        raise RuntimeError(
+            (stderr or f"aplay exited with {process.returncode}").strip()
+        )
+
+    return device, duration
+
+
+def _pick_input_device_index() -> int | None:
+    preference = (core_config.MIC_PREFERENCE or "").strip()
+    devices = sd.query_devices()
+    first_input_index = None
+    for idx, dev in enumerate(devices):
+        if int(dev.get("max_input_channels", 0) or 0) <= 0:
+            continue
+        if first_input_index is None:
+            first_input_index = idx
+        if preference and _preference_matches_device_name(
+            preference, str(dev.get("name", ""))
+        ):
+            return idx
+    return first_input_index
+
+
+def _pick_supported_input_format(device_index) -> tuple[int, int]:
+    device_info = sd.query_devices(device_index, "input")
+    max_channels = max(1, int(device_info.get("max_input_channels") or 1))
+    default_rate = int(device_info.get("default_samplerate") or 24000)
+    channel_candidates = []
+    for channels in (1, 2, max_channels):
+        if 1 <= channels <= max_channels and channels not in channel_candidates:
+            channel_candidates.append(channels)
+    rate_candidates = []
+    for rate in (24000, 48000, 44100, default_rate):
+        if rate not in rate_candidates:
+            rate_candidates.append(rate)
+    for channels in channel_candidates:
+        for rate in rate_candidates:
+            try:
+                sd.check_input_settings(
+                    device=device_index,
+                    samplerate=rate,
+                    channels=channels,
+                )
+                return int(channels), int(rate)
+            except Exception:
+                continue
+    return 1, default_rate
+
+
+def _ensure_core_audio_input_config():
+    from core import audio as core_audio
+
+    device_index = core_audio.MIC_DEVICE_INDEX
+    if device_index is None:
+        device_index = _pick_input_device_index()
+    channels = int(core_audio.MIC_CHANNELS or 1)
+    rate = int(core_audio.MIC_RATE or 0)
+    if rate:
+        try:
+            sd.check_input_settings(
+                device=device_index,
+                samplerate=rate,
+                channels=channels,
+            )
+        except Exception:
+            channels, rate = _pick_supported_input_format(device_index)
+    else:
+        channels, rate = _pick_supported_input_format(device_index)
+
+    core_audio.MIC_DEVICE_INDEX = device_index
+    core_audio.MIC_CHANNELS = channels
+    core_audio.MIC_RATE = rate
+    core_audio.CHUNK_SIZE = int(rate * int(core_config.CHUNK_MS or 40) / 1000)
+    return core_audio
+
+
+@contextlib.contextmanager
+def _input_stream_with_retry(**kwargs):
+    stream = None
+    last_error = None
+    for attempt in range(6):
+        try:
+            stream = sd.InputStream(**kwargs)
+            stream.__enter__()
+            break
+        except Exception as e:
+            last_error = e
+            stream = None
+            if "Device unavailable" not in str(e) or attempt == 5:
+                raise
+            time.sleep(0.5)
+    if stream is None:
+        raise RuntimeError(str(last_error or "Failed to open input stream"))
+    try:
+        yield stream
+    finally:
+        stream.__exit__(None, None, None)
+
+
 def get_mic_gain_numid(card_index):
     """Find the numid for mic gain on the specified card."""
     try:
@@ -228,6 +384,94 @@ def get_mic_gain_numid(card_index):
     except Exception as e:
         print("Failed to get mic gain numid:", e)
         return None
+
+
+def parse_amixer_control_range(output: str) -> tuple[int, int]:
+    min_match = re.search(r"\bmin=(-?\d+)", output or "")
+    max_match = re.search(r"\bmax=(-?\d+)", output or "")
+    min_value = int(min_match.group(1)) if min_match else 0
+    max_value = int(max_match.group(1)) if max_match else 16
+    if max_value < min_value:
+        return 0, 16
+    return min_value, max_value
+
+
+def parse_amixer_control_value(output: str) -> int | None:
+    match = re.search(r": values=(-?\d+)", output or "")
+    return int(match.group(1)) if match else None
+
+
+def resolve_configured_mic_gain(
+    raw_value: str | int | float | None,
+    min_value: int,
+    max_value: int,
+) -> int:
+    value = str(raw_value if raw_value is not None else "max").strip().lower()
+    if value in {"", "max", "maximum", "default"}:
+        return max_value
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return max_value
+    return max(min_value, min(max_value, parsed))
+
+
+def save_configured_mic_gain(value: int) -> None:
+    env_path = _env_path()
+    if not os.path.exists(env_path):
+        open(env_path, "a", encoding="utf-8").close()
+    set_key(env_path, "MIC_GAIN", str(value), quote_mode="never")
+    os.environ["MIC_GAIN"] = str(value)
+    core_config.MIC_GAIN = str(value)
+
+
+def apply_configured_mic_gain() -> dict:
+    """Apply configured capture gain to ALSA. Defaults to the device maximum."""
+
+    try:
+        card_index = get_usb_capture_card_index()
+        numid = get_mic_gain_numid(card_index)
+        if card_index is None or numid is None:
+            return {"status": "skipped", "reason": "mic_gain_control_unavailable"}
+
+        output = subprocess.check_output(
+            ["amixer", "-c", str(card_index), "cget", f"numid={numid}"],
+            text=True,
+        )
+        current_value = parse_amixer_control_value(output)
+        if current_value is None:
+            return {"status": "skipped", "reason": "mic_gain_value_unavailable"}
+
+        min_value, max_value = parse_amixer_control_range(output)
+        configured_value = getattr(core_config, "MIC_GAIN", "max")
+        target_value = resolve_configured_mic_gain(
+            configured_value,
+            min_value,
+            max_value,
+        )
+        if current_value != target_value:
+            subprocess.check_call([
+                "amixer",
+                "-c",
+                str(card_index),
+                "cset",
+                f"numid={numid}",
+                str(target_value),
+            ])
+            status = "updated"
+        else:
+            status = "kept"
+
+        return {
+            "status": status,
+            "old": current_value,
+            "gain": target_value,
+            "min": min_value,
+            "max": max_value,
+            "configured": str(configured_value),
+        }
+    except Exception as e:
+        return {"status": "skipped", "reason": str(e)}
 
 
 @bp.route("/audio/devices")
@@ -290,15 +534,185 @@ def audio_devices():
 
 
 def audio_callback(indata, frames, time_info, status):
+    global mic_check_record_gate_open
+    global mic_check_record_preroll
+    global mic_check_running
+    global mic_check_record_release_until
     if not mic_check_running:
         raise sd.CallbackStop()
-    samples = indata.astype(np.float32, copy=False)
-    rms = float(np.sqrt(np.mean(np.square(samples))))
-    if np.issubdtype(indata.dtype, np.floating):
-        max_abs = float(np.max(np.abs(samples))) if samples.size else 0.0
-        if max_abs <= 1.5:
-            rms *= 32768.0
+    frame_bytes = indata.copy().tobytes()
+    rms = calculate_input_rms(indata)
     rms_queue.put(rms)
+    if mic_check_record_queue is not None:
+        now = time.time()
+        above_threshold = rms >= mic_check_record_threshold
+        if above_threshold:
+            mic_check_record_release_until = now + MIC_CHECK_GATE_RELEASE_SECONDS
+        gate_open = (
+            not mic_check_record_gate
+            or above_threshold
+            or now <= mic_check_record_release_until
+        )
+        if gate_open:
+            if not mic_check_record_gate_open:
+                while mic_check_record_preroll:
+                    mic_check_record_queue.put(mic_check_record_preroll.popleft())
+            mic_check_record_queue.put(frame_bytes)
+            mic_check_record_gate_open = True
+        else:
+            mic_check_record_gate_open = False
+            mic_check_record_preroll.append(frame_bytes)
+            while len(mic_check_record_preroll) > mic_check_record_preroll_max_chunks:
+                mic_check_record_preroll.popleft()
+    if time.time() - mic_check_started_at >= MIC_TEST_RECORDING_MAX_SECONDS:
+        mic_check_running = False
+        raise sd.CallbackStop()
+
+
+def _record_mic_test(stop_event: threading.Event):
+    global mic_recording_error
+    try:
+        core_audio = _ensure_core_audio_input_config()
+
+        os.makedirs(os.path.dirname(MIC_TEST_RECORDING_PATH), exist_ok=True)
+        with wave.open(MIC_TEST_RECORDING_PATH, "wb") as wav:
+            wav.setnchannels(int(core_audio.MIC_CHANNELS))
+            wav.setsampwidth(2)
+            wav.setframerate(int(core_audio.MIC_RATE))
+
+            started_at = time.time()
+            frame_queue = queue.Queue()
+
+            def callback(indata, frames, time_info, status):
+                if stop_event.is_set():
+                    raise sd.CallbackStop()
+                frame_queue.put(indata.copy().tobytes())
+                if time.time() - started_at >= MIC_TEST_RECORDING_MAX_SECONDS:
+                    stop_event.set()
+                    raise sd.CallbackStop()
+
+            with _input_stream_with_retry(
+                samplerate=core_audio.MIC_RATE,
+                device=core_audio.MIC_DEVICE_INDEX,
+                channels=core_audio.MIC_CHANNELS,
+                dtype="int16",
+                blocksize=core_audio.CHUNK_SIZE,
+                callback=callback,
+            ):
+                while (
+                    not stop_event.is_set()
+                    and time.time() - started_at < MIC_TEST_RECORDING_MAX_SECONDS
+                ):
+                    with contextlib.suppress(queue.Empty):
+                        wav.writeframes(frame_queue.get(timeout=0.1))
+                while not frame_queue.empty():
+                    wav.writeframes(frame_queue.get_nowait())
+    except Exception as e:
+        mic_recording_error = str(e)
+
+
+def _mic_recording_active() -> bool:
+    return bool(mic_recording_thread and mic_recording_thread.is_alive())
+
+
+def _mic_recording_duration_seconds() -> float:
+    try:
+        return _wav_duration_seconds(MIC_TEST_RECORDING_PATH)
+    except Exception:
+        return 0.0
+
+
+@bp.route("/mic-record/start", methods=["POST"])
+def mic_record_start():
+    global mic_recording_error
+    global mic_recording_started_at
+    global mic_recording_stop_event
+    global mic_recording_thread
+
+    with mic_recording_lock:
+        if _mic_recording_active():
+            return jsonify({"status": "already_recording"}), 409
+
+        mic_recording_error = None
+        mic_recording_started_at = time.time()
+        try:
+            if os.path.exists(MIC_TEST_RECORDING_PATH):
+                os.remove(MIC_TEST_RECORDING_PATH)
+        except Exception:
+            pass
+        mic_recording_stop_event = threading.Event()
+        mic_recording_thread = threading.Thread(
+            target=_record_mic_test,
+            args=(mic_recording_stop_event,),
+            daemon=True,
+        )
+        mic_recording_thread.start()
+
+    return jsonify({
+        "status": "recording",
+        "max_seconds": MIC_TEST_RECORDING_MAX_SECONDS,
+    })
+
+
+@bp.route("/mic-record/stop", methods=["POST"])
+def mic_record_stop():
+    global mic_recording_stop_event
+
+    with mic_recording_lock:
+        if mic_recording_stop_event:
+            mic_recording_stop_event.set()
+        thread = mic_recording_thread
+
+    if thread and thread.is_alive():
+        thread.join(timeout=2.0)
+
+    return jsonify(_mic_record_status_payload())
+
+
+def _mic_record_status_payload():
+    standalone_active = _mic_recording_active()
+    active = standalone_active or mic_check_running
+    if standalone_active:
+        elapsed = time.time() - mic_recording_started_at
+    elif mic_check_running:
+        elapsed = time.time() - mic_check_started_at
+    else:
+        elapsed = 0.0
+    exists = os.path.exists(MIC_TEST_RECORDING_PATH)
+    size = os.path.getsize(MIC_TEST_RECORDING_PATH) if exists else 0
+    return {
+        "recording": active,
+        "elapsed": round(elapsed, 1),
+        "max_seconds": MIC_TEST_RECORDING_MAX_SECONDS,
+        "exists": exists and size > 44,
+        "bytes": size,
+        "duration": round(_mic_recording_duration_seconds(), 1),
+        "error": mic_recording_error,
+    }
+
+
+@bp.route("/mic-record/status")
+def mic_record_status():
+    return jsonify(_mic_record_status_payload())
+
+
+@bp.route("/mic-record/play", methods=["POST"])
+def mic_record_play():
+    if _mic_recording_active() or mic_check_running:
+        return jsonify({"error": "Recording is still in progress"}), 409
+    if not os.path.exists(MIC_TEST_RECORDING_PATH):
+        return jsonify({"error": "No mic test recording found"}), 404
+
+    try:
+        data = request.get_json(silent=True) or {}
+        speaker_preference = str(data.get("speaker_preference") or "").strip() or None
+        device, duration = _play_wav_on_speaker(
+            MIC_TEST_RECORDING_PATH,
+            speaker_preference,
+        )
+        return jsonify({"status": f"playing on {device}", "duration": duration})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @bp.route("/wakeup", methods=["GET"])
@@ -520,43 +934,150 @@ def speaker_test():
         data = request.get_json(silent=True) or {}
         speaker_preference = str(data.get("speaker_preference") or "").strip() or None
         sound_path = os.path.join(PROJECT_ROOT, "sounds", "speakertest.wav")
-        card_index = get_usb_pcm_card_index(speaker_preference)
-        device = alsa_play_device(card_index)
-        subprocess.Popen(["aplay", "-q", "-D", device, sound_path])
-        return jsonify({"status": f"playing on {device}"})
+        device, duration = _play_wav_on_speaker(sound_path, speaker_preference)
+        return jsonify({"status": f"playing on {device}", "duration": duration})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+@bp.route("/mic-check/config", methods=["POST"])
+def mic_check_config():
+    global mic_check_record_gate_open
+    global mic_check_record_gate
+    global mic_check_record_preroll
+    global mic_check_record_release_until
+    global mic_check_record_threshold
+
+    data = request.get_json(silent=True) or {}
+    if "threshold" in data:
+        try:
+            mic_check_record_threshold = max(
+                0.0, min(32768.0, float(data["threshold"]))
+            )
+        except Exception:
+            return jsonify({"error": "Invalid threshold"}), 400
+        mic_check_record_gate_open = False
+        mic_check_record_preroll.clear()
+        mic_check_record_release_until = 0.0
+    mic_check_record_gate = True
+    return jsonify({
+        "gate_recording": mic_check_record_gate,
+        "threshold": mic_check_record_threshold,
+        "preroll_ms": round(MIC_CHECK_GATE_PREROLL_SECONDS * 1000),
+        "release_ms": round(MIC_CHECK_GATE_RELEASE_SECONDS * 1000),
+    })
+
+
 @bp.route("/mic-check")
 def mic_check():
+    threshold_arg = request.args.get("threshold", core_config.SILENCE_THRESHOLD)
+
     def rms_stream_generator():
         # use module-level flag
+        global mic_check_record_gate_open
+        global mic_check_record_gate
+        global mic_check_record_preroll
+        global mic_check_record_preroll_max_chunks
+        global mic_check_record_queue
+        global mic_check_record_release_until
+        global mic_check_record_threshold
         global mic_check_running
-        mic_check_running = True
+        global mic_check_started_at
+        global mic_recording_error
+        mic_check_running = False
+        mic_check_started_at = time.time()
+        mic_recording_error = None
+        mic_check_record_queue = queue.Queue()
+        mic_check_record_gate_open = False
+        mic_check_record_preroll.clear()
+        mic_check_record_release_until = 0.0
         try:
-            from core import audio as core_audio
+            mic_check_record_threshold = max(
+                0.0,
+                min(
+                    32768.0,
+                    float(threshold_arg),
+                ),
+            )
+        except Exception:
+            mic_check_record_threshold = float(core_config.SILENCE_THRESHOLD)
+        mic_check_record_gate = True
+        try:
+            core_audio = _ensure_core_audio_input_config()
+            chunk_seconds = (
+                float(core_audio.CHUNK_SIZE) / float(core_audio.MIC_RATE)
+                if core_audio.MIC_RATE
+                else 0.04
+            )
+            mic_check_record_preroll_max_chunks = max(
+                1,
+                int(
+                    np.ceil(MIC_CHECK_GATE_PREROLL_SECONDS / max(chunk_seconds, 0.001))
+                ),
+            )
+            os.makedirs(os.path.dirname(MIC_TEST_RECORDING_PATH), exist_ok=True)
+            try:
+                if os.path.exists(MIC_TEST_RECORDING_PATH):
+                    os.remove(MIC_TEST_RECORDING_PATH)
+            except Exception:
+                pass
+            while not rms_queue.empty():
+                rms_queue.get_nowait()
 
-            with sd.InputStream(
-                samplerate=core_audio.MIC_RATE,
-                device=core_audio.MIC_DEVICE_INDEX,
-                channels=core_audio.MIC_CHANNELS,
-                dtype="int16",
-                blocksize=core_audio.CHUNK_SIZE,
-                callback=audio_callback,
-            ):
-                while mic_check_running:
-                    try:
-                        rms = rms_queue.get(timeout=1.0)
-                        payload = {
-                            "rms": round(rms, 4),
-                            "threshold": round(float(core_config.SILENCE_THRESHOLD), 4),
-                        }
-                        yield f"data: {json.dumps(payload)}\n\n"
-                    except queue.Empty:
-                        continue
+            with wave.open(MIC_TEST_RECORDING_PATH, "wb") as wav:
+                wav.setnchannels(int(core_audio.MIC_CHANNELS))
+                wav.setsampwidth(2)
+                wav.setframerate(int(core_audio.MIC_RATE))
+                mic_check_running = True
+                with _input_stream_with_retry(
+                    samplerate=core_audio.MIC_RATE,
+                    device=core_audio.MIC_DEVICE_INDEX,
+                    channels=core_audio.MIC_CHANNELS,
+                    dtype="int16",
+                    blocksize=core_audio.CHUNK_SIZE,
+                    callback=audio_callback,
+                ):
+                    while mic_check_running:
+                        try:
+                            rms = rms_queue.get(timeout=1.0)
+                            while (
+                                mic_check_record_queue
+                                and not mic_check_record_queue.empty()
+                            ):
+                                wav.writeframes(mic_check_record_queue.get_nowait())
+                            elapsed = time.time() - mic_check_started_at
+                            payload = {
+                                "rms": round(rms, 4),
+                                "threshold": round(
+                                    float(mic_check_record_threshold), 4
+                                ),
+                                "gate_recording": mic_check_record_gate,
+                                "gate_preroll_ms": round(
+                                    MIC_CHECK_GATE_PREROLL_SECONDS * 1000
+                                ),
+                                "gate_release_ms": round(
+                                    MIC_CHECK_GATE_RELEASE_SECONDS * 1000
+                                ),
+                                "recording": True,
+                                "elapsed": round(elapsed, 1),
+                                "max_seconds": MIC_TEST_RECORDING_MAX_SECONDS,
+                            }
+                            yield f"data: {json.dumps(payload)}\n\n"
+                        except queue.Empty:
+                            while (
+                                mic_check_record_queue
+                                and not mic_check_record_queue.empty()
+                            ):
+                                wav.writeframes(mic_check_record_queue.get_nowait())
+                            continue
+                    while mic_check_record_queue and not mic_check_record_queue.empty():
+                        wav.writeframes(mic_check_record_queue.get_nowait())
         except Exception as e:
+            mic_recording_error = str(e)
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            mic_check_running = False
+            mic_check_record_queue = None
 
     return Response(rms_stream_generator(), mimetype="text/event-stream")
 
@@ -579,16 +1100,26 @@ def mic_gain():
             output = subprocess.check_output(
                 ["amixer", "-c", str(card_index), "cget", f"numid={numid}"], text=True
             )
-            match = re.search(r": values=(\d+)", output)
-            gain = int(match.group(1)) if match else None
-            return jsonify({"gain": gain})
+            gain = parse_amixer_control_value(output)
+            min_value, max_value = parse_amixer_control_range(output)
+            return jsonify({
+                "gain": gain,
+                "min": min_value,
+                "max": max_value,
+                "recommended": max_value,
+                "configured": str(getattr(core_config, "MIC_GAIN", "max")),
+            })
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     if request.method == "POST":
         try:
             data = request.get_json()
-            value = int(data.get("value", 8))
-            if 0 <= value <= 16:
+            value = int(data.get("value", 16))
+            output = subprocess.check_output(
+                ["amixer", "-c", str(card_index), "cget", f"numid={numid}"], text=True
+            )
+            min_value, max_value = parse_amixer_control_range(output)
+            if min_value <= value <= max_value:
                 subprocess.check_call([
                     "amixer",
                     "-c",
@@ -597,8 +1128,17 @@ def mic_gain():
                     f"numid={numid}",
                     str(value),
                 ])
-                return "OK"
-            return jsonify({"error": "Mic gain must be between 0 and 16"}), 400
+                save_configured_mic_gain(value)
+                return jsonify({
+                    "gain": value,
+                    "min": min_value,
+                    "max": max_value,
+                    "recommended": max_value,
+                    "configured": str(value),
+                })
+            return jsonify({
+                "error": f"Mic gain must be between {min_value} and {max_value}"
+            }), 400
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     return jsonify({"error": "Unsupported method"}), 405

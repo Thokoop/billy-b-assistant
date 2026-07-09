@@ -2,10 +2,10 @@
 const LogPanel = (() => {
     let autoScrollEnabled = false;
     let isLogHidden = true;
-    let isReleaseHidden = true;
     let restoreSettingsPanelAfterEnvClose = false;
     let lastLogsSnapshot = "";
     const MAX_LOG_BUFFER_CHARS = 400000;
+    let uiBound = false;
 
     const rebootBilly = async () => {
         if (!confirm("Are you sure you want to reboot Billy? This will reboot the whole system.")) return;
@@ -252,7 +252,7 @@ const LogPanel = (() => {
 
     const isAutoScrollActive = () => {
         if (elements.scrollBtn) {
-            return elements.scrollBtn.classList.contains("bg-cyan-500");
+            return elements.scrollBtn.classList.contains("text-emerald-400");
         }
         return autoScrollEnabled;
     };
@@ -309,8 +309,7 @@ const LogPanel = (() => {
     const toggleLogPanel = () => {
         isLogHidden = !isLogHidden;
         elements.logPanel.classList.toggle("hidden", isLogHidden);
-        elements.toggleBtn.classList.toggle("bg-cyan-500", !isLogHidden);
-        elements.toggleBtn.classList.toggle("bg-zinc-700", isLogHidden);
+        elements.toggleBtn.classList.toggle("secondary-action--active-cyan", !isLogHidden);
     };
 
     const loadEnvContent = async () => {
@@ -350,16 +349,6 @@ const LogPanel = (() => {
         }
     };
 
-
-    const toggleReleasePanel = () => {
-        isReleaseHidden = !isReleaseHidden;
-        elements.releasePanel.classList.toggle("hidden", isReleaseHidden);
-        elements.toggleReleaseBtn.classList.toggle("bg-emerald-500", !isReleaseHidden);
-        elements.toggleReleaseBtn.classList.toggle("hover:bg-emerald-400", !isReleaseHidden);
-        elements.toggleReleaseBtn.classList.toggle("text-black", !isReleaseHidden);
-        elements.toggleReleaseBtn.classList.toggle("bg-zinc-700", isReleaseHidden);
-        elements.toggleReleaseBtn.classList.toggle("hover:bg-zinc-600", isReleaseHidden);
-    };
 
     const toggleMotion = () => {
         const btn = elements.toggleMotionBtn;
@@ -445,8 +434,8 @@ const LogPanel = (() => {
 
     const toggleAutoScroll = () => {
         autoScrollEnabled = !autoScrollEnabled;
-        elements.scrollBtn.classList.toggle("bg-cyan-500", autoScrollEnabled);
-        elements.scrollBtn.classList.toggle("bg-zinc-800", !autoScrollEnabled);
+        elements.scrollBtn.classList.toggle("text-emerald-400", autoScrollEnabled);
+        elements.scrollBtn.classList.toggle("text-white", !autoScrollEnabled);
         elements.scrollBtn.title = autoScrollEnabled ? "Auto-scroll ON" : "Auto-scroll OFF";
         if (autoScrollEnabled) {
             elements.logContainer.scrollTop = elements.logContainer.scrollHeight;
@@ -498,6 +487,16 @@ const LogPanel = (() => {
 
     let elements = {};
     const bindUI = (cfg = {}) => {
+        if (uiBound) {
+            const logLevelSelect = document.getElementById("log-level-select");
+            if (logLevelSelect && cfg.LOG_LEVEL) {
+                logLevelSelect.value = cfg.LOG_LEVEL;
+            }
+            checkAndShowPasswordModal(cfg);
+            hideSupportPanelIfDisabled(cfg);
+            return;
+        }
+
         elements = {
             logOutput: document.getElementById("log-output"),
             logContainer: document.getElementById("log-container"),
@@ -518,16 +517,13 @@ const LogPanel = (() => {
             stopBillyBtn: document.getElementById("stop-billy-btn"),
             rebootBillyBtn: document.getElementById("reboot-billy-btn"),
             shutdownBillyBtn: document.getElementById("shutdown-billy-btn"),
-            toggleReleaseBtn: document.getElementById("current-version"),
-            releasePanel: document.getElementById("release-panel"),
-            releaseTitle: document.getElementById("release-title"),
-            releaseBody: document.getElementById("release-body"),
-            releaseLink: document.getElementById("release-link"),
-            releaseClose: document.getElementById("release-close"),
-            releaseMarkRead: document.getElementById("release-mark-read"),
-            releaseBadge: document.getElementById("release-badge"),
         };
 
+        if (!elements.toggleBtn || !elements.logPanel) {
+            return;
+        }
+
+        uiBound = true;
 
         if (elements.powerBtn) {
             elements.powerBtn.addEventListener("click", (e) => {
@@ -544,13 +540,19 @@ const LogPanel = (() => {
         });
 
         elements.toggleBtn.addEventListener("click", toggleLogPanel);
-        elements.toggleFullscreenBtn.addEventListener("click", toggleFullscreenLog);
-        elements.scrollBtn.addEventListener("click", toggleAutoScroll);
-        autoScrollEnabled = isAutoScrollActive();
-        elements.scrollBtn.classList.toggle("bg-cyan-500", autoScrollEnabled);
-        elements.scrollBtn.classList.toggle("bg-zinc-800", !autoScrollEnabled);
-        elements.scrollBtn.title = autoScrollEnabled ? "Auto-scroll ON" : "Auto-scroll OFF";
-        elements.toggleMotionBtn.addEventListener("click", toggleMotion);
+        if (elements.toggleFullscreenBtn) {
+            elements.toggleFullscreenBtn.addEventListener("click", toggleFullscreenLog);
+        }
+        if (elements.scrollBtn) {
+            elements.scrollBtn.addEventListener("click", toggleAutoScroll);
+            autoScrollEnabled = isAutoScrollActive();
+            elements.scrollBtn.classList.toggle("text-emerald-400", autoScrollEnabled);
+            elements.scrollBtn.classList.toggle("text-white", !autoScrollEnabled);
+            elements.scrollBtn.title = autoScrollEnabled ? "Auto-scroll ON" : "Auto-scroll OFF";
+        }
+        if (elements.toggleMotionBtn) {
+            elements.toggleMotionBtn.addEventListener("click", toggleMotion);
+        }
         if (elements.openEnvEditorBtn) {
             elements.openEnvEditorBtn.addEventListener("click", openEnvEditorModal);
         }
@@ -586,8 +588,12 @@ const LogPanel = (() => {
                 }
             });
         }
-        elements.rebootBillyBtn.addEventListener("click", rebootBilly);
-        elements.shutdownBillyBtn.addEventListener("click", shutdownBilly);
+        if (elements.rebootBillyBtn) {
+            elements.rebootBillyBtn.addEventListener("click", rebootBilly);
+        }
+        if (elements.shutdownBillyBtn) {
+            elements.shutdownBillyBtn.addEventListener("click", shutdownBilly);
+        }
         
         // Log level control
         const applyLogLevelBtn = document.getElementById("apply-log-level-btn");
@@ -600,15 +606,7 @@ const LogPanel = (() => {
         if (logLevelSelect && cfg.LOG_LEVEL) {
             logLevelSelect.value = cfg.LOG_LEVEL;
         }
-        if (elements.toggleReleaseBtn) elements.toggleReleaseBtn.addEventListener("click", toggleReleasePanel);
-        if (elements.releaseClose) elements.releaseClose.addEventListener("click", () => {
-            isReleaseHidden = true;
-            elements.releasePanel.classList.add("hidden");
-            elements.toggleReleaseBtn.classList.remove("bg-emerald-500","hover:bg-emerald-400","text-black");
-            elements.toggleReleaseBtn.classList.add("bg-zinc-700","hover:bg-zinc-600","text-white");
-        });
-
-        if (localStorage.getItem("reduceMotion") === "1") {
+        if (elements.toggleMotionBtn && localStorage.getItem("reduceMotion") === "1") {
             document.documentElement.classList.add("reduce-motion");
             const btn = elements.toggleMotionBtn;
             const icon = btn.querySelector(".material-icons");
@@ -618,7 +616,7 @@ const LogPanel = (() => {
             btn.classList.add("text-white");
             if (icon) icon.textContent = "blur_off";
             if (statusText) statusText.textContent = "Disabled";
-        } else {
+        } else if (elements.toggleMotionBtn) {
             // Ensure enabled state has emerald color
             const btn = elements.toggleMotionBtn;
             btn.classList.remove("text-white");

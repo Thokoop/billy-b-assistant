@@ -40,46 +40,36 @@ const SongsManager = (() => {
         }
     };
 
-    const openSongsModal = () => {
-        const modal = document.getElementById('songs-modal');
-        if (modal) {
-            modal.classList.remove('hidden');
-            loadSongs();
-        }
-    };
-
-    const closeSongsModal = () => {
-        const modal = document.getElementById('songs-modal');
-        if (modal) {
-            modal.classList.add('hidden');
-            showListView();
-        }
-    };
-
     const showListView = () => {
-        document.getElementById('songs-list-view').classList.remove('hidden');
-        document.getElementById('song-edit-view').classList.add('hidden');
-        document.getElementById('song-edit-footer').classList.add('hidden');
+        document.getElementById('songs-list-view')?.classList.remove('hidden');
+        document.getElementById('song-edit-view')?.classList.add('hidden');
+        document.getElementById('song-edit-footer')?.classList.add('hidden');
+        document.getElementById('song-edit-empty-state')?.classList.remove('hidden');
+        window.MobileSplitView?.showList('songs-split-view');
         
         // Update header
-        document.getElementById('back-to-songs-list-btn').classList.add('hidden');
-        document.getElementById('songs-modal-title').textContent = 'Song Manager';
+        document.getElementById('back-to-songs-list-btn')?.classList.add('hidden');
+        const title = document.getElementById('songs-modal-title');
+        if (title) title.textContent = 'Song Details';
         
         currentSong = null;
         isEditMode = false;
+        loadSongs();
     };
 
     const showEditView = (songName = null) => {
-        document.getElementById('songs-list-view').classList.add('hidden');
-        document.getElementById('song-edit-view').classList.remove('hidden');
-        document.getElementById('song-edit-footer').classList.remove('hidden');
+        document.getElementById('song-edit-empty-state')?.classList.add('hidden');
+        document.getElementById('song-edit-view')?.classList.remove('hidden');
+        document.getElementById('song-edit-footer')?.classList.remove('hidden');
+        window.MobileSplitView?.showDetail('songs-split-view');
         
         isEditMode = songName !== null;
         currentSong = songName;
 
         // Update header
-        document.getElementById('back-to-songs-list-btn').classList.remove('hidden');
-        document.getElementById('songs-modal-title').textContent = isEditMode ? 'Edit Song' : 'New Song';
+        document.getElementById('back-to-songs-list-btn')?.classList.remove('hidden');
+        const title = document.getElementById('songs-modal-title');
+        if (title) title.textContent = isEditMode ? 'Edit Song' : 'New Song';
 
         // Show/hide song name field (only for new songs)
         const songNameField = document.getElementById('song-name-field');
@@ -95,6 +85,8 @@ const SongsManager = (() => {
             songNameInput.setAttribute('required', 'required');
             deleteBtn.classList.add('hidden');
         }
+
+        loadSongs();
 
         if (songName) {
             loadSongData(songName);
@@ -132,6 +124,7 @@ const SongsManager = (() => {
         grid.innerHTML = songs.map(song => {
             const hasAllFiles = song.has_full && song.has_vocals && song.has_drums;
             const isExample = song.is_example || false;
+            const isSelected = currentSong === song.name;
             
             const statusIcon = hasAllFiles ? 
                 '<span class="material-icons text-emerald-400 text-sm">check_circle</span>' :
@@ -144,7 +137,7 @@ const SongsManager = (() => {
                         <div class="flex items-start justify-between mb-2">
                             <div class="flex-1">
                                 <div class="flex items-center gap-2">
-                                    <h4 class="text-white font-semibold">${song.title}</h4>
+                                    <h4 class="text-white">${song.title}</h4>
                                     <span class="text-xs bg-amber-600/20 text-amber-400 px-2 py-0.5 rounded">Example</span>
                                 </div>
                                 <p class="text-xs text-zinc-500">${song.name}</p>
@@ -160,7 +153,7 @@ const SongsManager = (() => {
                             <span>Gain: ${song.gain}</span>
                         </div>
                         <button onclick="window.SongsManager.copyExample('${song.name}')" 
-                                class="w-full bg-amber-600 hover:bg-amber-500 text-white text-sm py-2 px-3 rounded flex items-center justify-center gap-2 transition-colors">
+                                class="w-full bg-amber-600 text-white text-sm py-2 px-3 rounded flex items-center justify-center gap-2 transition-colors">
                             <span class="material-icons text-sm">content_copy</span>
                             Copy to Custom Songs
                         </button>
@@ -169,11 +162,11 @@ const SongsManager = (() => {
             }
             
             return `
-                <div class="bg-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-emerald-500 transition-colors cursor-pointer"
+                <div class="${isSelected ? 'bg-emerald-500/10 border-emerald-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'bg-zinc-800 border-zinc-700 hover:border-emerald-500'} border rounded-lg p-4 transition-colors cursor-pointer"
                      onclick="window.SongsManager.editSong('${song.name}')">
                     <div class="flex items-start justify-between mb-2">
                         <div class="flex-1">
-                            <h4 class="text-white font-semibold">${song.title}</h4>
+                            <h4 class="text-white">${song.title}</h4>
                         </div>
                         ${statusIcon}
                     </div>
@@ -498,10 +491,8 @@ const SongsManager = (() => {
     };
 
     const init = () => {
-        // Modal controls
-        document.getElementById('songs-btn')?.addEventListener('click', openSongsModal);
-        document.getElementById('close-songs-modal')?.addEventListener('click', closeSongsModal);
-        
+        const isSongsPage = !!document.getElementById('songs-grid');
+
         // View navigation
         document.getElementById('create-song-btn')?.addEventListener('click', () => showEditView(null));
         document.getElementById('back-to-songs-list-btn')?.addEventListener('click', showListView);
@@ -515,26 +506,14 @@ const SongsManager = (() => {
         setupAudioPreview('vocals');
         setupAudioPreview('drums');
 
-        // Close modal on backdrop click (only if both mousedown and mouseup on backdrop)
-        const modal = document.getElementById('songs-modal');
-        let mouseDownOnBackdrop = false;
-        
-        modal?.addEventListener('mousedown', (e) => {
-            mouseDownOnBackdrop = e.target.id === 'songs-modal';
-        });
-        
-        modal?.addEventListener('mouseup', (e) => {
-            if (mouseDownOnBackdrop && e.target.id === 'songs-modal') {
-                closeSongsModal();
-            }
-            mouseDownOnBackdrop = false;
-        });
+        if (isSongsPage) {
+            showListView();
+            loadSongs();
+        }
     };
 
     return {
         init,
-        openSongsModal,
-        closeSongsModal,
         editSong: showEditView,
         loadSongs,
         copyExample
@@ -543,4 +522,3 @@ const SongsManager = (() => {
 
 // Make it globally accessible
 window.SongsManager = SongsManager;
-

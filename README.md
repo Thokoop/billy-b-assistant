@@ -419,7 +419,8 @@ MQTT_PASSWORD=<password>
 
 ## Optional overwrites
 MIC_TIMEOUT_SECONDS=5
-SILENCE_THRESHOLD=900
+SILENCE_THRESHOLD=1000
+MIC_GAIN=max
 MIC_PREFERENCE=usbpath:1-1.3
 SPEAKER_PREFERENCE=usbpath:1-1.4
 FOLLOW_UP_RETRY_LIMIT=1
@@ -449,9 +450,10 @@ ALLOW_UPDATE_PERSONALITY_INI=true
 **VOICE**: The OpenAI voice model to use (`alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, or `cedar`, `ballad` is default)  
 **MQTT_\***: (Optional) used if you want to integrate Billy with Home Assistant or another MQTT broker  
 **NEWS_DEFAULT_LOCATION / NEWS_DEFAULT_COUNTRY / NEWS_DEFAULT_LANGUAGE**: (Optional) defaults for weather and regional headlines  
-**MIC_TIMEOUT_SECONDS**: How long Billy should wait after your last mic activity before ending input  
-**SILENCE_THRESHOLD**: Audio threshold (RMS) for what counts as mic input;lower this value if Billy interrupts you too quickly, set higher if Billy doesn't respond (because he thinks you're still talking)  
-**MIC_PREFERENCE / SPEAKER_PREFERENCE**: Preferred USB mic/speaker. The Web UI stores stable USB bus-path values (for example `usbpath:1-1.3`) to survive `hw:X,Y` renumbering after reboot. Legacy name-based values are still accepted for backward compatibility.  
+**MIC_TIMEOUT_SECONDS**: How long Billy should wait after your last mic activity before ending input
+**SILENCE_THRESHOLD**: Audio threshold (RMS) for what counts as speech. Lower this if Billy misses you; raise it if background noise keeps the conversation open. The default is `1000` on the raw `0-32768` RMS scale.
+**MIC_GAIN**: ALSA `Mic Capture Volume` applied on startup. The default is `max`, which resolves to the device's reported maximum. If you adjust mic gain in the Web UI, Billy saves the numeric value to `.env` and reuses it after restart.
+**MIC_PREFERENCE / SPEAKER_PREFERENCE**: Preferred USB mic/speaker. The Web UI stores stable USB bus-path values (for example `usbpath:1-1.3`) to survive `hw:X,Y` renumbering after reboot. Legacy name-based values are still accepted for backward compatibility.
 **FOLLOW_UP_RETRY_LIMIT**: Number of auto follow-up retries when Billy expects a follow-up but could not hear it clearly (or heard nothing), before ending the session (`1` default, allowed range `0..5`)  
 **CAMERA_HARDWARE**: Camera selection (`none`, `rpi_camera`, or `usb_webcam`). The Web UI **Camera Device** dropdown auto-lists detected camera options plus `None`.  
 **LIBCAMERA_STILL_BIN**: Capture binary name/path (default `libcamera-still`)  

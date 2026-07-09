@@ -25,6 +25,7 @@ const Sections = (() => {
 
             const id = section.id;
             const collapsed = localStorage.getItem('collapse_' + id) === 'closed';
+            section.classList.toggle('collapsed', collapsed);
             icon.classList.toggle('rotate-180', !collapsed);
             icon.classList.toggle('rotate-0', collapsed);
             header.classList.toggle('mb-4', !collapsed);
@@ -75,5 +76,4 @@ const Sections = (() => {
 
     return {collapsible};
 })();
-
 
