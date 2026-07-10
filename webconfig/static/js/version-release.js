@@ -17,6 +17,17 @@
     const getLatestVersionField = () => document.getElementById("software-latest-version");
     const getReleaseBadges = () => Array.from(document.querySelectorAll("[data-release-badge]"));
 
+    const normalizeVersionLabel = (version) => String(version || "")
+        .trim()
+        .replace(/^v/i, "")
+        .toLowerCase();
+
+    const hasEffectiveUpdate = (info) => {
+        const current = normalizeVersionLabel(info.current);
+        const latest = normalizeVersionLabel(info.latest || info.current);
+        return !!info.update_available && current && latest && current !== latest;
+    };
+
     window.addEventListener("billy:websocket:disconnected", () => {
         websocketDisconnectedDuringUpdate = true;
     });
@@ -34,6 +45,7 @@
 
     const refreshUi = () => {
         const info = window.BillyVersionInfo || {};
+        const updateAvailable = hasEffectiveUpdate(info);
         const updateBtn = getUpdateBtn();
         const latestVersionLabel = getLatestVersionLabel();
         const currentVersionField = getCurrentVersionField();
@@ -49,11 +61,12 @@
             latestVersionField.textContent = info.latest || info.current || "unknown";
         }
         if (updateBtn) {
-            updateBtn.classList.toggle("hidden", !info.update_available);
-            updateBtn.classList.toggle("inline-flex", !!info.update_available);
+            updateBtn.classList.toggle("hidden", !updateAvailable);
+            updateBtn.classList.toggle("inline-flex", updateAvailable);
         }
         getReleaseBadges().forEach((badge) => {
-            badge.classList.toggle("hidden", !info.update_available);
+            badge.classList.toggle("hidden", !updateAvailable);
+            badge.classList.toggle("inline-flex", updateAvailable);
         });
     };
 
