@@ -1,237 +1,247 @@
 <!-- Persona Column (consistent with Settings) -->
 <section class="space-y-4 md:space-y-6">
-    <form id="persona-form" class="p-4">
-        <!-- Persona Selector -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-bold text-slate-200 flex items-center">
-                    <span class="material-icons mr-2 text-emerald-400">set_meal</span>
-                    Personas
-                </h3>
-             <button type="button" 
-                     onclick="window.PersonaForm.openCreatePersonaModal()" 
-                     class="flex items-center justify-center w-8 h-8 bg-emerald-500 hover:bg-emerald-400 text-white rounded transition-colors"
-                     title="Create new persona">
-                 <span class="material-icons text-base">add</span>
-             </button>
-            </div>
-            <div id="persona-list" class="space-y-1">
-                <!-- Persona list will be populated here -->
-            </div>
-        </div>
-
-        <!-- Persona Identity -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
-             id="section-persona-identity">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">badge</span>
-                Persona Voice &amp; Expression
-                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-            </h3>
-            <div class="space-y-4">
-                <!-- Name and Description (side by side on larger screens) -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Name -->
-                    <div>
-                        <label for="persona-display-name" class="flex justify-between items-center font-semibold text-sm text-slate-300 mb-2">
-                            Name
-                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1 text-base"
-                                  onclick="toggleTooltip(this)">help_outline</span>
-                        </label>
-                        <div class="relative">
-                            <div data-tooltip class="w-64">
-                                The persona will refer to itself using this name. The folder will be created in ./personas/
-                            </div>
-                            <input type="text" 
-                                   id="persona-display-name" 
-                                   name="persona-display-name"
-                                   placeholder="e.g., Friendly Billy"
-                                   class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        </div>
+    <form id="persona-form">
+        <div id="persona-split-view" data-mobile-split class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            <div data-mobile-split-master class="md:sticky md:top-16">
+                <!-- Persona Selector -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 xl:mb-0">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg text-slate-200 flex items-center">
+                            <span class="material-icons mr-2 text-emerald-400">set_meal</span>
+                            Personas
+                        </h3>
+                     <button type="button" 
+                             onclick="window.PersonaForm.openCreatePersonaModal()" 
+                             class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0"
+                             title="Create new persona">
+                         <span class="material-icons">add</span>
+                     </button>
                     </div>
-                    
-                    <!-- Description -->
-                    <div>
-                        <label for="persona-description" class="block font-semibold text-sm text-slate-300 mb-3">
-                            Description
-                        </label>
-                        <input type="text" 
-                               id="persona-description" 
-                               name="persona-description"
-                               placeholder="e.g., A warm and welcoming personality"
-                               class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                    </div>
-                </div>
-
-                <!-- Voice -->
-                <div>
-                    <label for="VOICE" class="block font-semibold text-sm text-slate-300 mb-2">Voice</label>
-                    <select id="VOICE" name="VOICE"
-                            class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        <!-- Options populated dynamically by JavaScript -->
-                    </select>
-                </div>
-
-                <!-- Mouth Articulation Slider -->
-                <div>
-                    <label for="MOUTH_ARTICULATION"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300">
-                        Mouth Articulation
-                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
-                              onclick="toggleTooltip(this)">help_outline</span>
-                    </label>
-
-                    <!-- Tooltip -->
-                    <div class="relative">
-                        <div data-tooltip>
-                            Controls how Billy's mouth moves during speech.<br>
-                            <b>Lower values:</b> More snappy, quick movements<br>
-                            <b>Higher values:</b> Smoother, more fluid movements
-                        </div>
-
-                        <div class="mb-4 mt-2 flex gap-2 items-center">
-                            <div class="w-20 text-sm font-medium text-gray-200">
-                                Level: <span id="persona-mouth-articulation-value">5</span>
-                            </div>
-                            <input type="range" 
-                                   id="MOUTH_ARTICULATION" 
-                                   name="MOUTH_ARTICULATION" 
-                                   min="1" 
-                                   max="10" 
-                                   value="5"
-                                   class="hidden">
-                            <div
-                                    class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
-                                    id="persona-mouth-articulation-bar"
-                                    style="user-select: none;"
-                            >
-                                <div
-                                        class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
-                                        id="persona-mouth-articulation-fill"
-                                        style="width: 50%;"
-                                        data-value="5"
-                                ></div>
-                            </div>
-                        </div>
+                    <div id="persona-list" class="space-y-1">
+                        <!-- Persona list will be populated here -->
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Persona Traits -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
-             id="section-persona-traits">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">psychology</span>
-                Personality
-                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-            </h3>
-            <div id="personality-sliders" class="space-y-4">
-                <!-- JS will populate this -->
-            </div>
-        </div>
-
-        <!-- Persona Instructions -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
-             id="section-instructions">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">edit_note</span>
-                Instructions
-                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-            </h3>
-            <div>
-                <textarea name="META" id="meta-text" rows="16"
-                          class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                          spellcheck="false"></textarea>
-            </div>
-        </div>
-
-        <!-- Backstory -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
-             id="section-backstory-instructions">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">auto_stories</span>
-                Backstory
-                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-            </h3>
-            <div>
-                <div id="backstory-fields" class="space-y-2"></div>
-                <button type="button" onclick="addBackstoryField()"
-                        class="text-sm text-emerald-500 hover:text-emerald-400 mt-2 flex items-center cursor-pointer">
-                    <span class="material-icons align-middle mr-1 ">add_circle_outline</span>
-                    Add Field
+            <div data-mobile-split-detail class="min-w-0">
+                <button id="persona-mobile-back-btn"
+                        data-mobile-split-back
+                        type="button"
+                        class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white mb-4 md:hidden">
+                    <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+                    <span>Back</span>
                 </button>
+                <!-- Persona Identity -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+                     id="section-persona-identity">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">badge</span>
+                        Persona Voice &amp; Expression
+                        <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                    </h3>
+                    <div class="space-y-4">
+                        <!-- Name and Description (side by side on larger screens) -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Name -->
+                            <div>
+                                <label for="persona-display-name" class="flex justify-between items-center text-sm text-slate-300 mb-2">
+                                    Name
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1 text-base"
+                                          onclick="toggleTooltip(this)">help_outline</span>
+                                </label>
+                                <div class="relative">
+                                    <div data-tooltip class="w-64">
+                                        The persona will refer to itself using this name. The folder will be created in ./personas/
+                                    </div>
+                                    <input type="text" 
+                                           id="persona-display-name" 
+                                           name="persona-display-name"
+                                           placeholder="e.g., Friendly Billy"
+                                           class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                </div>
+                            </div>
+                            
+                            <!-- Description -->
+                            <div>
+                                <label for="persona-description" class="block text-sm text-slate-300 mb-3">
+                                    Description
+                                </label>
+                                <input type="text" 
+                                       id="persona-description" 
+                                       name="persona-description"
+                                       placeholder="e.g., A warm and welcoming personality"
+                                       class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            </div>
+                        </div>
+
+                        <!-- Voice -->
+                        <div>
+                            <label for="VOICE" class="block text-sm text-slate-300 mb-2">Voice</label>
+                            <select id="VOICE" name="VOICE"
+                                    class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                <!-- Options populated dynamically by JavaScript -->
+                            </select>
+                        </div>
+
+                        <!-- Mouth Articulation Slider -->
+                        <div>
+                            <label for="MOUTH_ARTICULATION"
+                                   class="flex justify-between items-center text-sm text-slate-300">
+                                Mouth Articulation
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                      onclick="toggleTooltip(this)">help_outline</span>
+                            </label>
+
+                            <!-- Tooltip -->
+                            <div class="relative">
+                                <div data-tooltip>
+                                    Controls how Billy's mouth moves during speech.<br>
+                                    <b>Lower values:</b> More snappy, quick movements<br>
+                                    <b>Higher values:</b> Smoother, more fluid movements
+                                </div>
+
+                                <div class="mb-4 mt-2 flex gap-2 items-center">
+                                    <div class="w-20 text-sm text-gray-200">
+                                        Level: <span id="persona-mouth-articulation-value">5</span>
+                                    </div>
+                                    <input type="range" 
+                                           id="MOUTH_ARTICULATION" 
+                                           name="MOUTH_ARTICULATION" 
+                                           min="1" 
+                                           max="10" 
+                                           value="5"
+                                           class="hidden">
+                                    <div
+                                            class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
+                                            id="persona-mouth-articulation-bar"
+                                            style="user-select: none;"
+                                    >
+                                        <div
+                                                class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
+                                                id="persona-mouth-articulation-fill"
+                                                style="width: 50%;"
+                                                data-value="5"
+                                        ></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Persona Traits -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+                     id="section-persona-traits">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">psychology</span>
+                        Personality
+                        <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                    </h3>
+                    <div id="personality-sliders" class="space-y-4">
+                        <!-- JS will populate this -->
+                    </div>
+                </div>
+
+                <!-- Persona Instructions -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+                     id="section-instructions">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">edit_note</span>
+                        Instructions
+                        <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                    </h3>
+                    <div>
+                        <textarea name="META" id="meta-text" rows="16"
+                                  class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                  spellcheck="false"></textarea>
+                    </div>
+                </div>
+
+                <!-- Backstory -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+                     id="section-backstory-instructions">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">auto_stories</span>
+                        Backstory
+                        <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                    </h3>
+                    <div>
+                        <div id="backstory-fields" class="space-y-2"></div>
+                        <button type="button" onclick="addBackstoryField()"
+                                class="secondary-action secondary-action--hover--emerald text-sm mt-2 px-3 py-2">
+                            <span class="material-icons align-middle">add</span>
+                            Add Field
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Wake-up Sounds -->
+                <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
+                     id="section-wakeup-sounds">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">alarm</span>
+                        Wake-up Sounds
+                        <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                    </h3>
+
+                    <div id="wakeup-sound-list" class="space-y-2">
+
+                    </div>
+
+                    <button type="button" onclick="addWakeupSound()"
+                            class="secondary-action secondary-action--hover--emerald text-sm mt-2 px-3 py-2">
+                        <span class="material-icons align-middle">add</span>
+                        Add Wake-up Sound
+                    </button>
+                </div>
+                <div class="relative pt-0 md:py-4">
+                    <div class="flex justify-end">
+                        <div class="relative inline-block">
+                            <div class="flex rounded shadow overflow-hidden border border-emerald-500">
+                                <button
+                                        id="save-persona-btn"
+                                        class="bg-emerald-600 hover:bg-emerald-500 text-black py-2 px-4 flex items-center gap-1 focus:outline-none"
+                                        type="submit"
+                                        form="persona-form"
+                                >
+                                    <span class="material-icons">save</span>
+                                    Save Persona
+                                </button>
+                                <button
+                                        id="persona-dropdown-btn"
+                                        type="button"
+                                        class="dropdown-toggle bg-emerald-600 hover:bg-emerald-500 text-black px-2 flex items-center"
+                                        onclick="toggleDropdown(this)"
+                                >
+                                    <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
+                                </button>
+                            </div>
+                            <div
+                                    class="dropdown-menu absolute bottom-0 right-0 w-full text-black border border-emerald-500 rounded z-20 hidden"
+                            >
+                                <button onclick="savePersonaAs()"
+                                        class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
+                                    <span class="material-icons">save_as</span>
+                                    Save Persona As
+                                </button>
+                                <button onclick="exportPersona()"
+                                        class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
+                                    <span class="material-icons">file_download</span>
+                                    Download Persona
+                                </button>
+                                <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
+                                    <span class="material-icons">file_upload</span>
+                                    <span>Upload Persona</span>
+                                    <input type="file" accept=".ini" onchange="importPersona(this)" class="hidden"/>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
-
-        <!-- Wake-up Sounds -->
-        <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
-             id="section-wakeup-sounds">
-            <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between font-bold mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">alarm</span>
-                Wake-up Sounds
-                <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-            </h3>
-
-            <div id="wakeup-sound-list" class="space-y-2">
-
-            </div>
-
-            <button type="button" onclick="addWakeupSound()"
-                    class="text-sm text-emerald-500 hover:text-emerald-400 mt-2 flex items-center cursor-pointer">
-                <span class="material-icons align-middle mr-1">add_circle_outline</span>
-                Add Wake-up Sound
-            </button>
         </div>
 
     </form>
-
-    <div class="sticky bottom-0 z-10 p-4">
-        <div class="flex justify-center">
-            <div class="relative inline-block">
-                <!-- Split button -->
-                <div class="flex rounded shadow overflow-hidden border border-emerald-500">
-                    <button
-                            id="save-persona-btn"
-                            class="bg-emerald-500 hover:bg-emerald-400 text-zinc-800 font-semibold py-2 px-4 flex items-center gap-1 focus:outline-none"
-                            type="submit"
-                            form="persona-form"
-                    >
-                        <span class="material-icons">save</span>
-                        Save Persona
-                    </button>
-                    <button
-                            id="persona-dropdown-btn"
-                            type="button"
-                            class="dropdown-toggle bg-emerald-500 hover:bg-emerald-400 text-zinc-800 px-2 flex items-center"
-                            onclick="toggleDropdown(this)"
-                    >
-                        <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
-                    </button>
-                </div>
-                <!-- Dropdown -->
-                <div
-                        class="dropdown-menu absolute bottom-0  right-0 w-full text-zinc-800 border border-emerald-500 rounded z-20 hidden"
-                >
-                    <button onclick="savePersonaAs()"
-                            class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-400 cursor-pointer">
-                        <span class="material-icons">save_as</span>
-                        Save Persona As
-                    </button>
-                    <button onclick="exportPersona()"
-                            class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-400 cursor-pointer">
-                        <span class="material-icons">file_download</span>
-                        Download Persona
-                    </button>
-                    <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-400 cursor-pointer">
-                        <span class="material-icons">file_upload</span>
-                        <span>Upload Persona</span>
-                        <input type="file" accept=".ini" onchange="importPersona(this)" class="hidden"/>
-                    </label>
-                </div>
-            </div>
-        </div>
-    </div>
 </section>
 
 <!-- Create Persona Modal -->
@@ -240,7 +250,7 @@
         <!-- Fixed Header -->
         <div class="flex justify-between items-center p-4 border-b border-zinc-700 flex-shrink-0 relative">
             <!-- Title (center) -->
-            <h3 class="text-lg font-semibold text-white flex items-center gap-2 mx-auto">
+            <h3 class="text-lg text-white flex items-center gap-2 mx-auto">
                 <span class="material-icons text-emerald-400">add_circle</span>
                 Create New Persona
             </h3>
@@ -256,7 +266,7 @@
             <div class="space-y-4">
                 <!-- Persona Name Input -->
                 <div>
-                    <label for="new-persona-name" class="flex justify-between items-center font-semibold text-sm text-slate-300 mb-2">
+                    <label for="new-persona-name" class="flex justify-between items-center text-sm text-slate-300 mb-2">
                         <span>Name <span class="text-rose-400">*</span></span>
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1 text-base"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -274,7 +284,7 @@
                 
                 <!-- Template Selection -->
                 <div>
-                    <label class="block font-semibold text-sm text-slate-300 mb-2">
+                    <label class="block text-sm text-slate-300 mb-2">
                         Start from Template
                     </label>
                     <div id="preset-list" class="space-y-2">
@@ -288,7 +298,7 @@
         <div class="border-t border-zinc-700 p-4 flex-shrink-0 flex justify-end">
             <button type="button" 
                     onclick="window.PersonaForm.createPersonaFromModal()" 
-                    class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded transition-colors">
+                    class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors">
                 Create Persona
             </button>
         </div>

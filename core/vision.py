@@ -20,6 +20,7 @@ from .config import (
     CAMERA_CAPTURE_WIDTH,
     CAMERA_DEVICE_INDEX,
     CAMERA_HARDWARE,
+    CAMERA_ROTATION,
     ENV_PATH,
     FFMPEG_BIN,
     LIBCAMERA_STILL_BIN,
@@ -78,6 +79,10 @@ def describe_scene(args: dict[str, Any]) -> dict[str, Any]:
         minimum=0,
         maximum=20,
     )
+    camera_rotation = _normalize_rotation_degrees(
+        args.get("camera_rotation"),
+        default=int(runtime["camera_rotation"]),
+    )
     usb_scan_fallback = _coerce_bool(args.get("usb_scan_fallback"), default=True)
     fresh_frame = _coerce_bool(args.get("fresh_frame"), default=False)
 
@@ -123,6 +128,19 @@ def describe_scene(args: dict[str, Any]) -> dict[str, Any]:
                 ok=False,
                 summary="I couldn't capture an image from the camera.",
                 error=capture_error,
+                prompt=prompt,
+                max_words=max_words,
+            ).to_dict()
+
+        rotation_error = _apply_image_rotation(
+            image_path=image_path,
+            rotation_degrees=camera_rotation,
+        )
+        if rotation_error:
+            return SceneDescriptionResult(
+                ok=False,
+                summary="I captured an image, but couldn't rotate it.",
+                error=rotation_error,
                 prompt=prompt,
                 max_words=max_words,
             ).to_dict()
@@ -458,6 +476,10 @@ def _get_runtime_camera_settings() -> dict[str, Any]:
             minimum=0,
             maximum=20,
         ),
+        "camera_rotation": _normalize_rotation_degrees(
+            os.getenv("CAMERA_ROTATION"),
+            default=CAMERA_ROTATION,
+        ),
         "capture_width": _coerce_int(
             os.getenv("CAMERA_CAPTURE_WIDTH"),
             default=CAMERA_CAPTURE_WIDTH,
@@ -487,6 +509,25 @@ def _read_as_data_url(image_path: str) -> str:
     with open(image_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode("ascii")
     return f"data:image/jpeg;base64,{b64}"
+
+
+def _apply_image_rotation(*, image_path: str, rotation_degrees: int) -> str | None:
+    normalized = _normalize_rotation_degrees(rotation_degrees, default=0)
+    if normalized == 0:
+        return None
+
+    try:
+        from PIL import Image
+
+        with Image.open(image_path) as image:
+            rotated = image.rotate(-normalized, expand=True)
+            rotated.save(image_path, format="JPEG", quality=90)
+    except ImportError:
+        return "Image rotation requires Pillow. Install dependencies and try again."
+    except Exception as exc:
+        return f"Image rotation failed: {exc}"
+
+    return None
 
 
 def _coerce_int(
@@ -533,3 +574,11 @@ def _coerce_bool(value: Any, *, default: bool) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return default
+
+
+def _normalize_rotation_degrees(value: Any, *, default: int) -> int:
+    parsed = _coerce_int(value, default=default)
+    normalized = parsed % 360
+    if normalized not in {0, 90, 180, 270}:
+        return default if default in {0, 90, 180, 270} else 0
+    return normalized

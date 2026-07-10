@@ -20,6 +20,17 @@ const SettingsForm = (() => {
         return true;
     };
 
+    const ensureSelectHasValue = (element, preferredValue, fallbackValue = null) => {
+        if (!element) return false;
+        if (setSelectValueSafely(element, preferredValue)) return true;
+        if (setSelectValueSafely(element, fallbackValue)) return true;
+        if (element.options.length > 0) {
+            element.value = element.options[0].value;
+            return true;
+        }
+        return false;
+    };
+
     const getCameraSelectionFromConfig = (cfg) => {
         const hardware = String(cfg?.CAMERA_HARDWARE || "none").trim().toLowerCase();
         const index = String(cfg?.CAMERA_DEVICE_INDEX || "0").trim();
@@ -63,9 +74,13 @@ const SettingsForm = (() => {
     const bindCameraPreview = () => {
         const button = document.getElementById("test-camera-btn");
         const select = document.getElementById("CAMERA_HARDWARE");
+        const rotationInput = document.getElementById("CAMERA_ROTATION");
+        const rotationButton = document.getElementById("camera-rotation-btn");
+        const rotationIcon = document.getElementById("camera-rotation-icon");
+        const rotationLabel = document.getElementById("camera-rotation-label");
         const image = document.getElementById("camera-preview-image");
         const status = document.getElementById("camera-preview-status");
-        if (!button || !select || !image || !status) return;
+        if (!button || !select || !image || !status || !rotationInput || !rotationButton || !rotationIcon || !rotationLabel) return;
 
         const setStatus = (text, isError = false) => {
             status.textContent = text;
@@ -78,13 +93,37 @@ const SettingsForm = (() => {
             image.classList.add("hidden");
         };
 
+        const normalizeRotation = (value) => {
+            const parsed = Number.parseInt(String(value || "0"), 10);
+            if (Number.isNaN(parsed)) return 0;
+            const normalized = ((parsed % 360) + 360) % 360;
+            return [0, 90, 180, 270].includes(normalized) ? normalized : 0;
+        };
+
+        const updateRotationUi = (value) => {
+            const rotation = normalizeRotation(value);
+            rotationInput.value = String(rotation);
+            rotationLabel.textContent = `${rotation}°`;
+            rotationIcon.style.transform = `rotate(${rotation}deg)`;
+        };
+
+        updateRotationUi(rotationInput.value);
+
         select.addEventListener("change", () => {
             clearPreview();
             setStatus("Camera selection changed. Run test again.");
         });
 
+        rotationButton.addEventListener("click", () => {
+            const nextRotation = (normalizeRotation(rotationInput.value) + 90) % 360;
+            updateRotationUi(nextRotation);
+            clearPreview();
+            setStatus(`Orientation set to ${nextRotation}°. Run test again.`);
+        });
+
         button.addEventListener("click", async () => {
             const selection = String(select.value || "none");
+            const rotation = normalizeRotation(rotationInput.value);
             button.disabled = true;
             button.classList.add("opacity-60", "cursor-not-allowed");
             setStatus("Capturing preview...");
@@ -92,7 +131,7 @@ const SettingsForm = (() => {
                 const response = await fetch("/camera/preview", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({selection}),
+                    body: JSON.stringify({selection, rotation}),
                 });
                 const data = await response.json();
                 if (!response.ok || !data.ok) {
@@ -121,7 +160,9 @@ const SettingsForm = (() => {
     const populateDropdowns = (cfg) => {
         // Populate dropdown values with saved configuration
         const dropdowns = [
+            { id: 'REALTIME_AI_PROVIDER', key: 'REALTIME_AI_PROVIDER' },
             { id: 'OPENAI_MODEL', key: 'OPENAI_MODEL' },
+            { id: 'XAI_MODEL', key: 'XAI_MODEL' },
             { id: 'VOICE', key: 'VOICE' },
             { id: 'RUN_MODE', key: 'RUN_MODE' },
             { id: 'TURN_EAGERNESS', key: 'TURN_EAGERNESS' },
@@ -129,8 +170,10 @@ const SettingsForm = (() => {
             { id: 'CAMERA_HARDWARE', key: 'CAMERA_HARDWARE' },
             { id: 'BILLY_PINS_SELECT', key: 'BILLY_PINS' },
             { id: 'HA_LANG', key: 'HA_LANG' },
+            { id: 'STATUS_LED_ENABLED', key: 'STATUS_LED_ENABLED' },
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
-            { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' }
+            { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
+            { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
 
         dropdowns.forEach(({ id, key }) => {
@@ -143,36 +186,54 @@ const SettingsForm = (() => {
                 // First try to get from localStorage (user's last selection)
                 const savedValue = localStorage.getItem(`dropdown_${id}`);
                 // Then fall back to config value
-                const configValue = cfg[key];
-                // For OPENAI_MODEL, prefer .env/config over localStorage.
-                const preferredValue = id === 'OPENAI_MODEL' ? configValue : (savedValue || configValue);
-                const fallbackValue = id === 'OPENAI_MODEL' ? savedValue : null;
+                const configValue = id === "REALTIME_AI_PROVIDER"
+                    ? (cfg[key] || "openai")
+                    : cfg[key];
+                // For backend/model selectors, prefer .env/config over localStorage.
+                const preferConfigValue = id === 'OPENAI_MODEL' || id === 'XAI_MODEL' || id === 'WAKE_WORD_BACKEND' || id === 'REALTIME_AI_PROVIDER';
+                const preferredValue = preferConfigValue ? configValue : (savedValue || configValue);
+                const fallbackValue = preferConfigValue ? savedValue : null;
 
-                if (id === 'OPENAI_MODEL') {
+                if (preferConfigValue) {
                     const normalizedPreferred = normalizeModelValue(preferredValue);
                     const normalizedFallback = normalizeModelValue(fallbackValue);
 
-                    if (setSelectValueSafely(element, normalizedPreferred)) {
-                        localStorage.setItem(`dropdown_${id}`, normalizedPreferred);
-                    } else if (setSelectValueSafely(element, normalizedFallback)) {
-                        localStorage.setItem(`dropdown_${id}`, normalizedFallback);
+                    if (ensureSelectHasValue(element, normalizedPreferred, normalizedFallback)) {
+                        localStorage.setItem(`dropdown_${id}`, element.value);
                     } else {
                         // Clear stale localStorage when no matching option exists.
                         localStorage.removeItem(`dropdown_${id}`);
                     }
                 } else if (preferredValue) {
-                    setSelectValueSafely(element, preferredValue);
+                    ensureSelectHasValue(
+                        element,
+                        preferredValue,
+                        id === "WIFI_COUNTRY" ? "NL" : null
+                    );
+                } else if (id === "WIFI_COUNTRY") {
+                    ensureSelectHasValue(element, "NL");
                 }
             }
         });
+
+        const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
+        const cameraRotationLabel = document.getElementById("camera-rotation-label");
+        const cameraRotationIcon = document.getElementById("camera-rotation-icon");
+        if (cameraRotationInput && cameraRotationLabel && cameraRotationIcon) {
+            const parsed = Number.parseInt(String(cfg?.CAMERA_ROTATION || "0"), 10);
+            const rotation = [0, 90, 180, 270].includes(parsed) ? parsed : 0;
+            cameraRotationInput.value = String(rotation);
+            cameraRotationLabel.textContent = `${rotation}°`;
+            cameraRotationIcon.style.transform = `rotate(${rotation}deg)`;
+        }
     };
 
     const saveDropdownSelections = () => {
         // Save dropdown selections to localStorage when they change
         const dropdowns = [
-            'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-            'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
+            'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
+            'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY'
         ];
 
         dropdowns.forEach(id => {
@@ -186,7 +247,12 @@ const SettingsForm = (() => {
     };
 
     const handleSettingsSave = () => {
-        document.getElementById("config-form").addEventListener("submit", async function (e) {
+        const form = document.getElementById("config-form");
+        if (!form || form.dataset.bound === "true") {
+            return;
+        }
+        form.dataset.bound = "true";
+        form.addEventListener("submit", async function (e) {
             e.preventDefault();
 
             const formData = new FormData(this);
@@ -268,56 +334,12 @@ const SettingsForm = (() => {
                 }
             }
 
-            // Auto-refresh configuration instead of restarting services
             try {
-                const refreshResponse = await fetch("/config/auto-refresh", {method: "POST"});
-                const refreshData = await refreshResponse.json();
-                
-                if (refreshData.status === "ok") {
-                    showNotification("Settings saved and applied", "success");
-                    
-                    // Update UI with new configuration
-                    if (refreshData.config) {
-                        // Update dropdowns with new values
-                        const dropdowns = [
-                            'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-                            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
-                            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
-                        ];
-                        dropdowns.forEach(id => {
-                            const element = document.getElementById(id);
-                            if (element && refreshData.config[id]) {
-                                const value = id === 'OPENAI_MODEL'
-                                    ? normalizeModelValue(refreshData.config[id])
-                                    : refreshData.config[id];
-                                if (setSelectValueSafely(element, value)) {
-                                    localStorage.setItem(`dropdown_${id}`, value);
-                                }
-                            }
-                        });
-                        await populateCameraHardwareDropdown(refreshData.config);
-                        
-                        // Refresh user profile panel if it exists
-                        if (window.UserProfilePanel && window.UserProfilePanel.refreshUserProfile) {
-                            window.UserProfilePanel.refreshUserProfile();
-                        }
-                    }
-                } else {
-                    console.error("Auto-refresh failed, falling back to restart:", refreshData.error || "Auto-refresh failed");
-                    await fetch("/restart-billy", {method: "POST"});
-                    showNotification("Settings saved – Billy restarted", "success");
-                    return;
-                }
+                await fetch("/restart", {method: "POST"});
+                showNotification("Settings saved — restarting Billy services in background", "success");
             } catch (error) {
-                console.error("Auto-refresh failed, falling back to restart:", error);
-                // Fallback to restart Billy service if auto-refresh fails
-                await fetch("/restart-billy", {method: "POST"});
-                showNotification("Settings saved – Billy restarted", "success");
-            }
-
-            if (saveResult.audio_restart_required) {
-                await fetch("/restart-billy", {method: "POST"});
-                showNotification("Audio settings changed – Billy restarted", "success");
+                console.error("Failed to restart Billy services after save:", error);
+                showNotification("Settings saved, but the background restart failed", "warning", 5000);
             }
 
             if (portChanged || hostnameChanged) {
@@ -499,30 +521,58 @@ const SettingsForm = (() => {
         });
     };
 
-    fetch('/hostname')
-        .then(res => res.json())
-        .then(data => {
-            if (data.hostname) {
-                const input = document.getElementById('hostname');
-                input.value = data.hostname;
-                input.setAttribute('data-original', data.hostname);
-            }
-        });
+    const initHostFields = async () => {
+        const hostnameInput = document.getElementById("hostname");
+        const flaskPortInput = document.getElementById("FLASK_PORT");
 
-    const flaskPortInput = document.getElementById("FLASK_PORT");
-    if (flaskPortInput) {
-        flaskPortInput.setAttribute("data-original", flaskPortInput.value);
-    }
+        if (flaskPortInput) {
+            flaskPortInput.setAttribute("data-original", flaskPortInput.value);
+        }
+
+        if (!hostnameInput) return;
+
+        try {
+            const res = await fetch("/hostname");
+            const data = await res.json();
+            if (data.hostname) {
+                hostnameInput.value = data.hostname;
+                hostnameInput.setAttribute("data-original", data.hostname);
+            }
+        } catch (error) {
+            console.error("Failed to load hostname:", error);
+        }
+    };
 
     const initMouthArticulationSlider = () => {
         // Use the same slider pattern as mic gain
         setupSlider("mouth-articulation-bar", "mouth-articulation-fill", "MOUTH_ARTICULATION", 1, 10);
     };
 
-    function setupSlider(barId, fillId, inputId, min, max) {
+    const initStatusLedBrightnessSlider = () => {
+        setupSlider(
+            "status-led-brightness-bar",
+            "status-led-brightness-fill",
+            "STATUS_LED_BRIGHTNESS",
+            0,
+            1,
+            {
+                step: 0.05,
+                valueDisplayId: "status-led-brightness-value",
+                valueFormatter: (val) => `${Math.round(Number(val) * 100)}%`,
+            }
+        );
+    };
+
+    function setupSlider(barId, fillId, inputId, min, max, options = {}) {
         const bar = document.getElementById(barId);
         const fill = document.getElementById(fillId);
         const input = document.getElementById(inputId);
+        const step = Number(options.step ?? 1);
+        const valueDisplayId = options.valueDisplayId || "mouth-articulation-value";
+        const decimals = Number.isInteger(options.decimals) ? options.decimals : 0;
+        const valueFormatter = typeof options.valueFormatter === "function"
+            ? options.valueFormatter
+            : (val) => Number(val).toFixed(decimals);
 
         if (!bar || !fill || !input) return;
 
@@ -535,15 +585,17 @@ const SettingsForm = (() => {
             input.value = val;
             input.setAttribute('value', val);
             // Update the value display
-            const valueDisplay = document.getElementById("mouth-articulation-value");
+            const valueDisplay = document.getElementById(valueDisplayId);
             if (valueDisplay) {
-                valueDisplay.textContent = val;
+                valueDisplay.textContent = valueFormatter(val);
             }
         };
         const updateFromMouse = (e) => {
             const rect = bar.getBoundingClientRect();
             const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-            const val = Math.round(min + percent * (max - min));
+            const rawVal = min + percent * (max - min);
+            const steppedVal = Math.round(rawVal / step) * step;
+            const val = Math.min(max, Math.max(min, Number(steppedVal.toFixed(4))));
             input.value = val;
             // Ensure the input value is properly set for form submission
             input.setAttribute('value', val);
@@ -560,8 +612,8 @@ const SettingsForm = (() => {
     const refreshFromConfig = (config) => {
         // Update dropdowns with new configuration values
         const dropdowns = [
-            'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
+            'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
+            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
         ];
         dropdowns.forEach(id => {
@@ -572,6 +624,24 @@ const SettingsForm = (() => {
             }
         });
         populateCameraHardwareDropdown(config);
+        const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
+        const cameraRotationLabel = document.getElementById("camera-rotation-label");
+        const cameraRotationIcon = document.getElementById("camera-rotation-icon");
+        const rotationValue = Number.parseInt(String(config.CAMERA_ROTATION || "0"), 10);
+        const normalizedRotation = [0, 90, 180, 270].includes(rotationValue) ? rotationValue : 0;
+        if (cameraRotationInput) {
+            cameraRotationInput.value = String(normalizedRotation);
+        }
+        if (cameraRotationLabel) {
+            cameraRotationLabel.textContent = `${normalizedRotation}°`;
+        }
+        if (cameraRotationIcon) {
+            cameraRotationIcon.style.transform = `rotate(${normalizedRotation}deg)`;
+        }
+        const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
+        if (ledBrightness && config.STATUS_LED_BRIGHTNESS) {
+            ledBrightness.value = config.STATUS_LED_BRIGHTNESS;
+        }
     };
 
     const bindWakeWordKeywordUpload = () => {
@@ -579,52 +649,76 @@ const SettingsForm = (() => {
         const fileInput = document.getElementById("wakeword-keyword-file");
         const status = document.getElementById("wakeword-keyword-status");
         const keywordPathInput = document.getElementById("WAKE_WORD_PORCUPINE_KEYWORD_PATH");
+        const openWakeWordModelInput = document.getElementById("WAKE_WORD_OPENWAKEWORD_MODEL_PATH");
         const backendSelect = document.getElementById("WAKE_WORD_BACKEND");
-        if (!uploadBtn || !fileInput || !keywordPathInput) return;
+        if (!keywordPathInput || !openWakeWordModelInput || !backendSelect) return;
 
-        const normalizeKeywordName = (value) => {
+        const normalizeWakeWordName = (value) => {
             const raw = String(value || "").trim();
             if (!raw) return "";
             const parts = raw.split(/[\\/]/);
             return parts[parts.length - 1] || raw;
         };
 
-        const loadWakeWordKeywordOptions = async (preferredPath = null) => {
-            try {
-                const response = await fetch("/wakeword/keywords");
-                const data = await response.json();
-                const options = Array.isArray(data.keywords)
-                    ? data.keywords.map(normalizeKeywordName).filter(Boolean)
-                    : [];
-                const currentValue = normalizeKeywordName(
-                    preferredPath || keywordPathInput.value || keywordPathInput.dataset.current || ""
-                );
-                const merged = [...new Set([...options, currentValue].filter(Boolean))];
-                keywordPathInput.innerHTML = "";
-                merged.forEach((name) => {
-                    const opt = document.createElement("option");
-                    opt.value = name;
-                    opt.textContent = name;
-                    keywordPathInput.appendChild(opt);
-                });
-                if (currentValue && merged.includes(currentValue)) {
-                    keywordPathInput.value = currentValue;
-                }
-            } catch (error) {
-                console.error("Failed to load wake-word keywords:", error);
+        const syncWakeWordProviderFields = () => {
+            const provider = String(backendSelect.value || "porcupine").trim().toLowerCase();
+            document.querySelectorAll("[data-wakeword-provider]").forEach((element) => {
+                const match = element.dataset.wakewordProvider === provider;
+                element.classList.toggle("hidden", !match);
+            });
+        };
+
+        const populateSelectOptions = (select, options, preferredPath = null) => {
+            if (!select) return;
+            const currentValue = normalizeWakeWordName(
+                preferredPath || select.value || select.dataset.current || ""
+            );
+            const merged = [...new Set([...options, currentValue].filter(Boolean))];
+            select.innerHTML = "";
+            merged.forEach((name) => {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = name;
+                select.appendChild(opt);
+            });
+            if (currentValue && merged.includes(currentValue)) {
+                select.value = currentValue;
             }
         };
 
-        loadWakeWordKeywordOptions();
+        const loadWakeWordOptions = async (preferredKeywordPath = null, preferredModelPath = null) => {
+            try {
+                const response = await fetch("/wakeword/keywords");
+                const data = await response.json();
+                const keywordOptions = Array.isArray(data.keywords)
+                    ? data.keywords.map(normalizeWakeWordName).filter(Boolean)
+                    : [];
+                const modelOptions = Array.isArray(data.models)
+                    ? data.models.map(normalizeWakeWordName).filter(Boolean)
+                    : [];
+                populateSelectOptions(keywordPathInput, keywordOptions, preferredKeywordPath);
+                populateSelectOptions(openWakeWordModelInput, modelOptions, preferredModelPath);
+            } catch (error) {
+                console.error("Failed to load wake-word options:", error);
+            }
+        };
 
+        loadWakeWordOptions();
+        syncWakeWordProviderFields();
+        backendSelect.addEventListener("change", syncWakeWordProviderFields);
+
+        if (!uploadBtn || !fileInput) return;
         uploadBtn.addEventListener("click", async () => {
             const file = fileInput.files && fileInput.files[0];
             if (!file) {
-                showNotification("Select a .ppn file first", "warning", 3000);
+                showNotification("Select a .ppn or .onnx file first", "warning", 3000);
                 return;
             }
-            if (!file.name.toLowerCase().endsWith(".ppn")) {
-                showNotification("Only .ppn files are supported", "warning", 3000);
+            const lowerName = file.name.toLowerCase();
+            const isPorcupine = lowerName.endsWith(".ppn");
+            const isOpenWakeWord = lowerName.endsWith(".onnx");
+            if (!isPorcupine && !isOpenWakeWord) {
+                showNotification("Only .ppn and .onnx files are supported", "warning", 3000);
                 return;
             }
 
@@ -637,42 +731,63 @@ const SettingsForm = (() => {
                 status.textContent = `Uploading ${file.name}...`;
             }
             try {
-                const response = await fetch("/wakeword/keyword/upload", {
+                const response = await fetch("/wakeword/model/upload", {
                     method: "POST",
                     body: formData,
                 });
                 const data = await response.json();
                 if (!response.ok) {
                     const errorMessage = data.error || "Upload failed";
-                    console.error("Wake-word keyword upload failed:", errorMessage);
+                    console.error("Wake-word file upload failed:", errorMessage);
                     if (status) {
                         status.textContent = `Upload failed: ${errorMessage}`;
                     }
-                    showNotification(`Keyword upload failed: ${errorMessage}`, "error", 5000);
+                    showNotification(`Upload failed: ${errorMessage}`, "error", 5000);
                     return;
                 }
-                if (keywordPathInput && data.keyword_path) {
-                    await loadWakeWordKeywordOptions(data.keyword_path);
+                if (data.backend === "porcupine" && data.filename) {
+                    await loadWakeWordOptions(data.filename, null);
+                } else if (data.backend === "openwakeword" && data.filename) {
+                    await loadWakeWordOptions(null, data.filename);
                 }
-                if (backendSelect) {
-                    backendSelect.value = "porcupine";
+                if (backendSelect && data.backend) {
+                    backendSelect.value = data.backend;
+                    syncWakeWordProviderFields();
                 }
                 if (status) {
-                    status.textContent = `Keyword uploaded: ${data.keyword_path}`;
+                    status.textContent = `Uploaded ${data.filename} for ${data.backend}`;
                 }
                 fileInput.value = "";
-                showNotification("Porcupine keyword uploaded", "success", 3000);
+                showNotification(`${data.filename} uploaded`, "success", 3000);
             } catch (error) {
-                console.error("Wake-word keyword upload failed:", error);
+                console.error("Wake-word file upload failed:", error);
                 if (status) {
                     status.textContent = `Upload failed: ${error.message}`;
                 }
-                showNotification(`Keyword upload failed: ${error.message}`, "error", 5000);
+                showNotification(`Upload failed: ${error.message}`, "error", 5000);
             } finally {
                 uploadBtn.disabled = false;
                 uploadBtn.classList.remove("opacity-50", "cursor-not-allowed");
             }
         });
+    };
+
+    const bindApiProviderFields = () => {
+        const providerSelect = document.getElementById("REALTIME_AI_PROVIDER");
+        if (!providerSelect) return;
+
+        const syncProviderFields = () => {
+            const provider = String(providerSelect.value || "openai").trim().toLowerCase();
+            document.querySelectorAll("[data-api-provider]").forEach((element) => {
+                const match = element.dataset.apiProvider === provider;
+                element.classList.toggle("hidden", !match);
+                element.toggleAttribute("hidden", !match);
+                element.style.display = match ? "" : "none";
+            });
+        };
+
+        syncProviderFields();
+        providerSelect.addEventListener("change", syncProviderFields);
     };
 
     const NEWS_SOURCE_TEMPLATES = {
@@ -757,10 +872,14 @@ const SettingsForm = (() => {
         topicsInput.value = (template.topics || []).join(", ");
     };
 
-    const renderNewsSources = (sources) => {
+    const renderNewsSources = (sources, options = {}) => {
         const list = document.getElementById("news-sources-list");
         if (!list) return;
         list.innerHTML = "";
+
+        const selectedId = options.selectedId ?? null;
+        const onSelect = typeof options.onSelect === "function" ? options.onSelect : null;
+        const onDelete = typeof options.onDelete === "function" ? options.onDelete : null;
 
         if (!sources || sources.length === 0) {
             list.innerHTML = '<div class="text-sm text-slate-400">No sources configured.</div>';
@@ -776,99 +895,44 @@ const SettingsForm = (() => {
 
         sources.forEach((source) => {
             const row = document.createElement("div");
-            row.className = "relative bg-zinc-900/70 border border-zinc-700 rounded-lg p-4 flex flex-wrap items-start gap-4 transition-colors hover:border-zinc-500";
+            const isSelected = String(selectedId) === String(source.id);
+            row.className = `relative rounded-lg p-4 flex flex-wrap items-start gap-4 transition-colors cursor-pointer ${
+                isSelected
+                    ? "bg-zinc-800 border border-emerald-500"
+                    : "bg-zinc-900/70 border border-zinc-700 hover:border-zinc-500"
+            }`;
             row.innerHTML = `
                 <div class="grow min-w-[220px] pr-20">
-                    <div class="text-sm font-semibold text-slate-100 mb-1" data-view-name>${escapeHtml(source.name)}</div>
+                    <div class="text-sm text-slate-100 mb-1" data-view-name>${escapeHtml(source.name)}</div>
                     <a href="${escapeHtml(source.url)}" target="_blank" rel="noopener"
                        class="text-xs text-blue-300 hover:text-cyan-300 break-all underline" data-view-url>${escapeHtml(source.url)}</a>
                     <div class="text-xs text-cyan-300 mt-1" data-view-topics>${(source.topics || []).length ? escapeHtml((source.topics || []).join(", ")) : "general"}</div>
                     <div class="text-xs text-slate-400 mt-1" data-view-query>${isDynamicSourceUrl(source.url) ? "query: dynamic" : "query: static feed"}</div>
                 </div>
                 <div class="absolute top-3 right-3 flex items-center gap-2">
-                    <button type="button" class="text-zinc-500 hover:text-amber-400 p-1 rounded transition-colors" data-action="edit" title="Edit source">
-                        <span class="material-icons text-sm">edit</span>
+                    <button type="button" class="secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0" data-action="delete" title="Delete source">
+                        <span class="material-icons">delete</span>
                     </button>
-                    <button type="button" class="text-zinc-500 hover:text-rose-400 p-1 rounded transition-colors" data-action="delete" title="Delete source">
-                        <span class="material-icons text-sm">delete</span>
-                    </button>
-                </div>
-                <div class="hidden w-full mt-2 p-3 rounded border border-zinc-700 bg-zinc-900/50 space-y-2" data-edit-panel>
-                    <div class="grid gap-2">
-                        <input type="text" class="w-full p-2 bg-zinc-800 border border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500" data-edit-name value="${escapeHtml(source.name)}" placeholder="Source name">
-                        <input type="url" class="w-full p-2 bg-zinc-800 border border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500" data-edit-url value="${escapeHtml(source.url)}" placeholder="URL (optional {{query}}): https://example.com/feed.xml">
-                    </div>
-                    <input type="text" class="w-full p-2 bg-zinc-800 border border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500" data-edit-topics value="${escapeHtml((source.topics || []).join(", "))}" placeholder="Keywords (comma-separated)">
-                    <div class="flex items-center justify-between gap-2">
-                        <button type="button" class="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded bg-zinc-700 hover:bg-zinc-600 text-slate-200 transition-colors" data-action="cancel">
-                            <span class="material-icons text-sm leading-none">close</span>Cancel
-                        </button>
-                        <button type="button" class="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors" data-action="save">
-                            <span class="material-icons text-sm leading-none">save</span>Save
-                        </button>
-                    </div>
                 </div>
             `;
 
-            const edit = row.querySelector('[data-action="edit"]');
             const remove = row.querySelector('[data-action="delete"]');
-            const save = row.querySelector('[data-action="save"]');
-            const cancel = row.querySelector('[data-action="cancel"]');
-            const editPanel = row.querySelector('[data-edit-panel]');
+            const selectSource = () => {
+                if (onSelect) onSelect(source);
+            };
 
-            if (edit && editPanel) {
-                edit.addEventListener("click", () => {
-                    editPanel.classList.toggle("hidden");
-                    edit.innerHTML = editPanel.classList.contains("hidden")
-                        ? '<span class="material-icons text-sm">edit</span>'
-                        : '<span class="material-icons text-sm">close</span>';
-                    edit.title = editPanel.classList.contains("hidden")
-                        ? "Edit source"
-                        : "Close editor";
-                });
-            }
+            row.addEventListener("click", (event) => {
+                if (event.target.closest('[data-action="delete"], a[data-view-url]')) {
+                    return;
+                }
+                selectSource();
+            });
             if (remove) {
-                remove.addEventListener("click", async () => {
-                    const response = await fetch(`/news/sources/${source.id}`, {method: "DELETE"});
-                    if (!response.ok) {
-                        showNotification("Failed to delete source", "error", 3000);
+                remove.addEventListener("click", async (event) => {
+                    event.stopPropagation();
+                    if (onDelete) {
+                        await onDelete(source);
                     }
-                    await loadNewsSources();
-                });
-            }
-            if (cancel && editPanel) {
-                cancel.addEventListener("click", () => {
-                    editPanel.classList.add("hidden");
-                    if (edit) {
-                        edit.innerHTML = '<span class="material-icons text-sm">edit</span>';
-                        edit.title = "Edit source";
-                    }
-                });
-            }
-            if (save) {
-                save.addEventListener("click", async () => {
-                    const payload = {
-                        name: (row.querySelector('[data-edit-name]')?.value || "").trim(),
-                        url: (row.querySelector('[data-edit-url]')?.value || "").trim(),
-                        topics: (row.querySelector('[data-edit-topics]')?.value || "").trim(),
-                    };
-                    if (!payload.name || !payload.url) {
-                        showNotification("Name and URL are required", "warning", 2500);
-                        return;
-                    }
-
-                    const response = await fetch(`/news/sources/${source.id}`, {
-                        method: "PATCH",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify(payload),
-                    });
-                    const data = await response.json();
-                    if (!response.ok) {
-                        showNotification(data.error || "Failed to save source", "error", 3000);
-                        return;
-                    }
-                    showNotification("Source updated", "success", 2000);
-                    await loadNewsSources();
                 });
             }
 
@@ -877,74 +941,106 @@ const SettingsForm = (() => {
     };
 
     const loadNewsSources = async () => {
-        try {
-            const res = await fetch("/news/sources");
-            const data = await res.json();
-            renderNewsSources(data.sources || []);
-        } catch (error) {
-            console.error("Failed to load news sources:", error);
-            showNotification("Failed to load news sources", "error", 3000);
-        }
+        const res = await fetch("/news/sources");
+        const data = await res.json();
+        return data.sources || [];
     };
 
     const bindNewsSources = () => {
-        const modal = document.getElementById("news-sources-modal");
-        const openBtn = document.getElementById("news-sources-btn");
-        const closeBtn = document.getElementById("close-news-sources-modal");
+        const showCreateBtn = document.getElementById("news-show-create-source-btn");
+        const formTitle = document.getElementById("news-source-form-title");
         const nameInput = document.getElementById("news-source-name");
         const urlInput = document.getElementById("news-source-url");
         const topicsInput = document.getElementById("news-source-topics");
         const addActions = document.getElementById("add-news-source-actions");
         const cancelAddBtn = document.getElementById("cancel-add-news-source-btn");
         const addBtn = document.getElementById("add-news-source-btn");
+        const addBtnIcon = document.getElementById("add-news-source-btn-icon");
+        const addBtnLabel = document.getElementById("add-news-source-btn-label");
         if (!addBtn) return;
-        let backdropPointerDown = false;
+        let editingSourceId = null;
+        let newsSources = [];
+
+        const setEditorState = (source = null) => {
+            editingSourceId = source?.id ?? null;
+
+            if (formTitle) {
+                formTitle.textContent = source ? "Edit News Source" : "Add News Source";
+            }
+            if (nameInput) nameInput.value = source?.name || "";
+            if (urlInput) urlInput.value = source?.url || "";
+            if (topicsInput) {
+                topicsInput.value = Array.isArray(source?.topics)
+                    ? source.topics.join(", ")
+                    : "";
+            }
+            if (addBtnIcon) {
+                addBtnIcon.textContent = source ? "save" : "add";
+            }
+            if (addBtnLabel) {
+                addBtnLabel.textContent = source ? "Save source" : "Add source";
+            }
+        };
 
         const updateAddActionsVisibility = () => {
             if (!addActions || !nameInput || !urlInput) return;
             const hasRequiredValues = Boolean(nameInput.value.trim() && urlInput.value.trim());
+            if (editingSourceId) {
+                addActions.classList.remove("hidden");
+                return;
+            }
             addActions.classList.toggle("hidden", !hasRequiredValues);
         };
 
-        const openModal = async () => {
-            if (!modal) return;
-            modal.classList.remove("hidden");
-            if (nameInput) nameInput.focus();
+        const openEditor = (source = null) => {
+            setEditorState(source);
             updateAddActionsVisibility();
-            await loadNewsSources();
+            nameInput?.focus();
         };
 
-        const closeModal = () => {
-            if (!modal) return;
-            modal.classList.add("hidden");
-        };
-
-        if (openBtn) {
-            openBtn.addEventListener("click", () => {
-                openModal();
-            });
-        }
-        if (closeBtn) {
-            closeBtn.addEventListener("click", closeModal);
-        }
-        if (modal) {
-            modal.addEventListener("mousedown", (event) => {
-                backdropPointerDown = event.target === modal;
-            });
-            modal.addEventListener("click", (event) => {
-                if (event.target === modal && backdropPointerDown) {
-                    closeModal();
+        const refreshNewsSources = async () => {
+            try {
+                newsSources = await loadNewsSources();
+                const selectedSource = editingSourceId
+                    ? newsSources.find((source) => String(source.id) === String(editingSourceId))
+                    : null;
+                if (editingSourceId && !selectedSource) {
+                    setEditorState(null);
+                } else if (selectedSource) {
+                    setEditorState(selectedSource);
                 }
-                backdropPointerDown = false;
-            });
-        }
+                renderNewsSources(newsSources, {
+                    selectedId: editingSourceId,
+                    onSelect: openEditor,
+                    onDelete: async (source) => {
+                        const response = await fetch(`/news/sources/${source.id}`, {method: "DELETE"});
+                        if (!response.ok) {
+                            showNotification("Failed to delete source", "error", 3000);
+                            return;
+                        }
+                        if (String(editingSourceId) === String(source.id)) {
+                            setEditorState(null);
+                        }
+                        await refreshNewsSources();
+                    },
+                });
+                updateAddActionsVisibility();
+            } catch (error) {
+                console.error("Failed to load news sources:", error);
+                showNotification("Failed to load news sources", "error", 3000);
+            }
+        };
 
         if (cancelAddBtn) {
             cancelAddBtn.addEventListener("click", () => {
-                if (nameInput) nameInput.value = "";
-                if (urlInput) urlInput.value = "";
-                if (topicsInput) topicsInput.value = "";
+                setEditorState(null);
                 updateAddActionsVisibility();
+            });
+        }
+
+        if (showCreateBtn) {
+            showCreateBtn.addEventListener("click", () => {
+                openEditor(null);
             });
         }
 
@@ -976,6 +1072,9 @@ const SettingsForm = (() => {
         document.querySelectorAll(".news-template-use-btn").forEach((btn) => {
             btn.addEventListener("click", () => {
                 const templateKey = btn.getAttribute("data-template-key");
+                if (!editingSourceId) {
+                    setEditorState(null);
+                }
                 applyNewsSourceTemplate(templateKey || "");
                 updateAddActionsVisibility();
             });
@@ -985,37 +1084,595 @@ const SettingsForm = (() => {
             const name = (nameInput?.value || "").trim();
             const url = (urlInput?.value || "").trim();
             const topics = (topicsInput?.value || "").trim();
+            const isEditing = Boolean(editingSourceId);
 
             if (!name || !url) {
                 showNotification("Source and URL are required", "warning", 2500);
                 return;
             }
 
-            const response = await fetch("/news/sources", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({
-                    name,
-                    url,
-                    topics,
-                }),
-            });
+            const payload = {name, url, topics};
+            const response = await fetch(
+                isEditing ? `/news/sources/${editingSourceId}` : "/news/sources",
+                {
+                    method: isEditing ? "PATCH" : "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(payload),
+                }
+            );
             const data = await response.json();
             if (!response.ok) {
-                showNotification(data.error || "Failed to add source", "error", 3000);
+                showNotification(
+                    data.error || (isEditing ? "Failed to save source" : "Failed to add source"),
+                    "error",
+                    3000
+                );
                 return;
             }
 
-            if (nameInput) nameInput.value = "";
-            if (urlInput) urlInput.value = "";
-            if (topicsInput) topicsInput.value = "";
+            setEditorState(null);
             updateAddActionsVisibility();
-            showNotification("News source added", "success", 2500);
-            renderNewsSources(data.sources || []);
+            showNotification(isEditing ? "Source updated" : "News source added", "success", 2500);
+            await refreshNewsSources();
         });
 
+        setEditorState(null);
         updateAddActionsVisibility();
-        loadNewsSources();
+        refreshNewsSources();
+    };
+
+    const bindWiFiSection = () => {
+        const form = document.getElementById("config-form");
+        const wifiModal = document.getElementById("wifi-setup-modal");
+        const wifiModalCloseBtn = document.getElementById("close-wifi-setup-modal");
+        const wifiModalDescription = document.getElementById("wifi-setup-modal-description");
+        const scanBtn = document.getElementById("wifi-scan-btn");
+        const saveBtn = document.getElementById("wifi-save-btn");
+        const saveLabel = document.getElementById("wifi-save-label");
+        const saveIcon = document.getElementById("wifi-save-icon");
+        const editToggleBtn = document.getElementById("wifi-edit-toggle-btn");
+        const editToggleLabel = document.getElementById("wifi-edit-toggle-label");
+        const networkList = document.getElementById("wifi-network-list");
+        const ssidInput = document.getElementById("wifi-ssid");
+        const ssidField = document.getElementById("wifi-ssid-field");
+        const passwordInput = document.getElementById("wifi-password");
+        const countrySelect = document.getElementById("wifi-country-modal") || document.getElementById("WIFI_COUNTRY");
+        const countrySettingsSelect = document.getElementById("WIFI_COUNTRY");
+        const countryModalSelect = document.getElementById("wifi-country-modal");
+        const unifiedFields = document.getElementById("wifi-unified-fields");
+        const internetSection = document.getElementById("section-internet");
+        const statusEl = document.getElementById("wifi-connection-status");
+        const testResultEl = document.getElementById("wifi-test-result");
+        const errorResultEl = document.getElementById("wifi-error-result");
+        const banner = document.getElementById("wifi-onboarding-banner");
+        const setSettingsConnectionStatus = (message, connected = null) => {
+            if (!statusEl) return;
+            statusEl.textContent = message;
+            statusEl.classList.remove(
+                "text-zinc-300",
+                "text-zinc-400",
+                "text-amber-400",
+                "text-emerald-400",
+                "text-rose-400"
+            );
+            if (connected === true) {
+                statusEl.classList.add("text-emerald-400");
+            } else if (connected === "setup") {
+                statusEl.classList.add("text-amber-400");
+            } else if (connected === false) {
+                statusEl.classList.add("text-rose-400");
+            } else {
+                statusEl.classList.add("text-zinc-300");
+            }
+        };
+        const refreshSettingsWifiStatus = async () => {
+            if (!statusEl) return;
+            try {
+                const response = await fetch("/wifi/status");
+                const data = await response.json();
+                if (!response.ok) {
+                    setSettingsConnectionStatus(data.error || "Failed to load Wi-Fi status", false);
+                    return;
+                }
+                const hotspotActiveNow = Boolean(data.hotspot_active);
+                if (hotspotActiveNow) {
+                    setSettingsConnectionStatus(
+                        "Billy setup hotspot is active. Connect Billy to your home Wi-Fi to finish setup.",
+                        "setup"
+                    );
+                } else {
+                    setSettingsConnectionStatus(
+                        data.connected
+                            ? `Connected to ${data.ssid || "Wi-Fi"}`
+                            : "Not connected",
+                        Boolean(data.connected)
+                    );
+                }
+                if (countrySettingsSelect) {
+                    const countryValue = String(data.country || countrySettingsSelect.value || "NL").trim().toUpperCase();
+                    ensureSelectHasValue(countrySettingsSelect, countryValue, "US");
+                }
+            } catch (error) {
+                setSettingsConnectionStatus(String(error), false);
+            }
+        };
+        const bindSettingsWifiEditButton = () => {
+            if (!editToggleBtn || editToggleBtn.dataset.wifiEditBound === "true") return;
+            editToggleBtn.dataset.wifiEditBound = "true";
+            editToggleBtn.addEventListener("click", () => {
+                wifiModal?.classList.remove("hidden");
+                editToggleBtn.classList.add("hidden");
+                document.documentElement.classList.add("overflow-hidden");
+                document.body.classList.add("overflow-hidden");
+            });
+        };
+        if (!wifiModal) {
+            return;
+        }
+        if (wifiModal.dataset.bound === "true") {
+            bindSettingsWifiEditButton();
+            internetSection?.classList.remove("hidden");
+            unifiedFields?.classList.remove("hidden");
+            refreshSettingsWifiStatus();
+            return;
+        }
+        if (!wifiModalCloseBtn || !wifiModalDescription || !scanBtn || !saveBtn || !saveLabel || !saveIcon || !networkList || !ssidInput || !ssidField || !passwordInput || !countrySelect || !testResultEl || !errorResultEl) {
+            refreshSettingsWifiStatus();
+            return;
+        }
+        wifiModal.dataset.bound = "true";
+
+        const configSource = form || wifiModal;
+        const onboardingActive = configSource.dataset.wifiOnboardingActive === "true";
+        const configuredMode = String(configSource.dataset.wifiOnboardingMode || "legacy").trim().toLowerCase();
+        const unifiedConfigured = configuredMode === "unified";
+        const legacyHotspotOnboarding = onboardingActive && !unifiedConfigured;
+        let hotspotActive = false;
+        let savedFingerprint = "";
+        let selectedNetworkValue = "";
+        let hasLoadedNetworksOnce = false;
+        const MANUAL_SSID_VALUE = "__manual__";
+        const legacyOnboardingMessage = "Legacy Wi-Fi setup is active. Open billy.local:8080 to scan, test, and save Wi-Fi without disconnecting from Billy_Bassistant.";
+
+        const currentFingerprint = () => JSON.stringify({
+            ssid: ssidInput.value.trim(),
+            password: passwordInput.value,
+            country: countrySelect.value || "NL",
+        });
+
+        const setBusy = (button, busy) => {
+            button.disabled = busy;
+            button.classList.toggle("opacity-50", busy);
+            button.classList.toggle("cursor-not-allowed", busy);
+        };
+
+        const syncSaveButton = () => {
+            const enabled = Boolean(ssidInput.value.trim());
+            saveBtn.disabled = !enabled;
+            saveBtn.classList.toggle("opacity-50", !enabled);
+            saveBtn.classList.toggle("cursor-not-allowed", !enabled);
+            if (!enabled && savedFingerprint === currentFingerprint()) {
+                saveLabel.textContent = "Saved";
+                saveIcon.textContent = "check_circle";
+            } else {
+                saveLabel.textContent = "Save Wi-Fi";
+                saveIcon.textContent = "save";
+            }
+        };
+
+        const openWifiModal = () => {
+            wifiModal.classList.remove("hidden");
+            editToggleBtn?.classList.add("hidden");
+            document.documentElement.classList.add("overflow-hidden");
+            document.body.classList.add("overflow-hidden");
+            if (!hasLoadedNetworksOnce) {
+                loadNetworks();
+            }
+        };
+
+        const closeWifiModal = () => {
+            wifiModal.classList.add("hidden");
+            document.documentElement.classList.remove("overflow-hidden");
+            document.body.classList.remove("overflow-hidden");
+            if (editToggleBtn && !shouldAutoOpenEditor()) {
+                editToggleBtn.classList.remove("hidden");
+            }
+        };
+
+        const syncOnboardingUiState = () => {
+            const onboardingUi = shouldAutoOpenEditor();
+            if (editToggleLabel) {
+                editToggleLabel.textContent = onboardingUi ? "Wi-Fi setup" : "Edit connection";
+            }
+            wifiModalDescription.textContent = onboardingUi
+                ? "Connect Billy to your home Wi-Fi to finish setup. Saving a new network will reboot Billy to switch over."
+                : "Choose your Wi-Fi network and save the connection for Billy. Saving a new network will reboot Billy.";
+        };
+
+        const invalidateSuccessfulTest = () => {
+            if (savedFingerprint !== currentFingerprint()) {
+                savedFingerprint = "";
+            }
+            syncSaveButton();
+        };
+
+        const updateSelectedNetworkCard = () => {
+            networkList.querySelectorAll(".wifi-network-item").forEach((item) => {
+                const isSelected = item.dataset.ssid === selectedNetworkValue;
+                item.classList.toggle("border-emerald-500", isSelected);
+                item.classList.toggle("bg-emerald-900/20", isSelected);
+                item.classList.toggle("border-zinc-700", !isSelected);
+                item.classList.toggle("bg-zinc-800", !isSelected);
+            });
+        };
+
+        const syncManualSsidVisibility = () => {
+            const showManual = selectedNetworkValue === MANUAL_SSID_VALUE;
+            ssidInput.disabled = !showManual;
+            ssidInput.classList.toggle("bg-zinc-700", showManual);
+            ssidInput.classList.toggle("bg-transparent", !showManual);
+            ssidInput.classList.toggle("opacity-60", !showManual);
+            ssidInput.classList.toggle("cursor-not-allowed", !showManual);
+            if (!showManual) {
+                ssidInput.value = selectedNetworkValue || "";
+            } else {
+                ssidInput.focus();
+            }
+            updateSelectedNetworkCard();
+        };
+
+        const signalIconFor = (signal) => {
+            const strength = Number(signal) || 0;
+            if (strength >= 75) return "network_wifi_3_bar";
+            if (strength >= 50) return "network_wifi_2_bar";
+            if (strength >= 25) return "network_wifi_1_bar";
+            return "network_wifi";
+        };
+
+        const createNetworkListItem = (network) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
+            button.dataset.ssid = network.ssid || "";
+            button.dataset.manual = "false";
+
+            const signalIcon = signalIconFor(network.signal);
+            const isSecure = network.security && network.security !== "open";
+            const securityIcon = isSecure ? "lock" : "lock_open";
+            const securityColor = isSecure ? "text-zinc-300" : "text-zinc-500";
+            const activeBadge = network.active
+                ? '<span class="text-xs text-emerald-400">Connected</span>'
+                : "";
+
+            button.innerHTML = `
+                <span class="flex items-center justify-between gap-3">
+                    <span class="min-w-0">
+                        <span class="block truncate">${network.ssid || "Hidden network"}</span>
+                        ${activeBadge}
+                    </span>
+                    <span class="flex shrink-0 items-center gap-2">
+                        <span class="material-icons text-zinc-300">${signalIcon}</span>
+                        <span class="material-icons ${securityColor}">${securityIcon}</span>
+                    </span>
+                </span>
+            `;
+            return button;
+        };
+
+        const createManualNetworkListItem = () => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
+            button.dataset.ssid = MANUAL_SSID_VALUE;
+            button.dataset.manual = "true";
+            button.innerHTML = `
+                <span class="flex items-center justify-between gap-3">
+                    <span>Enter SSID manually</span>
+                    <span class="material-icons text-zinc-400">edit</span>
+                </span>
+            `;
+            return button;
+        };
+
+        const renderNetworkList = (networks = []) => {
+            networkList.innerHTML = "";
+            if (!networks.length) {
+                const emptyState = document.createElement("div");
+                emptyState.className = "rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-400";
+                emptyState.textContent = "No networks found yet. Scan again or enter the SSID manually.";
+                networkList.appendChild(emptyState);
+            } else {
+                networks.forEach((network) => {
+                    networkList.appendChild(createNetworkListItem(network));
+                });
+            }
+            networkList.appendChild(createManualNetworkListItem());
+            updateSelectedNetworkCard();
+        };
+
+        const syncSectionVisibility = () => {
+            internetSection?.classList.remove("hidden");
+            unifiedFields?.classList.remove("hidden");
+        };
+
+        const showLegacyHotspotMessage = () => {
+            showError(legacyOnboardingMessage);
+            if (banner) {
+                banner.textContent = legacyOnboardingMessage;
+                banner.classList.remove("hidden");
+            }
+        };
+
+        const showError = (message) => {
+            if (!message) {
+                errorResultEl.classList.add("hidden");
+                errorResultEl.textContent = "";
+                return;
+            }
+            errorResultEl.textContent = message;
+            errorResultEl.classList.remove("hidden");
+        };
+
+        const showTestResult = (message) => {
+            if (!message) {
+                testResultEl.classList.add("hidden");
+                testResultEl.textContent = "";
+                return;
+            }
+            testResultEl.textContent = message;
+            testResultEl.classList.remove("hidden");
+        };
+
+        const setConnectionStatus = (message, connected = null) => {
+            if (!statusEl) return;
+            statusEl.textContent = message;
+            statusEl.classList.remove(
+                "text-zinc-300",
+                "text-zinc-400",
+                "text-amber-400",
+                "text-emerald-400",
+                "text-rose-400"
+            );
+            if (connected === true) {
+                statusEl.classList.add("text-emerald-400");
+            } else if (connected === "setup") {
+                statusEl.classList.add("text-amber-400");
+            } else if (connected === false) {
+                statusEl.classList.add("text-rose-400");
+            } else {
+                statusEl.classList.add("text-zinc-300");
+            }
+        };
+
+        const applyOnboardingLock = () => {
+            if (!onboardingActive) return;
+            if (banner) {
+                banner.classList.remove("hidden");
+            }
+            [
+                "section-software",
+                "section-wakeword",
+                "section-hardware",
+                "section-audio",
+                "section-mqtt",
+                "section-ha",
+                "section-advanced-settings",
+            ].forEach((id) => {
+                const section = document.getElementById(id);
+                if (section) {
+                    section.classList.add("hidden");
+                }
+            });
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+            }
+            syncOnboardingUiState();
+        };
+
+        const shouldAutoOpenEditor = () => onboardingActive || hotspotActive;
+
+        const forceOnboardingModalOpen = () => {
+            if (!shouldAutoOpenEditor()) return;
+            openWifiModal();
+        };
+
+        const loadStatus = async () => {
+            try {
+                const response = await fetch("/wifi/status");
+                const data = await response.json();
+                if (!response.ok) {
+                    setConnectionStatus(data.error || "Failed to load Wi-Fi status", false);
+                    syncOnboardingUiState();
+                    if (shouldAutoOpenEditor()) {
+                        forceOnboardingModalOpen();
+                    }
+                    return;
+                }
+                hotspotActive = Boolean(data.hotspot_active);
+                syncOnboardingUiState();
+                if (hotspotActive) {
+                    setConnectionStatus(
+                        "Billy setup hotspot is active. Connect Billy to your home Wi-Fi to finish setup.",
+                        "setup"
+                    );
+                } else {
+                    setConnectionStatus(
+                        data.connected
+                            ? `Connected to ${data.ssid || "Wi-Fi"}`
+                            : "Not connected",
+                        Boolean(data.connected)
+                    );
+                }
+                if (shouldAutoOpenEditor()) {
+                    forceOnboardingModalOpen();
+                } else if (editToggleBtn) {
+                    if (wifiModal.classList.contains("hidden")) {
+                        editToggleBtn.classList.remove("hidden");
+                    } else {
+                        editToggleBtn.classList.add("hidden");
+                    }
+                }
+                const countryValue = String(data.country || countrySelect.value || "NL").trim().toUpperCase();
+                ensureSelectHasValue(countrySelect, countryValue, "US");
+            } catch (error) {
+                setConnectionStatus(String(error), false);
+                syncOnboardingUiState();
+                if (shouldAutoOpenEditor()) {
+                    forceOnboardingModalOpen();
+                }
+            }
+        };
+
+        const loadNetworks = async () => {
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+                showNotification("Use billy.local:8080 for legacy Wi-Fi setup", "warning", 4000);
+                return;
+            }
+            setBusy(scanBtn, true);
+            showError("");
+            try {
+                const response = await fetch("/wifi/networks");
+                const data = await response.json();
+                if (!response.ok) {
+                    showError(data.error || "Wi-Fi scan failed");
+                    return;
+                }
+                const networks = Array.isArray(data.networks) ? data.networks : [];
+                renderNetworkList(networks);
+                syncManualSsidVisibility();
+                hasLoadedNetworksOnce = true;
+            } catch (error) {
+                showError(error.message || String(error));
+            } finally {
+                setBusy(scanBtn, false);
+            }
+        };
+
+        networkList.addEventListener("click", (event) => {
+            const item = event.target.closest(".wifi-network-item");
+            if (!item) return;
+            selectedNetworkValue = item.dataset.ssid || "";
+            syncManualSsidVisibility();
+            invalidateSuccessfulTest();
+        });
+
+        if (countrySettingsSelect && countryModalSelect) {
+            const syncCountryValue = (source, target) => {
+                if (!source || !target) return;
+                ensureSelectHasValue(target, source.value || "US", "US");
+            };
+
+            syncCountryValue(countrySettingsSelect, countryModalSelect);
+
+            countrySettingsSelect.addEventListener("change", () => {
+                syncCountryValue(countrySettingsSelect, countryModalSelect);
+            });
+
+            countryModalSelect.addEventListener("change", () => {
+                syncCountryValue(countryModalSelect, countrySettingsSelect);
+            });
+        }
+
+        [ssidInput, passwordInput, countrySelect].forEach((element) => {
+            element.addEventListener("input", invalidateSuccessfulTest);
+            element.addEventListener("change", invalidateSuccessfulTest);
+        });
+
+        if (editToggleBtn) {
+            editToggleBtn.addEventListener("click", () => {
+                showError("");
+                showTestResult("");
+                openWifiModal();
+            });
+        }
+
+        wifiModalCloseBtn.addEventListener("click", closeWifiModal);
+        wifiModal.addEventListener("click", (event) => {
+            if (event.target === wifiModal) {
+                closeWifiModal();
+            }
+        });
+
+        scanBtn.addEventListener("click", loadNetworks);
+
+        saveBtn.addEventListener("click", async () => {
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+                showNotification("Use billy.local:8080 for legacy Wi-Fi setup", "warning", 4000);
+                return;
+            }
+            const ssid = ssidInput.value.trim();
+            const password = passwordInput.value;
+            const country = countrySelect.value;
+            if (!ssid) {
+                showNotification("Enter a network name first", "warning", 2500);
+                return;
+            }
+
+            setBusy(saveBtn, true);
+            showError("");
+            if (onboardingActive && unifiedConfigured) {
+                showTestResult(`Trying to connect Billy to ${ssid}. If it fails, setup mode will come back automatically.`);
+            }
+
+            try {
+                const response = await fetch("/wifi/save", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ssid, password, country}),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    const errorMessage = data.error || "Failed to save Wi-Fi";
+                    showError(errorMessage);
+                    showNotification(errorMessage, "error", 4000);
+                    return;
+                }
+                showTestResult(
+                    data.rebooting
+                        ? `Saved Wi-Fi for ${ssid}. Billy is rebooting now to switch over to the new network.`
+                        : `Saved Wi-Fi for ${ssid}.`
+                );
+                showNotification(
+                    data.rebooting
+                        ? "Wi-Fi saved. Billy is rebooting now."
+                        : "Wi-Fi saved",
+                    "success",
+                    4500
+                );
+                savedFingerprint = currentFingerprint();
+                syncSaveButton();
+                if (!data.rebooting) {
+                    await loadStatus();
+                    if (!shouldAutoOpenEditor()) {
+                        closeWifiModal();
+                    }
+                }
+                if (onboardingActive) {
+                    setTimeout(() => {
+                        window.location.href = `http://${window.location.hostname}:${window.location.port || 80}/`;
+                    }, 2500);
+                }
+            } catch (error) {
+                showError(error.message || String(error));
+                showNotification(error.message || String(error), "error", 4000);
+            } finally {
+                setBusy(saveBtn, false);
+            }
+        });
+
+        applyOnboardingLock();
+        forceOnboardingModalOpen();
+        syncSectionVisibility();
+        renderNetworkList();
+        syncManualSsidVisibility();
+        syncSaveButton();
+        syncOnboardingUiState();
+        if (editToggleBtn) {
+            editToggleBtn.classList.toggle("hidden", shouldAutoOpenEditor());
+        }
+        loadStatus();
     };
 
     return {
@@ -1023,6 +1680,7 @@ const SettingsForm = (() => {
         populateDropdowns,
         saveDropdownSelections,
         initMouthArticulationSlider,
+        initStatusLedBrightnessSlider,
         refreshFromConfig,
         populateCameraHardwareDropdown,
         bindCameraPreview,
@@ -1030,6 +1688,9 @@ const SettingsForm = (() => {
         bindEnvEditorCard,
         bindNewsSources,
         bindWakeWordKeywordUpload,
+        bindWiFiSection,
+        bindApiProviderFields,
+        initHostFields,
     };
 })();
 

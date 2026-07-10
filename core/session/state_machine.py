@@ -32,6 +32,8 @@ class SessionState:
         self._skip_post_response_once = False
         self._last_heuristic_signature: tuple[str, bool] | None = None
         self._last_user_turn_meaningful = False
+        self._last_user_transcript = ""
+        self._post_response_listen_opened = False
 
         # Follow-up detection
         self.follow_up_expected = False
@@ -67,6 +69,8 @@ class SessionState:
         self._skip_post_response_once = False
         self._last_heuristic_signature = None
         self._last_user_turn_meaningful = False
+        self._last_user_transcript = ""
+        self._post_response_listen_opened = False
         self.follow_up_expected = False
         self.follow_up_prompt = None
         self._ignore_next_short_audio_response = False
@@ -94,6 +98,7 @@ class SessionState:
         self._active_transcript_stream = None
         self._added_done_text = False
         self._last_heuristic_signature = None
+        self._post_response_listen_opened = False
         # Don't reset _saw_follow_up_call here - it will be reset after decision is made
         self._triggered_new_response = False
 
@@ -140,15 +145,20 @@ class SessionState:
             return
 
         has_meaningful_user_content = False
+        transcript_parts: list[str] = []
         for part in content:
             text_bits = [
                 (part.get("text") or "").strip(),
                 (part.get("input_text") or "").strip(),
                 (part.get("transcript") or "").strip(),
             ]
+            transcript_parts.extend(bit for bit in text_bits if bit)
             if any(text_bits):
                 has_meaningful_user_content = True
-                break
+
+        user_transcript = " ".join(transcript_parts).strip()
+        if user_transcript:
+            self._last_user_transcript = user_transcript
 
         # Ignore audio-only turns with no transcript (silence/noise),
         # and very short audio blips.
@@ -163,20 +173,34 @@ class SessionState:
             loud_chunks = self._last_committed_loud_audio_chunks
             peak_rms = float(self._last_committed_peak_rms or 0.0)
             loud_ratio = (loud_chunks / total_chunks) if total_chunks else 0.0
-            soft_speech_floor = max(120.0, SILENCE_THRESHOLD * 0.15)
-            has_soft_local_speech = peak_rms >= soft_speech_floor
+            local_speech_floor = max(300.0, SILENCE_THRESHOLD * 0.5)
+            min_chunks_for_real_turn = 6  # ~240ms with 40ms chunks
+            has_soft_local_speech = (
+                total_chunks >= min_chunks_for_real_turn
+                and peak_rms >= local_speech_floor
+            )
+            has_local_speech_evidence = (
+                (loud_chunks >= 2 and peak_rms >= local_speech_floor)
+                or loud_chunks >= 4
+                or (self._last_committed_had_server_speech and has_soft_local_speech)
+            )
 
             # Heuristic noise gate:
             # - very short turns are usually accidental
             # - long turns with almost no energy above threshold are typically room noise
-            min_chunks_for_real_turn = 6  # ~240ms with 40ms chunks
             low_signal_noise = (
-                total_chunks >= 20 and loud_chunks <= 2 and loud_ratio < 0.12
+                not has_transcript
+                and total_chunks >= 20
+                and loud_chunks <= 2
+                and loud_ratio < 0.12
             )
             static_only_turn = (
                 not has_transcript
                 and total_chunks >= min_chunks_for_real_turn
                 and loud_chunks == 0
+                and not (
+                    self._last_committed_had_server_speech and has_soft_local_speech
+                )
             )
             very_low_conf_server_speech = (
                 self._last_committed_had_server_speech
@@ -184,16 +208,13 @@ class SessionState:
                 and total_chunks >= min_chunks_for_real_turn
                 and loud_chunks <= 1
                 and loud_ratio < 0.05
+                and peak_rms < local_speech_floor
             )
             should_ignore = total_chunks < min_chunks_for_real_turn or low_signal_noise
             if static_only_turn or very_low_conf_server_speech:
                 should_ignore = True
             # If local RMS indicates soft but real speech, don't classify it as static.
-            if (
-                should_ignore
-                and has_soft_local_speech
-                and total_chunks >= min_chunks_for_real_turn
-            ):
+            if should_ignore and has_local_speech_evidence:
                 should_ignore = False
             # Follow-up turns can be clipped at onset; if server VAD positively
             # detected speech and we captured at least a few chunks, treat it as
@@ -202,7 +223,7 @@ class SessionState:
                 should_ignore
                 and self._last_committed_had_server_speech
                 and total_chunks >= 3
-                and loud_chunks >= 2
+                and has_local_speech_evidence
                 and not static_only_turn
                 and not very_low_conf_server_speech
             ):
@@ -215,13 +236,13 @@ class SessionState:
                     f"{loud_chunks} above threshold, "
                     f"ratio={loud_ratio:.2f}, "
                     f"peak_rms={peak_rms:.1f}, "
-                    f"soft_speech_floor={soft_speech_floor:.1f}, "
+                    f"local_speech_floor={local_speech_floor:.1f}, "
                     f"server_speech={self._last_committed_had_server_speech}, "
                     f"has_transcript={has_transcript}, "
                     f"low_signal_noise={low_signal_noise}, "
                     f"static_only_turn={static_only_turn}, "
                     f"very_low_conf_server_speech={very_low_conf_server_speech}, "
-                    f"has_soft_local_speech={has_soft_local_speech}).",
+                    f"has_local_speech_evidence={has_local_speech_evidence}).",
                     "🔇",
                 )
             else:
@@ -229,9 +250,12 @@ class SessionState:
                 # (e.g. provider transcription missing, but local/server VAD shows speech).
                 audio_turn_meaningful = bool(
                     has_transcript
-                    or has_soft_local_speech
-                    or loud_chunks >= 2
-                    or (self._last_committed_had_server_speech and total_chunks >= 8)
+                    or has_local_speech_evidence
+                    or (
+                        self._last_committed_had_server_speech
+                        and total_chunks >= 8
+                        and has_local_speech_evidence
+                    )
                 )
 
         # Only confirmed text/transcript input resets retry budget.
@@ -387,3 +411,9 @@ class SessionState:
         """Mark the last user turn as meaningful and reset retry budget."""
         self._last_user_turn_meaningful = True
         self.follow_up_retry_count = 0
+
+    def mark_user_transcript(self, transcript: str):
+        """Remember the last user transcript for end-of-conversation checks."""
+        cleaned = (transcript or "").strip()
+        if cleaned:
+            self._last_user_transcript = cleaned

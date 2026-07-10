@@ -26,7 +26,9 @@ def create_app() -> Flask:
 
     # Late imports to avoid circulars
     from . import websocket
+    from .routes.audio import apply_configured_mic_gain
     from .routes.audio import bp as audio_bp
+    from .routes.knowledge import knowledge_bp
     from .routes.misc import bp as misc_bp
     from .routes.persona import bp as persona_bp
     from .routes.profiles import profiles_bp
@@ -36,12 +38,21 @@ def create_app() -> Flask:
 
     # Bootstrap cached data
     bootstrap_versions_and_release_note()
+    mic_gain_result = apply_configured_mic_gain()
+    if mic_gain_result.get("status") == "updated":
+        app.logger.info(
+            "Applied configured mic gain: %(old)s -> %(gain)s",
+            mic_gain_result,
+        )
+    elif mic_gain_result.get("status") not in {"kept"}:
+        app.logger.info("Configured mic gain skipped: %s", mic_gain_result)
 
     # Register blueprints
     app.register_blueprint(system_bp)
     app.register_blueprint(persona_bp)
     app.register_blueprint(profiles_bp)
     app.register_blueprint(audio_bp)
+    app.register_blueprint(knowledge_bp)
     app.register_blueprint(misc_bp)
     app.register_blueprint(songs_bp)
 

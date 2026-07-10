@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Personas | Billy Bassistant{% endblock %}
+
+{% block header %}
+{% include "components/header.html" %}
+{% endblock %}
+
+{% block main_content %}
+<main id="main-content" data-page="personas" class="max-w-6xl mx-auto px-2 md:px-4 pt-4 pb-32">
+    {% include "components/persona-form.html" %}
+</main>
+
+{% include "components/wifi-setup-modal.html" %}
+{% include "components/env-editor-modal.html" %}
+{% endblock %}

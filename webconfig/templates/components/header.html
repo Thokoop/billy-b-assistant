@@ -1,11 +1,12 @@
 <!-- 🐟 Billy Header with Controls & Log Buttons -->
-<header class="z-20 p-4 sticky top-0 backdrop-blur-sm shadow-[0_4px_10px_rgba(0,0,0,0.25)]">
+<header class="z-30 sticky top-0 backdrop-blur-sm shadow-[0_4px_10px_rgba(0,0,0,0.25)]">
+    <div class="px-4 py-2">
     <div class="flex flex-row flex-wrap items-center relative justify-end gap-2 pl-20">
         <div class="flex gap-2 flex-col md:flex-row items-center absolute left-0 group mr-2">
             <img id="status-logo" src="/static/images/status-inactive.png"
                  alt="Billy status"
                  class="w-16 h-16 select-none group-hover:blur-xs transition-all" draggable="false">
-            <span id="service-status" class="text-sm font-bold flex opacity-0 group-hover:opacity-100 absolute h-full w-full items-center content-center transition-all">(inactive)</span>
+            <span id="service-status" class="text-sm flex opacity-0 group-hover:opacity-100 absolute h-full w-full items-center content-center transition-all">(inactive)</span>
         </div>
 
         <!-- Power button and dropdown (moved to left) -->
@@ -13,21 +14,26 @@
             <div class="relative inline-block">
                 <!-- Main power button -->
                 <button id="power-btn"
-                        class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
+                        class="secondary-action secondary-action--hover--rose text-sm p-2 cursor-pointer"
                         title="Power options">
                     <span class="material-icons">power_settings_new</span>
                 </button>
 
                 <!-- Dropdown -->
                 <div id="power-dropdown"
-                     class="absolute left-0 mt-2 w-40 bg-zinc-800 border border-zinc-700 rounded shadow-lg hidden z-30">
+                     class="absolute left-0 mt-2 hidden z-30">
+                    <button id="stop-billy-btn"
+                            class="hidden w-full items-center justify-start gap-2 rounded-xl px-3 py-2 text-sm text-white transition-all secondary-action secondary-action--hover--rose">
+                        <span class="material-icons text-rose-400">stop</span>
+                        Stop
+                    </button>
                     <button id="reboot-billy-btn"
-                            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-white hover:bg-zinc-700 transition-colors">
+                            class="w-full flex items-center justify-start gap-2 rounded-xl px-3 py-2 text-sm text-white transition-all secondary-action secondary-action--hover--amber">
                         <span class="material-icons text-amber-400">restart_alt</span>
                         Reboot
                     </button>
                     <button id="shutdown-billy-btn"
-                            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-white hover:bg-zinc-700 transition-colors">
+                            class="w-full flex items-center justify-start gap-2 rounded-xl px-3 py-2 text-sm text-white transition-all secondary-action secondary-action--hover--rose">
                         <span class="material-icons text-rose-400">power_off</span>
                         Shutdown
                     </button>
@@ -39,68 +45,62 @@
             <!-- Service buttons inserted via JS -->
         </div>
 
-        <!-- Songs button -->
-        <button id="songs-btn"
-                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
-                title="Manage Songs">
-            <span class="material-icons">library_music</span>
-            <span class="text-xs hidden md:block">Songs</span>
-        </button>
-
-        <!-- News Sources button -->
-        <button id="news-sources-btn"
-                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
-                title="Manage News Sources">
-            <span class="material-icons">newspaper</span>
-            <span class="text-xs hidden md:block">News</span>
-        </button>
-
-        <!-- Settings button -->
-        <button id="user-profile-btn"
-                class="bg-zinc-700 hover:bg-zinc-600 transition-colors text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
-                title="Settings">
-            <span class="material-icons">settings</span>
-            <span class="text-xs hidden md:block">Settings</span>
-        </button>
-
         <button id="toggle-log-btn"
-                class="bg-zinc-700 hover:bg-zinc-600 transition-all text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
+                class="secondary-action secondary-action--hover--cyan text-sm p-2 cursor-pointer"
                 title="Show debug log">
             <span class="material-icons bug_report">bug_report</span>
+            <span class="text-xs hidden md:block">Debug</span>
         </button>
 
-        <div id="version-info" class="text-sm flex flex-col md:items-end relative">
-            <button id="current-version"
-                    class="bg-zinc-700 hover:bg-zinc-600 transition-all text-white text-sm py-1 px-2 rounded flex gap-1.5 items-center cursor-pointer"
-                    title="Show release notes & support">
-                <span class="material-icons">commit</span>
-                <span class="label">Current: ...</span>
-            </button>
-            <span id="release-badge"
-                  class="absolute -top-2 -right-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 hover:bg-amber-400 text-black text-xs font-extrabold shadow">
-                  !
-            </span>
-
-        </div>
-
-        <div class="flex gap-2 items-center">
-
-            <button id="update-btn"
-                    class="hidden bg-amber-500 hover:bg-amber-400 text-zinc-800 text-sm py-1 px-3 rounded gap-1.5 items-center cursor-pointer">
-                <span class="material-icons align-middle">system_update_alt</span>
-                <span id="latest-version"></span>
-            </button>
+        <div class="flex flex-wrap items-center gap-4">
+            <a href="/settings"
+               id="header-settings-btn"
+               data-page-link
+               data-page="settings"
+               class="secondary-action secondary-action--hover--emerald text-sm p-2 border border-transparent cursor-pointer relative"
+               title="Settings">
+                <span class="material-icons">settings</span>
+                <span class="text-xs hidden md:block">Settings</span>
+                <span data-release-badge
+                      class="hidden absolute -top-2 -right-2 items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-black text-xs font-extrabold shadow">
+                      !
+                </span>
+            </a>
         </div>
     </div>
+    </div>
 
-    <!-- Log Panel -->
-    <section id="log-panel" class="mt-2 relative hidden">
-        <!-- Log Level Control -->
-        <div class="p-3 bg-zinc-800/50 rounded border border-zinc-600 flex gap-3 justify-between items-center flex-wrap">
-            <div class="flex items-center gap-3">
-                <label for="log-level-select" class="text-sm font-medium text-gray-200">
-                    Log Level:
-                </label>
+    <section id="log-panel" class="hidden px-4 pb-4">
+        <div class="p-3 bg-zinc-900/88 backdrop-blur-sm border border-zinc-600 flex gap-3 justify-between items-center flex-wrap shadow-2xl">
+            <div class="flex items-center gap-3 flex-wrap">
+                <div class="flex flex-col items-start gap-2">
+                    <div class="flex items-center gap-2">
+                        <label for="log-level-select" class="text-sm text-gray-200">
+                            Log Level:
+                        </label>
+                        <span class="material-icons text-zinc-300 cursor-pointer"
+                              onclick="toggleTooltip(this)"
+                              title="Log level help">help_outline</span>
+                        <div data-tooltip class="log-level-tooltip-inline gap-3">
+                            <div class="flex items-center gap-2">
+                                <span class="material-icons text-red-400 text-sm mt-0.5">error</span>
+                                <p><strong>Error:</strong> Only critical failures.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-icons text-yellow-400 text-sm mt-0.5">warning</span>
+                                <p><strong>Warning:</strong> Adds recoverable issues.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-icons text-blue-400 text-sm mt-0.5">info</span>
+                                <p><strong>Info:</strong> Adds normal operations.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-icons text-purple-400 text-sm mt-0.5">search</span>
+                                <p><strong>Verbose:</strong> Adds debug details.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <select id="log-level-select"
                         class="bg-zinc-700 text-white text-sm px-3 py-1 rounded border border-zinc-600 focus:border-cyan-500 focus:outline-none">
                     <option value="ERROR">Error</option>
@@ -109,30 +109,17 @@
                     <option value="VERBOSE">Verbose</option>
                 </select>
                 <button id="apply-log-level-btn"
-                        class="bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-semibold py-1 px-3 rounded shadow">
+                        class="secondary-action secondary-action--hover--cyan text-sm py-1 px-3 shadow">
                     Apply
                 </button>
             </div>
-            <div class="text-xs text-gray-400 align-center">
-                <span class="material-icons text-xs text-red-400 align-middle">error</span>
-                <strong>Error:</strong> Only critical failures •
-                <span class="material-icons text-xs text-yellow-400 align-middle">warning</span>
-                <strong>Warning:</strong> + recoverable issues •
-                <span class="material-icons text-xs text-blue-400 align-middle">info</span>
-                <strong>Info:</strong> + normal operations •
-                <span class="material-icons text-xs text-purple-400 align-middle">search</span>
-                <strong>Verbose:</strong> + debug details
-            </div>
             <button id="clear-logs-btn"
-                    class="bg-rose-500 hover:bg-rose-400 text-white text-sm font-semibold py-1 px-3 rounded shadow">
+                    class="secondary-action secondary-action--hover--rose text-sm py-1 px-3 shadow">
                 Clear log
             </button>
         </div>
-        <!-- Normal Log View -->
         <div id="log-container"
-             class="relative rounded px-2 max-h-96 overflow-y-scroll text-sm transition-all duration-300 border border-cyan-500 bg-zinc-800/80 ">
-
-            <!-- Fullscreen Button (top right) -->
+             class="relative mt-3 rounded-lg px-2 max-h-96 overflow-y-scroll text-sm transition-all duration-300 border border-cyan-500 bg-zinc-900/88 backdrop-blur-sm shadow-2xl">
             <button id="toggle-fullscreen-btn"
                     class="sticky top-2 left-full mr-3 bg-zinc-800 hover:bg-zinc-700 text-white px-2 py-1 rounded z-10 shadow flex items-center justify-center"
                     title="Toggle Fullscreen Log">
@@ -140,96 +127,13 @@
             </button>
 
             <pre id="log-output"
-                 class="text-cyan-500  whitespace-pre-wrap break-words overflow-x-hidden max-w-full">Loading logs…</pre>
+                 class="text-cyan-500 whitespace-pre-wrap break-words overflow-x-hidden max-w-full">Loading logs…</pre>
 
-            <!-- Scroll-to-bottom Button (bottom right) -->
             <button id="scroll-bottom-btn"
                     title="Auto-scroll"
                     class="sticky bottom-2 left-full mr-3 ml-auto bg-zinc-800 hover:bg-zinc-700 text-white px-2 py-1 rounded z-10 shadow flex items-center justify-center cursor-pointer">
                 <span class="material-icons">arrow_downward</span>
             </button>
-        </div>
-    </section>
-
-    <!-- Release Notes & Support Panel -->
-    <section id="release-panel" class="mt-2 relative hidden">
-        <div class="relative flex flex-col md:flex-row gap-4 text-sm transition-all duration-300 text-white">
-            <!-- Release Notes Section -->
-            <div class="bg-zinc-800/80 p-4 mb-0 rounded border border-emerald-600 grow">
-                <div class="flex items-start gap-3">
-                    <span class="material-icons text-emerald-400 select-none" aria-hidden="true">campaign</span>
-                    <div class="flex-1">
-                        <div class="flex items-center justify-between">
-                            <h4 id="release-title" class="text-sm font-bold text-emerald-300">Release Notes</h4>
-                            <div class="flex gap-2">
-                                <button id="release-mark-read"
-                                        class="text-emerald-300 hover:text-emerald-200 text-sm underline underline-offset-4"
-                                        title="Mark as read (hide badge)">
-                                    Mark as read
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Markdown body -->
-                        <div id="release-body" class="mt-2 text-sm text-emerald-100 prose prose-invert max-w-none">
-                            Loading release notes…
-                        </div>
-
-                        <a id="release-link"
-                           href="#"
-                           target="_blank"
-                           rel="noopener"
-                           class="hidden items-center gap-1 text-emerald-300 hover:text-emerald-200 mt-3">
-                            <span class="material-icons text-xs" aria-hidden="true">open_in_new</span>
-                            <span class="underline">View on GitHub</span>
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Support Section -->
-            <div id="support-section" class="bg-zinc-800/80 p-4 rounded border border-red-600">
-                <div class="flex items-start gap-3">
-                    <span class="material-icons text-red-400 select-none" aria-hidden="true">favorite</span>
-                    <div class="flex-1">
-                        <h4 class="text-sm font-bold text-red-300 mb-3">Support Development</h4>
-                        
-                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 gap-6">
-                            <!-- Left column: QR + button -->
-                            <div class="flex flex-col items-center justify-center space-y-4">
-                                <img src="../static/images/qrcode.png"
-                                     alt="PayPal QR code"
-                                     class="w-36 h-36 object-contain select-none"
-                                     draggable="false">
-
-                                <a href="https://paypal.me/thomkoopman050"
-                                   target="_blank"
-                                   rel="noopener"
-                                   class="w-auto inline-flex items-center justify-center gap-2 text-xs bg-red-500 hover:bg-red-400 text-zinc-900 font-semibold py-1 px-2 rounded shadow">
-                                    <span class="material-icons">open_in_new</span>
-                                    <span>Open PayPal.me</span>
-                                </a>
-                            </div>
-
-                            <!-- Right column: text -->
-                            <div class="flex flex-col justify-center text-center md:text-left space-y-2">
-                                <p class="text-sm text-zinc-200 font-medium">
-                                    Billy's software is provided free of charge and it'll stay that way.
-                                </p>
-                                <p class="text-xs text-zinc-400">
-                                    I build and maintain it in my spare time for fun.<br>
-                                    If you enjoy Billy and like to support ongoing development, consider a small donation.<br>
-                                    It's always much appreciated, never required.
-                                </p>
-                                <p class="text-xs text-zinc-400">
-                                    Thanks,<br>
-                                    Thom Koopman (ThingsFromThom)
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </section>
 

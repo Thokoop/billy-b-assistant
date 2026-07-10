@@ -96,6 +96,14 @@ Expand the filesystem to fill available storage:
 raspi-config --expand-rootfs
 ```
 
+If you use the optional WS2812B status LED on a Raspberry Pi 5, enable SPI:
+
+```bash
+sudo raspi-config
+```
+
+Go to **Interface Options** -> **SPI**, enable it, then reboot the Raspberry Pi after the system update below.
+
 Update the system:
 
 ```bash
@@ -419,7 +427,8 @@ MQTT_PASSWORD=<password>
 
 ## Optional overwrites
 MIC_TIMEOUT_SECONDS=5
-SILENCE_THRESHOLD=900
+SILENCE_THRESHOLD=1000
+MIC_GAIN=max
 MIC_PREFERENCE=usbpath:1-1.3
 SPEAKER_PREFERENCE=usbpath:1-1.4
 FOLLOW_UP_RETRY_LIMIT=1
@@ -436,6 +445,8 @@ WAKE_WORD_COOLDOWN_SECONDS=4.0
 PORCUPINE_ACCESS_KEY=
 WAKE_WORD_PORCUPINE_KEYWORD_PATH=hey-billy.ppn
 WAKE_WORD_PORCUPINE_SENSITIVITY=0.20
+WAKE_WORD_OPENWAKEWORD_MODEL_PATH=hey_billy.onnx
+WAKE_WORD_OPENWAKEWORD_THRESHOLD=0.50
 
 DEBUG_MODE=true
 DEBUG_MODE_INCLUDE_DELTA=false
@@ -447,9 +458,10 @@ ALLOW_UPDATE_PERSONALITY_INI=true
 **VOICE**: The OpenAI voice model to use (`alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, or `cedar`, `ballad` is default)  
 **MQTT_\***: (Optional) used if you want to integrate Billy with Home Assistant or another MQTT broker  
 **NEWS_DEFAULT_LOCATION / NEWS_DEFAULT_COUNTRY / NEWS_DEFAULT_LANGUAGE**: (Optional) defaults for weather and regional headlines  
-**MIC_TIMEOUT_SECONDS**: How long Billy should wait after your last mic activity before ending input  
-**SILENCE_THRESHOLD**: Audio threshold (RMS) for what counts as mic input;lower this value if Billy interrupts you too quickly, set higher if Billy doesn't respond (because he thinks you're still talking)  
-**MIC_PREFERENCE / SPEAKER_PREFERENCE**: Preferred USB mic/speaker. The Web UI stores stable USB bus-path values (for example `usbpath:1-1.3`) to survive `hw:X,Y` renumbering after reboot. Legacy name-based values are still accepted for backward compatibility.  
+**MIC_TIMEOUT_SECONDS**: How long Billy should wait after your last mic activity before ending input
+**SILENCE_THRESHOLD**: Audio threshold (RMS) for what counts as speech. Lower this if Billy misses you; raise it if background noise keeps the conversation open. The default is `1000` on the raw `0-32768` RMS scale.
+**MIC_GAIN**: ALSA `Mic Capture Volume` applied on startup. The default is `max`, which resolves to the device's reported maximum. If you adjust mic gain in the Web UI, Billy saves the numeric value to `.env` and reuses it after restart.
+**MIC_PREFERENCE / SPEAKER_PREFERENCE**: Preferred USB mic/speaker. The Web UI stores stable USB bus-path values (for example `usbpath:1-1.3`) to survive `hw:X,Y` renumbering after reboot. Legacy name-based values are still accepted for backward compatibility.
 **FOLLOW_UP_RETRY_LIMIT**: Number of auto follow-up retries when Billy expects a follow-up but could not hear it clearly (or heard nothing), before ending the session (`1` default, allowed range `0..5`)  
 **CAMERA_HARDWARE**: Camera selection (`none`, `rpi_camera`, or `usb_webcam`). The Web UI **Camera Device** dropdown auto-lists detected camera options plus `None`.  
 **LIBCAMERA_STILL_BIN**: Capture binary name/path (default `libcamera-still`)  
@@ -458,11 +470,13 @@ ALLOW_UPDATE_PERSONALITY_INI=true
 **CAMERA_CAPTURE_WIDTH / CAMERA_CAPTURE_HEIGHT**: Capture resolution in pixels (default `1280x720`)  
 **CAMERA_CAPTURE_TIMEOUT_SECONDS**: Timeout for local camera capture command (seconds, default `8`)  
 **WAKE_WORD_ENABLED**: Enables local wake-word listening while idle (`false` by default)  
-**WAKE_WORD_BACKEND**: Local detector backend (`porcupine`)  
+**WAKE_WORD_BACKEND**: Local detector backend (`porcupine` or `openwakeword`)  
 **WAKE_WORD_COOLDOWN_SECONDS**: Cooldown after a detection to reduce retriggers (default `4.0`)  
 **PORCUPINE_ACCESS_KEY**: Your Porcupine AccessKey (required when `WAKE_WORD_BACKEND=porcupine`)  
 **WAKE_WORD_PORCUPINE_KEYWORD_PATH**: Porcupine keyword filename (for example `hey-billy.ppn`). Billy resolves it from `wakewords/`.  
 **WAKE_WORD_PORCUPINE_SENSITIVITY**: Porcupine sensitivity from `0.0` to `1.0` (higher is more sensitive). Default is `0.20` to reduce near-match false triggers.  
+**WAKE_WORD_OPENWAKEWORD_MODEL_PATH**: openWakeWord ONNX model filename (for example `hey_billy.onnx`). Billy resolves it from `wakewords/`.  
+**WAKE_WORD_OPENWAKEWORD_THRESHOLD**: openWakeWord score threshold from `0.0` to `1.0`. Default is `0.50`.  
 **DEBUG_MODE**: Print debug information such as OpenAI responses to the output stream  
 **DEBUG_MODE_INCLUDE_DELTA**: Also print voice and speech delta data, which can get very noisy  
 **ALLOW_UPDATE_PERSONALITY_INI**: If true, personality updates asked for by the user will be written and committed to the personality file. If false, changes to personality parameters will only affect the current running process (`true` is default)
@@ -488,6 +502,25 @@ Notes:
 - Billy resolves that filename automatically from `wakewords/`.
 - A default bundled keyword file is included: `hey-billy.ppn` (Hey Billy).
 - You can create your own custom wake-word in Picovoice and upload/select that `.ppn` instead.
+
+### Wake-word setup (openWakeWord)
+
+Billy also supports fully local wake-word detection using `openWakeWord`.
+
+1. Install the updated requirements so `openwakeword` and `onnxruntime` are available.
+2. Place your `.onnx` wake-word model in `wakewords/`.
+3. In the Web UI, open **Wake-word Settings** and:
+   - Enable wake-word
+   - Select the `openWakeWord` backend
+   - Choose the ONNX model from the dropdown
+   - Adjust the threshold if needed
+   - Save settings
+4. Restart Billy (or restart service) and test the model.
+
+Notes:
+- `WAKE_WORD_OPENWAKEWORD_MODEL_PATH` stores only the filename (for example `hey_billy.onnx`).
+- Billy resolves that filename automatically from `wakewords/`.
+- The bundled `wakewords/hey_billy.onnx` model can be selected directly.
 
 ### Example `persona.ini` File
 

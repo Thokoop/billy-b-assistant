@@ -60,6 +60,23 @@ PROVIDER_MIC_RATE = 24000
 PROVIDER_OUTPUT_RATE = 24000
 
 
+def mic_input_samples_for_meter(indata):
+    """Return the input samples used for local mic RMS/threshold decisions."""
+    return indata[:, 0] if getattr(indata, "ndim", 1) > 1 else indata
+
+
+def calculate_input_rms(indata) -> float:
+    """Calculate RMS in int16-equivalent units so thresholds stay on 0-32768 scale."""
+    samples = mic_input_samples_for_meter(indata)
+    samples_f32 = samples.astype(np.float32, copy=False)
+    rms = float(np.sqrt(np.mean(np.square(samples_f32))))
+    if np.issubdtype(samples.dtype, np.floating):
+        max_abs = float(np.max(np.abs(samples_f32))) if samples_f32.size else 0.0
+        if max_abs <= 1.5:
+            rms *= 32768.0
+    return rms
+
+
 def _normalize_device_preference(value: str) -> str:
     normalized = (value or "").strip().lower()
     normalized = re.sub(r"\s*\(hw:\d+,\d+\)\s*", " ", normalized)

@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional
 
 import websockets.asyncio.client
+import websockets.exceptions
 
 
 class RealtimeAIProvider(ABC):
@@ -53,14 +54,35 @@ class RealtimeAIProvider(ABC):
         """Connect to the provider's websocket and return the connection (without config)"""
         uri = self._get_websocket_uri()
         headers = self._get_headers()
-        return await websockets.asyncio.client.connect(
-            uri,
-            additional_headers=headers,
-            open_timeout=30,
-            ping_interval=20,
-            ping_timeout=60,
-            close_timeout=2,
-        )
+        try:
+            return await websockets.asyncio.client.connect(
+                uri,
+                additional_headers=headers,
+                open_timeout=30,
+                ping_interval=20,
+                ping_timeout=60,
+                close_timeout=2,
+            )
+        except websockets.exceptions.InvalidStatus as e:
+            response = getattr(e, "response", None)
+            body = ""
+            if response is not None:
+                raw_body = getattr(response, "body", b"") or b""
+                if isinstance(raw_body, bytearray):
+                    raw_body = bytes(raw_body)
+                if isinstance(raw_body, bytes):
+                    body = raw_body.decode("utf-8", errors="replace").strip()
+                else:
+                    body = str(raw_body).strip()
+
+            if body:
+                try:
+                    payload = json.loads(body)
+                    detail = payload.get("error") or payload.get("message") or body
+                except json.JSONDecodeError:
+                    detail = body
+                raise RuntimeError(detail) from e
+            raise
 
     @abstractmethod
     async def connect(

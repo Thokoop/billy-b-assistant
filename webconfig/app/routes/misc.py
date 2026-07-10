@@ -1,11 +1,29 @@
 import getpass
 import os
 import subprocess
+import time
 
 from flask import Blueprint, jsonify, request
 
 
 bp = Blueprint("misc", __name__)
+
+
+def _restart_billy_service_gracefully():
+    subprocess.run(["sudo", "systemctl", "stop", "billy.service"], check=False)
+    deadline = time.time() + 8.0
+    while time.time() < deadline:
+        status = subprocess.run(
+            ["systemctl", "is-active", "billy.service"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if status.stdout.strip() in {"inactive", "failed", "unknown"}:
+            break
+        time.sleep(0.25)
+    time.sleep(0.5)
+    subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=True)
 
 
 @bp.route("/logs")
@@ -74,10 +92,12 @@ def control_service(action):
     if action not in ["start", "stop", "restart"]:
         return jsonify({"error": "Invalid action"}), 400
     try:
-        if action in ["start", "restart"]:
-            subprocess.check_call(["sudo", "systemctl", action, "billy.service"])
+        if action == "restart":
+            _restart_billy_service_gracefully()
+        elif action == "start":
+            subprocess.check_call(["sudo", "systemctl", "start", "billy.service"])
         else:
-            subprocess.check_call(["sudo", "systemctl", action, "billy.service"])
+            subprocess.check_call(["sudo", "systemctl", "stop", "billy.service"])
         return jsonify({"status": "success", "action": action})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -97,8 +117,8 @@ def restart_billy_services():
 def restart_billy_only():
     """Restart only billy.service (not the webconfig), used for persona changes."""
     try:
-        subprocess.Popen(["sudo", "systemctl", "restart", "billy.service"])
-        return jsonify({"status": "ok", "message": "Restarting Billy service..."})
+        _restart_billy_service_gracefully()
+        return jsonify({"status": "ok", "message": "Billy service restarted"})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -412,5 +432,33 @@ def test_motor():
             return jsonify({"error": "Invalid motor"}), 400
 
         return jsonify({"status": f"{motor} tested", "service_was_active": was_active})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/test-led", methods=["POST"])
+def test_led():
+    """Run a short WS2812B status LED test."""
+    try:
+        # Stop Billy service if running so the LED test can control the pixel cleanly.
+        was_active = False
+        try:
+            output = subprocess.check_output(
+                ["systemctl", "is-active", "billy.service"], stderr=subprocess.STDOUT
+            )
+            was_active = output.decode().strip() == "active"
+        except subprocess.CalledProcessError:
+            was_active = False
+
+        if was_active:
+            subprocess.check_call(["sudo", "systemctl", "stop", "billy.service"])
+
+        from core.status_led import run_status_led_test
+
+        ok, message = run_status_led_test()
+        if not ok:
+            return jsonify({"error": message, "service_was_active": was_active}), 400
+
+        return jsonify({"status": message, "service_was_active": was_active})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

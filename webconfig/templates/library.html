@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{% block title %}Library | Billy Bassistant{% endblock %}
+
+{% block header %}
+{% include "components/header.html" %}
+{% endblock %}
+
+{% block main_content %}
+<main id="main-content" data-page="library" class="max-w-6xl mx-auto px-2 md:px-4 pt-4 pb-32">
+    <div>
+        <div class="grid grid-cols-1 gap-6">
+            <section class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl overflow-hidden">
+            <div class="p-4 border-b border-zinc-700">
+                <h2 class="text-lg text-white flex items-center gap-2">
+                    <span class="material-icons text-emerald-400">newspaper</span>
+                    External Knowledge (News sources)
+                </h2>
+            </div>
+
+            <div class="p-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    <div class="p-4 rounded-lg border border-zinc-700 bg-zinc-900/40 min-w-0 overflow-hidden">
+                        <div class="mb-4 relative">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="relative">
+                                    <label class="flex justify-between items-center gap-2 text-sm text-slate-300">
+                                        <span>News Sources</span>
+                                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                              data-tooltip-target="news-sources-tooltip"
+                                              onclick="toggleTooltip(this)">help_outline</span>
+                                    </label>
+                                    <div id="news-sources-tooltip" data-tooltip
+                                         style="top:calc(100% + 0.4rem);left:0;width:min(30rem,calc(100vw - 2rem));max-width:calc(100vw - 2rem);max-height:60vh;overflow:auto;white-space:normal;overflow-wrap:break-word;word-break:normal;z-index:60;">
+                                        Manage feed URLs for headlines, weather, and sports.
+                                    </div>
+                                </div>
+                                <button id="news-show-create-source-btn" type="button" class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0" title="Add news source">
+                                    <span class="material-icons">add</span>
+                                </button>
+                            </div>
+                            <div class="relative">
+                                <div id="news-sources-list" class="space-y-3 mt-2"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="add-news-source-form-panel" class="p-4 rounded-lg border border-zinc-700 bg-zinc-900/40">
+                        <div class="mb-3 relative">
+                            <label class="flex items-center justify-between text-sm text-slate-200">
+                                <span id="news-source-form-title">Add News Source</span>
+                                <span class="relative inline-flex">
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                          data-tooltip-target="add-news-source-tooltip"
+                                          onclick="toggleTooltip(this)">help_outline</span>
+                                    <div id="add-news-source-tooltip" data-tooltip
+                                         style="top:calc(100% + 0.4rem);right:0;width:min(30rem,calc(100vw - 2rem));max-width:calc(100vw - 2rem);max-height:60vh;overflow:auto;white-space:normal;overflow-wrap:break-word;word-break:normal;z-index:60;">
+                                        Add feeds for news, weather, sports, or custom endpoints.
+                                    </div>
+                                </span>
+                            </label>
+                        </div>
+                        <div class="grid gap-3 md:grid-cols-6 mb-3">
+                            <input id="news-source-name" type="text"
+                                   class="w-full p-3 bg-zinc-800 border border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500 md:col-span-6"
+                                   placeholder="Source name">
+                            <input id="news-source-url" type="url"
+                                   class="w-full p-3 bg-zinc-800 border border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500 md:col-span-6"
+                                   placeholder="https://example.com/feed.xml">
+                            <input id="news-source-topics" type="text"
+                                   class="w-full p-3 bg-zinc-800 border border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500 md:col-span-6"
+                                   placeholder="Keywords (comma-separated): tech, politics">
+                            <div class="md:col-span-6 text-xs text-slate-400 -mt-1">
+                                Tip: use &#123;&#123;query&#125;&#125; in the URL for dynamic searches.
+                            </div>
+                        </div>
+
+                        <div class="mt-4 p-3 mb-3">
+                            <div class="text-xs text-slate-400 mb-2 flex items-center justify-between">
+                                <div></div>
+                                <button id="toggle-news-examples-btn" type="button"
+                                        class="inline-flex items-center gap-1 text-sm text-zinc-400 hover:text-white transition-colors">
+                                    <span class="material-icons text-sm" id="news-examples-toggle-icon">expand_more</span>
+                                    <span id="news-examples-toggle-label">Show examples</span>
+                                </button>
+                            </div>
+                            <div class="grid gap-2 hidden" id="news-examples-list">
+                                <div class="flex items-center gap-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                                    <button type="button" class="news-template-use-btn text-xs bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-white" data-template-key="google_news_headlines">Use</button>
+                                    <span class="text-sm text-slate-200 grow">Google News (Headlines)</span>
+                                </div>
+                                <div class="flex items-center gap-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                                    <button type="button" class="news-template-use-btn text-xs bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-white" data-template-key="google_news_localized">Use</button>
+                                    <span class="text-sm text-slate-200 grow">Google News (Localized search)</span>
+                                </div>
+                                <div class="flex items-center gap-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                                    <button type="button" class="news-template-use-btn text-xs bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-white" data-template-key="open_meteo_forecast">Use</button>
+                                    <span class="text-sm text-slate-200 grow">Open-Meteo Forecast (Amsterdam)</span>
+                                </div>
+                                <div class="flex items-center gap-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                                    <button type="button" class="news-template-use-btn text-xs bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-white" data-template-key="espn_premier_league">Use</button>
+                                    <span class="text-sm text-slate-200 grow">ESPN Scoreboard (Premier League)</span>
+                                </div>
+                                <div class="flex items-center gap-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                                    <button type="button" class="news-template-use-btn text-xs bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-white" data-template-key="espn_soccer_news">Use</button>
+                                    <span class="text-sm text-slate-200 grow">ESPN Soccer News (Serie A)</span>
+                                </div>
+                                <div class="flex items-center gap-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                                    <button type="button" class="news-template-use-btn text-xs bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-white" data-template-key="espn_team_info_napoli">Use</button>
+                                    <span class="text-sm text-slate-200 grow">ESPN Team Info (Napoli)</span>
+                                </div>
+                                <div class="flex items-center gap-2 p-2 bg-zinc-800 rounded border border-zinc-700">
+                                    <button type="button" class="news-template-use-btn text-xs bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-white" data-template-key="billy_project_releases">Use</button>
+                                    <span class="text-sm text-slate-200 grow">Billy Project Releases</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="add-news-source-actions" class="hidden flex items-center justify-end gap-2 mt-4">
+                            <button id="cancel-add-news-source-btn" type="button"
+                                    class="secondary-action text-sm py-2 px-4">
+                                Cancel
+                            </button>
+                            <button id="add-news-source-btn" type="button"
+                                    class="bg-emerald-600 hover:bg-emerald-500  text-white text-sm py-2 px-4 rounded flex items-center gap-2">
+                                <span id="add-news-source-btn-icon" class="material-icons text-base">add</span>
+                                <span id="add-news-source-btn-label">Add source</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </section>
+
+            <section class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl overflow-hidden">
+            <div class="p-4 border-b border-zinc-700">
+                <h2 class="text-lg text-white flex items-center gap-2">
+                    <span class="material-icons text-emerald-400">library_books</span>
+                    Internal Knowledge (Local files)
+                </h2>
+            </div>
+
+            <div class="p-4">
+                <div id="knowledge-split-view" data-mobile-split class="grid grid-cols-1 md:grid-cols-[0.95fr_1.05fr] gap-4 min-h-full">
+                    <section data-mobile-split-master class="p-4 rounded-lg border border-zinc-700 bg-zinc-900/40 min-w-0 overflow-hidden">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <label class="flex items-center gap-2 text-sm text-slate-100">
+                                    Folders
+                                    <span class="relative inline-flex">
+                                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-base"
+                                              data-tooltip-target="knowledge-folders-tooltip"
+                                              onclick="toggleTooltip(this)">help_outline</span>
+                                        <div id="knowledge-folders-tooltip" data-tooltip
+                                             style="top:calc(100% + 0.4rem);left:0;width:min(24rem,calc(100vw - 2rem));max-width:calc(100vw - 2rem);max-height:60vh;overflow:auto;white-space:normal;overflow-wrap:break-word;word-break:normal;z-index:60;">
+                                            Group related knowledge so Billy can find it more reliably.
+                                        </div>
+                                    </span>
+                                </label>
+                            </div>
+                            <div class="flex items-center gap-3 shrink-0">
+                                <div id="knowledge-summary" class="text-xs text-zinc-400 text-right">
+                                    0 folders • 0 files • 0 chunks
+                                </div>
+                                <button id="knowledge-show-create-folder-btn" type="button" class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0" title="Create folder">
+                                    <span class="material-icons">add</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="knowledge-create-folder-panel" class="hidden mt-4">
+                            <label for="knowledge-new-folder-input" class="block text-sm text-slate-300 mb-1">New Folder</label>
+                            <input type="text" id="knowledge-new-folder-input"
+                                   class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                   placeholder="New folder name">
+                            <div class="flex items-center justify-between gap-2 mt-3">
+                                <button id="knowledge-cancel-create-folder-btn" type="button" class="bg-zinc-700 hover:bg-zinc-600 text-white text-sm py-2 px-4 rounded">
+                                    Cancel
+                                </button>
+                                <button id="knowledge-create-folder-btn" type="button" class="bg-emerald-600 hover:bg-emerald-500  text-white text-sm py-2 px-4 rounded flex items-center gap-2 whitespace-nowrap">
+                                    <span class="material-icons text-base">add</span>
+                                    Create
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="knowledge-folders-list" class="space-y-3 mt-4">
+                            <div class="text-sm text-zinc-400">No folders yet.</div>
+                        </div>
+                    </section>
+
+                    <section data-mobile-split-detail class="p-4 rounded-lg border border-zinc-700 bg-zinc-900/40 min-w-0 overflow-hidden flex flex-col">
+                        <button id="knowledge-mobile-back-btn"
+                                data-mobile-split-back
+                                type="button"
+                                class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white mb-4 md:hidden">
+                            <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+                            <span>Back</span>
+                        </button>
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <h3 id="knowledge-selected-folder-label" class="text-sm text-slate-100">Selected Folder</h3>
+                                <p class="text-xs text-zinc-400 mt-1">
+                                    Upload files here and tune how this folder is picked.
+                                </p>
+                            </div>
+                            <div id="knowledge-selected-folder-stats" class="text-xs text-zinc-400 text-right shrink-0">
+                                0 files • 0 chunks
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <label for="knowledge-trigger-topics"
+                                   class="flex justify-between items-center text-sm text-slate-300 relative">
+                                Folder Trigger Topics
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                      onclick="toggleTooltip(this)">help_outline</span>
+                            </label>
+                            <div class="relative">
+                                <div data-tooltip>
+                                    Add keywords that should route Billy to this folder first.
+                                </div>
+                                <textarea id="knowledge-trigger-topics" rows="2"
+                                          class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                          placeholder="manuals, product details, pricing"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="mt-5 pt-4 border-t border-zinc-700 flex-1 min-h-0">
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <h4 class="text-sm text-slate-100">Files</h4>
+                                    <p class="text-xs text-zinc-400 mt-1">
+                                        Uploaded files in the selected folder.
+                                    </p>
+                                </div>
+                                <button id="knowledge-show-upload-btn" type="button" class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0" title="Add file">
+                                    <span id="knowledge-show-upload-icon" class="material-icons">add</span>
+                                </button>
+                            </div>
+                            <div id="knowledge-upload-panel" class="hidden mt-4">
+                                <label for="knowledge-file-input" class="block text-sm text-slate-300 mb-1">Add File</label>
+                                <div class="flex flex-col md:flex-row gap-2">
+                                    <input type="file" id="knowledge-file-input"
+                                           accept=".pdf,.xlsx,.csv,.tsv,.txt,.md,.json,.ini"
+                                           class="w-full text-sm text-zinc-200 file:mr-3 file:rounded file:border-0 file:bg-zinc-700 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-zinc-600">
+                                    <button id="knowledge-upload-btn" type="button" class="bg-emerald-600 hover:bg-emerald-500  text-white text-sm py-2 px-4 rounded flex items-center justify-center gap-2 whitespace-nowrap">
+                                        <span class="material-icons text-base">upload_file</span>
+                                        Upload
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="knowledge-documents-list" class="space-y-2 mt-4">
+                                <div class="text-sm text-zinc-400">No files in this folder yet.</div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <div class="border-t border-zinc-700 p-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-3 min-w-0">
+                        <button id="knowledge-reindex-btn" type="button" class="self-start secondary-action secondary-action--hover--emerald text-sm py-2 px-4">
+                            <span class="material-icons text-base">sync</span>
+                            Reindex
+                        </button>
+                    </div>
+
+                    <div class="flex flex-col gap-3 min-w-0">
+                        <div class="flex gap-2 flex-wrap justify-start lg:justify-end">
+                            <button id="knowledge-save-topics-btn" type="button" class="bg-emerald-600 hover:bg-emerald-500  text-black text-sm py-2 px-4 rounded flex items-center gap-2">
+                                <span class="material-icons text-base">save</span>
+                                Save Folder
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </section>
+        </div>
+    </div>
+</main>
+
+{% include "components/wifi-setup-modal.html" %}
+{% include "components/env-editor-modal.html" %}
+{% endblock %}

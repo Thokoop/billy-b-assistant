@@ -38,22 +38,22 @@ const PersonaForm = (() => {
             type: "text",
             value: key,
             placeholder: "Key",
-            className: "w-1/3 p-1 bg-zinc-800 text-white rounded"
+            className: "w-1/3 p-2 bg-zinc-800 text-white rounded"
         });
 
         const valInput = Object.assign(document.createElement("input"), {
             type: "text",
             value: value,
             placeholder: "Value",
-            className: "flex-1 p-1 bg-zinc-800 text-white rounded"
+            className: "flex-1 p-2 bg-zinc-800 text-white rounded"
         });
 
         const removeBtn = document.createElement("button");
         removeBtn.type = "button";
-        removeBtn.className = "text-rose-500 hover:text-rose-400 cursor-pointer";
+        removeBtn.className = "secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0";
         const icon = document.createElement("span");
         icon.className = "material-icons align-middle";
-        icon.textContent = "remove_circle_outline";
+        icon.textContent = "delete";
         removeBtn.appendChild(icon);
         removeBtn.onclick = () => wrapper.remove();
 
@@ -133,7 +133,7 @@ const PersonaForm = (() => {
             wrapper.className = "flex gap-2 space-y-1";
 
             const label = document.createElement("div");
-            label.className = "flex w-36 justify-between items-center text-sm text-slate-300 font-semibold";
+            label.className = "flex w-36 justify-between items-center text-sm text-slate-300";
             const displayName = coreTraits[key] || key;
             label.innerHTML = `<span>${displayName}</span>`;
 
@@ -170,11 +170,11 @@ const PersonaForm = (() => {
                         // Active block: show color, text, and border
                         const color = block.dataset.color;
                         const label = block.dataset.label;
-                        block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 ${color} flex items-center justify-center text-xs font-medium text-slate-200`;
+                        block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 ${color} flex items-center justify-center text-xs text-slate-200`;
                         block.textContent = label;
                     } else {
                         // Inactive block: dark grey background, no text
-                        block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs font-medium text-slate-200`;
+                        block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs text-slate-200`;
                         block.textContent = '';
                     }
                 });
@@ -184,7 +184,7 @@ const PersonaForm = (() => {
             levels.forEach((level, index) => {
                 const block = document.createElement("div");
                 // Default to dark grey background, no text
-                block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs font-medium text-slate-200`;
+                block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs text-slate-200`;
                 block.dataset.level = level.name;
                 block.dataset.minValue = level.range[0];
                 block.dataset.maxValue = level.range[1];
@@ -195,7 +195,7 @@ const PersonaForm = (() => {
                 const isActive = value >= level.range[0] && value <= level.range[1];
                 if (isActive) {
                     // Active block: show color, text, and border
-                    block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 ${level.color} flex items-center justify-center text-xs font-medium text-slate-200`;
+                    block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 ${level.color} flex items-center justify-center text-xs text-slate-200`;
                     block.textContent = level.name;
                 }
                 
@@ -338,11 +338,15 @@ const PersonaForm = (() => {
 
     const renderBackstoryFields = (backstory) => {
         const container = document.getElementById("backstory-fields");
+        if (!container) return;
         container.innerHTML = "";
         Object.entries(backstory).forEach(([k, v]) => addBackstoryField(k, v));
     };
 
     const loadPersona = async (personaName = null) => {
+        const metaText = document.getElementById("meta-text");
+        if (!metaText) return;
+
         // If no persona specified, try to get current user's preferred persona
         if (!personaName) {
             try {
@@ -369,7 +373,7 @@ const PersonaForm = (() => {
 
         renderPersonalitySliders(data.PERSONALITY);
         renderBackstoryFields(data.BACKSTORY);
-        document.getElementById("meta-text").value = data.META && data.META.instructions || "";
+        metaText.value = data.META && data.META.instructions || "";
         
         // Load display name and description
         const displayNameInput = document.getElementById("persona-display-name");
@@ -453,7 +457,10 @@ const PersonaForm = (() => {
 
 
     const handlePersonaSave = () => {
-        document.getElementById("persona-form").addEventListener("submit", async (e) => {
+        const personaForm = document.getElementById("persona-form");
+        if (!personaForm || personaForm.dataset.bound === "true") return;
+
+        personaForm.addEventListener("submit", async (e) => {
             e.preventDefault();
 
             // Check if the save button is disabled
@@ -598,6 +605,7 @@ const PersonaForm = (() => {
                 }
             }
         });
+        personaForm.dataset.bound = "true";
     };
 
     let isPopulatingPersonas = false;
@@ -703,17 +711,17 @@ const PersonaForm = (() => {
                         <div class="flex items-center space-x-3">
                             <span class="material-icons ${isCurrentPersona ? 'text-emerald-400' : 'text-zinc-400'}">set_meal</span>
                             <div>
-                                <div class="text-white font-medium">${displayText}</div>
+                                <div class="text-white">${displayText}</div>
                                 <div class="text-xs text-zinc-400">${persona.voice}</div>
                             </div>
                         </div>
                         <div class="flex items-center space-x-2">
         ${!isDefault ? `
           <button type="button" 
-                  class="${isCurrentPersona || isPreferredPersona ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-zinc-500 hover:text-rose-400'} p-1 rounded transition-colors" 
+                  class="${isCurrentPersona || isPreferredPersona ? 'secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0 opacity-50 cursor-not-allowed' : 'secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0'}" 
                   onclick="event.stopPropagation(); ${isCurrentPersona || isPreferredPersona ? `window.PersonaForm.showPreferredPersonaDeleteMessage('${persona.name}')` : `window.PersonaForm.deletePersona('${persona.name}')`}" 
                   title="${isCurrentPersona || isPreferredPersona ? 'Cannot delete preferred persona' : 'Delete persona'}">
-              <span class="material-icons text-sm">delete</span>
+              <span class="material-icons">delete</span>
           </button>
       ` : ''}
                         </div>
@@ -721,6 +729,7 @@ const PersonaForm = (() => {
                     
                     // Add click handler to load persona
                     row.addEventListener('click', async () => {
+                        window.MobileSplitView?.showDetail('persona-split-view');
                         await loadPersona(persona.name);
                     });
                     
@@ -1178,7 +1187,7 @@ const PersonaForm = (() => {
                 <div class="preset-option p-3 border border-zinc-700 rounded cursor-pointer hover:border-emerald-500 transition-colors ${preset.id === selectedPresetId ? 'border-emerald-500 bg-emerald-900/20' : ''}"
                      data-preset-id="${preset.id}"
                      onclick="window.PersonaForm.selectPreset('${preset.id}')">
-                    <div class="font-medium text-white">${preset.name}</div>
+                    <div class="text-white">${preset.name}</div>
                     ${preset.description ? `<div class="text-sm text-zinc-400 mt-1">${preset.description}</div>` : ''}
                 </div>
             `).join('');
@@ -1254,7 +1263,7 @@ const PersonaForm = (() => {
     // Initialize modal event listeners
     const initCreatePersonaModal = () => {
         const modal = document.getElementById('create-persona-modal');
-        if (!modal) return;
+        if (!modal || modal.dataset.bound === 'true') return;
 
         // Close button
         const closeBtn = document.getElementById('close-create-persona-modal');
@@ -1275,6 +1284,7 @@ const PersonaForm = (() => {
             }
             mouseDownOnBackdrop = false;
         });
+        modal.dataset.bound = 'true';
     };
 
     // Populate voice options dynamically from config
@@ -1311,5 +1321,3 @@ const PersonaForm = (() => {
 
     return {addBackstoryField, loadPersona, handlePersonaSave, bindPersonaSelector, populatePersonaSelector, deletePersona, savePersonaAs, showActivePersonaDeleteMessage, showPreferredPersonaDeleteMessage, clearPersonaCache, updatePersonaListSelection, handlePersonaChangeNotification, handlePersonalityChange, syncIconColors, initPersonaMouthArticulationSlider, openCreatePersonaModal, closeCreatePersonaModal, selectPreset, createPersonaFromModal, initCreatePersonaModal, populateVoiceOptions};
 })();
-
-

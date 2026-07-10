@@ -1,0 +1,313 @@
+"""Single-pixel WS2812B status LED controller."""
+
+import contextlib
+import math
+import threading
+import time
+from pathlib import Path
+
+from . import config
+from .logger import logger
+
+
+try:
+    from rpi_ws281x import Color, PixelStrip, ws
+
+    _ws281x_available = True
+except ImportError:
+    Color = None
+    PixelStrip = None
+    ws = None
+    _ws281x_available = False
+
+try:
+    import board
+    import neopixel_spi
+
+    _spi_neopixel_available = True
+except ImportError:
+    board = None
+    neopixel_spi = None
+    _spi_neopixel_available = False
+
+
+ColorTuple = tuple[int, int, int]
+
+
+def _is_raspberry_pi_5() -> bool:
+    """Detect Raspberry Pi 5 from the device model when available."""
+    model_path = Path("/proc/device-tree/model")
+    try:
+        model = model_path.read_text(encoding="utf-8", errors="ignore").strip("\x00 \n")
+    except Exception:
+        return False
+    return "Raspberry Pi 5" in model
+
+
+class StatusLed:
+    """Drive a single WS2812B LED with simple state animations."""
+
+    _STATE_CONFIG: dict[str, dict[str, object]] = {
+        "starting": {"mode": "pulse", "color": (0, 96, 255), "period": 1.4},
+        "idle": {"mode": "pulse", "color": (0, 32, 12), "period": 2.8},
+        "listening": {"mode": "solid", "color": (0, 180, 24)},
+        "speaking": {"mode": "pulse", "color": (255, 110, 0), "period": 0.9},
+        "playing_song": {"mode": "rainbow", "period": 1.2},
+        "error": {"mode": "blink", "color": (255, 0, 0), "period": 0.45},
+        "stopping": {"mode": "blink", "color": (255, 48, 0), "period": 0.8},
+        "off": {"mode": "solid", "color": (0, 0, 0)},
+    }
+
+    def __init__(self):
+        self.enabled = config.STATUS_LED_ENABLED and not config.MOCKFISH
+        self._strip = None
+        self._animation_thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._state = "off"
+        self._initialized = False
+        self._brightness = max(0.0, min(config.STATUS_LED_BRIGHTNESS, 1.0))
+        self._backend: str | None = None
+
+    def initialize(self):
+        """Initialize the hardware strip and start the animation worker."""
+        if not self.enabled or self._initialized:
+            return
+
+        backend = str(config.STATUS_LED_BACKEND).strip().lower()
+        if backend not in {"auto", "pwm", "spi"}:
+            logger.warning(
+                f"Unknown STATUS_LED_BACKEND '{config.STATUS_LED_BACKEND}', using auto.",
+                "💡",
+            )
+            backend = "auto"
+
+        init_error: Exception | None = None
+        backend_attempts = self._resolve_backend_attempts(backend)
+
+        for backend_name in backend_attempts:
+            try:
+                if backend_name == "pwm":
+                    self._initialize_pwm()
+                else:
+                    self._initialize_spi()
+
+                self._initialized = True
+                self._backend = backend_name
+                self._set_pixels((0, 0, 0))
+                self._animation_thread = threading.Thread(
+                    target=self._run_animation_loop,
+                    daemon=True,
+                )
+                self._animation_thread.start()
+                logger.info(
+                    f"Status LED initialized with {backend_name.upper()} backend.",
+                    "💡",
+                )
+                return
+            except Exception as e:
+                init_error = e
+                logger.warning(
+                    f"Status LED {backend_name.upper()} init failed: {e}",
+                    "💡",
+                )
+                self._strip = None
+                self._backend = None
+                self._initialized = False
+
+        if init_error:
+            logger.warning(
+                f"Status LED initialization failed after trying {', '.join(backend_attempts)}: {init_error}",
+                "💡",
+            )
+
+    def set_state(self, state: str):
+        """Set the current LED state."""
+        if state not in self._STATE_CONFIG:
+            logger.warning(f"Unknown status LED state '{state}', ignoring.", "💡")
+            return
+        with self._lock:
+            self._state = state
+
+    def get_state(self) -> str:
+        """Return the current logical LED state."""
+        with self._lock:
+            return self._state
+
+    def cleanup(self):
+        """Stop animations and turn the LED off."""
+        self._stop_event.set()
+        if self._animation_thread and self._animation_thread.is_alive():
+            self._animation_thread.join(timeout=1.0)
+        if self._initialized:
+            self._set_pixels((0, 0, 0))
+        strip = self._strip
+        self._strip = None
+        self._initialized = False
+        self._backend = None
+        self._animation_thread = None
+        self._stop_event = threading.Event()
+        if strip and hasattr(strip, "deinit"):
+            with contextlib.suppress(Exception):
+                strip.deinit()
+
+    def _resolve_backend_attempts(self, backend: str) -> list[str]:
+        if backend == "pwm":
+            return ["pwm"]
+        if backend == "spi":
+            return ["spi"]
+        if _is_raspberry_pi_5():
+            return ["spi", "pwm"]
+        return ["pwm", "spi"]
+
+    def _initialize_pwm(self):
+        if not _ws281x_available:
+            raise RuntimeError("rpi_ws281x is not installed")
+
+        self._strip = PixelStrip(
+            config.STATUS_LED_COUNT,
+            config.STATUS_LED_PIN,
+            800000,
+            config.STATUS_LED_DMA_CHANNEL,
+            False,
+            255,
+            config.STATUS_LED_PWM_CHANNEL,
+            ws.WS2811_STRIP_GRB,
+        )
+        self._strip.begin()
+
+    def _initialize_spi(self):
+        if not _spi_neopixel_available:
+            raise RuntimeError(
+                "SPI NeoPixel support is not installed "
+                "(requires adafruit-blinka and adafruit-circuitpython-neopixel-spi)"
+            )
+
+        spi = board.SPI()
+        self._strip = neopixel_spi.NeoPixel_SPI(
+            spi,
+            config.STATUS_LED_COUNT,
+            auto_write=False,
+            brightness=1.0,
+        )
+
+    def _run_animation_loop(self):
+        while not self._stop_event.is_set():
+            with self._lock:
+                state = self._state
+
+            config_for_state = self._STATE_CONFIG.get(state, self._STATE_CONFIG["off"])
+            mode = str(config_for_state["mode"])
+            color = config_for_state.get("color", (0, 0, 0))
+            period = float(config_for_state.get("period", 1.0))
+            now = time.monotonic()
+
+            if mode == "solid":
+                self._set_pixels(color)
+                self._stop_event.wait(0.1)
+            elif mode == "blink":
+                phase_on = (now % period) < (period / 2.0)
+                self._set_pixels(color if phase_on else (0, 0, 0))
+                self._stop_event.wait(0.08)
+            elif mode == "pulse":
+                wave = (math.sin((2 * math.pi * now) / period) + 1.0) / 2.0
+                scale = 0.18 + (0.82 * wave)
+                self._set_pixels(self._scale_color(color, scale))
+                self._stop_event.wait(0.02)
+            elif mode == "rainbow":
+                position = int((now * 255 / period) % 255)
+                self._set_pixels(self._wheel(position))
+                self._stop_event.wait(0.02)
+            else:
+                self._set_pixels((0, 0, 0))
+                self._stop_event.wait(0.1)
+
+    def _set_pixels(self, color: ColorTuple):
+        if not self._initialized or not self._strip:
+            return
+
+        scaled = self._scale_color(color, self._brightness)
+        if self._backend == "pwm":
+            packed = Color(*scaled)
+            for index in range(config.STATUS_LED_COUNT):
+                self._strip.setPixelColor(index, packed)
+            self._strip.show()
+            return
+
+        for index in range(config.STATUS_LED_COUNT):
+            self._strip[index] = scaled
+        self._strip.show()
+
+    @staticmethod
+    def _scale_color(color: ColorTuple, scale: float) -> ColorTuple:
+        return tuple(max(0, min(255, int(channel * scale))) for channel in color)
+
+    @staticmethod
+    def _wheel(position: int) -> ColorTuple:
+        position = 255 - (position % 256)
+        if position < 85:
+            return 255 - position * 3, 0, position * 3
+        if position < 170:
+            position -= 85
+            return 0, position * 3, 255 - position * 3
+        position -= 170
+        return position * 3, 255 - position * 3, 0
+
+
+status_led = StatusLed()
+
+
+def initialize_status_led():
+    """Initialize the shared status LED controller."""
+    status_led.initialize()
+
+
+def set_status_led_state(state: str):
+    """Set the shared status LED to a named state."""
+    status_led.set_state(state)
+
+
+def get_status_led_state() -> str:
+    """Return the shared status LED state."""
+    return status_led.get_state()
+
+
+def cleanup_status_led():
+    """Stop the shared status LED controller."""
+    status_led.cleanup()
+
+
+def run_status_led_test(duration_seconds: float = 4.5) -> tuple[bool, str]:
+    """Run a short standalone LED test sequence."""
+    if not config.STATUS_LED_ENABLED:
+        return False, "Status LED is disabled in settings."
+    if config.MOCKFISH:
+        return False, "Status LED test is unavailable in mock mode."
+
+    try:
+        status_led.initialize()
+        if not status_led._initialized:
+            return False, "Status LED could not be initialized."
+
+        sequence: list[tuple[str, float]] = [
+            ("starting", 0.9),
+            ("listening", 0.9),
+            ("speaking", 1.1),
+            ("error", 0.8),
+        ]
+        remaining = max(0.0, float(duration_seconds)) - sum(
+            delay for _, delay in sequence
+        )
+        if remaining > 0:
+            sequence.append(("playing_song", remaining))
+
+        for state, delay in sequence:
+            status_led.set_state(state)
+            time.sleep(delay)
+
+        status_led.set_state("off")
+        return True, "Status LED test completed."
+    except Exception as e:
+        return False, str(e)
+    finally:
+        status_led.cleanup()

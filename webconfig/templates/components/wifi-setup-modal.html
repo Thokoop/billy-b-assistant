@@ -1,0 +1,123 @@
+<!-- Wi-Fi Setup Modal -->
+<div id="wifi-setup-modal"
+     class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden"
+     data-wifi-onboarding-active="{{ 'true' if WIFI_ONBOARDING_ACTIVE else 'false' }}"
+     data-wifi-onboarding-mode="{{ config.get('WIFI_ONBOARDING_MODE', 'legacy') }}">
+    <div class="bg-zinc-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg text-white flex items-center gap-2">
+                <span class="material-icons text-emerald-400">wifi</span>
+                Wi-Fi Setup
+            </h3>
+            <button id="close-wifi-setup-modal" class="text-zinc-400 hover:text-white">
+                <span class="material-icons">close</span>
+            </button>
+        </div>
+
+        <p id="wifi-setup-modal-description" class="text-sm text-zinc-400 mb-4">
+            Choose your Wi-Fi network and save the connection for Billy.
+        </p>
+
+        {% set wifi_countries = [
+        ('AE', 'United Arab Emirates'), ('AU', 'Australia'), ('AT', 'Austria'),
+        ('BE', 'Belgium'), ('BR', 'Brazil'), ('CA', 'Canada'),
+        ('CH', 'Switzerland'), ('CN', 'China'), ('CZ', 'Czech Republic'),
+        ('DE', 'Germany'), ('DK', 'Denmark'), ('ES', 'Spain'),
+        ('FI', 'Finland'), ('FR', 'France'), ('GB', 'United Kingdom'),
+        ('HK', 'Hong Kong'), ('IN', 'India'), ('IE', 'Ireland'),
+        ('IT', 'Italy'), ('JP', 'Japan'), ('KR', 'South Korea'),
+        ('MX', 'Mexico'), ('MY', 'Malaysia'), ('NL', 'Netherlands'),
+        ('NO', 'Norway'), ('NZ', 'New Zealand'), ('PL', 'Poland'),
+        ('PT', 'Portugal'), ('SE', 'Sweden'), ('SG', 'Singapore'),
+        ('TH', 'Thailand'), ('TW', 'Taiwan'), ('US', 'United States'),
+        ('ZA', 'South Africa')
+        ] %}
+
+        <div class="space-y-4">
+            <div>
+                <label for="wifi-country-modal" class="block text-sm text-slate-300">Wi-Fi country</label>
+                <select id="wifi-country-modal"
+                        data-wifi-country-select
+                        class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                {% for code, label in wifi_countries %}
+                <option value="{{ code }}" {% if config.get('WIFI_COUNTRY', 'NL') == code %}selected{% endif %}>
+                    {{ label }} ({{ code }})
+                </option>
+                {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <label class="block text-sm text-slate-300">
+                        Nearby networks
+                    </label>
+                    <button type="button"
+                            id="wifi-scan-btn"
+                            class="bg-zinc-700 hover:bg-zinc-600 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
+                        <span class="material-icons text-sm">wifi_find</span>
+                        Scan networks
+                    </button>
+                </div>
+                <div id="wifi-network-list"
+                     class="mt-1 space-y-2 max-h-72 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900/40 p-2">
+                    <button type="button"
+                            class="wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500"
+                            data-ssid=""
+                            data-manual="false">
+                        <span class="text-sm text-zinc-400">Choose a network</span>
+                    </button>
+                    <button type="button"
+                            class="wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500"
+                            data-ssid="__manual__"
+                            data-manual="true">
+                        <span class="flex items-center justify-between gap-3">
+                            <span>Enter SSID manually</span>
+                            <span class="material-icons text-zinc-400">edit</span>
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+                <div id="wifi-ssid-field">
+                    <label for="wifi-ssid" class="block text-sm text-slate-300">Network name (SSID)</label>
+                    <input id="wifi-ssid"
+                           type="text"
+                           class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                           disabled
+                           placeholder="My Wi-Fi">
+                </div>
+
+                <div>
+                    <label for="wifi-password" class="block text-sm text-slate-300">Password</label>
+                    <div class="relative">
+                        <input id="wifi-password"
+                               type="password"
+                               class="w-full p-3 mt-1 pr-10 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                               placeholder="Wi-Fi password">
+                        <button type="button"
+                                onclick="toggleInputVisibility('wifi-password', this)"
+                                class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer">
+                            <span class="material-icons" id="wifi-password_icon">visibility</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="wifi-test-result"
+                 class="hidden p-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-sm text-emerald-100"></div>
+            <div id="wifi-error-result"
+                 class="hidden p-3 rounded border border-rose-500/40 bg-rose-500/10 text-sm text-rose-100"></div>
+
+            <div class="flex justify-center gap-3 pt-2">
+                <button type="button"
+                        id="wifi-save-btn"
+                        class="bg-emerald-600 hover:bg-emerald-500  text-black text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
+                    <span id="wifi-save-icon" class="material-icons text-sm">save</span>
+                    <span id="wifi-save-label">Save Wi-Fi</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

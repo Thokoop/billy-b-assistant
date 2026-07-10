@@ -7,9 +7,16 @@ from ..wakeword_provider import wakeword_provider_registry
 
 logger.verbose("Importing core.providers")
 # Register realtime AI providers
-from ..config import OPENAI_API_KEY, OPENAI_MODEL, REALTIME_AI_PROVIDER, XAI_API_KEY
+from ..config import (
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    REALTIME_AI_PROVIDER,
+    XAI_API_KEY,
+    XAI_MODEL,
+)
 from ..realtime_ai_provider import voice_provider_registry
 from .openai_provider import OpenAIProvider
+from .openwakeword_wakeword_provider import OpenWakeWordBackend
 from .porcupine_wakeword_provider import PorcupineWakeWordBackend
 from .xai_provider import XAIProvider
 
@@ -23,23 +30,12 @@ if OPENAI_API_KEY:
     voice_provider_registry.register_provider(openai_provider)
 
 if XAI_API_KEY:
-    xai_provider = XAIProvider(api_key=XAI_API_KEY)
+    xai_provider = XAIProvider(api_key=XAI_API_KEY, model=XAI_MODEL)
     voice_provider_registry.register_provider(xai_provider)
 
-# Set the default provider based on configuration
-if REALTIME_AI_PROVIDER:
-    voice_provider_registry.set_default_provider(REALTIME_AI_PROVIDER)
-elif OPENAI_API_KEY and not XAI_API_KEY:
-    voice_provider_registry.set_default_provider("openai")
-elif XAI_API_KEY and not OPENAI_API_KEY:
-    voice_provider_registry.set_default_provider("xai")
-elif OPENAI_API_KEY and XAI_API_KEY:
-    # Both keys are set, default to OpenAI if no explicit provider is specified
-    logger.info(
-        "Both OpenAI and XAI API keys are set. Defaulting to OpenAI. Set REALTIME_AI_PROVIDER to choose a different default."
-    )
-    voice_provider_registry.set_default_provider("openai")
-else:
+available_providers = set(voice_provider_registry.get_available_providers())
+
+if not available_providers:
     # No API keys are set - provide helpful error message with diagnostics
     env_exists = os.path.exists(ENV_PATH) if ENV_PATH else False
     env_path_info = (
@@ -61,6 +57,24 @@ else:
     )
     # Never hard-fail on missing API keys; log a warning so services still start.
     logger.warning(error_msg)
+else:
+    requested_provider = REALTIME_AI_PROVIDER or "openai"
+    if requested_provider in available_providers:
+        voice_provider_registry.set_default_provider(requested_provider)
+    elif "openai" in available_providers:
+        logger.warning(
+            f"Configured realtime provider '{requested_provider}' is unavailable. Falling back to OpenAI.",
+            "⚠️",
+        )
+        voice_provider_registry.set_default_provider("openai")
+    else:
+        fallback_provider = next(iter(available_providers))
+        logger.warning(
+            f"Configured realtime provider '{requested_provider}' is unavailable. Falling back to '{fallback_provider}'.",
+            "⚠️",
+        )
+        voice_provider_registry.set_default_provider(fallback_provider)
 
 # Register wake-word providers
 wakeword_provider_registry.register_provider("porcupine", PorcupineWakeWordBackend)
+wakeword_provider_registry.register_provider("openwakeword", OpenWakeWordBackend)

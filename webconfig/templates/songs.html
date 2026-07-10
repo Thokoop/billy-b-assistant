@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}Songs | Billy Bassistant{% endblock %}
+
+{% block header %}
+{% include "components/header.html" %}
+{% endblock %}
+
+{% block main_content %}
+<main id="main-content" data-page="songs" class="max-w-6xl mx-auto px-2 md:px-4 pt-4 pb-32">
+    <div>
+        <div id="songs-split-view" data-mobile-split class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            <section data-mobile-split-master class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl overflow-hidden md:sticky md:top-16">
+                <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-700">
+                    <h2 class="text-lg text-white flex items-center gap-2">
+                        <span class="material-icons text-emerald-400">library_music</span>
+                        Song Manager
+                    </h2>
+                    <button id="create-song-btn"
+                            class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0"
+                            title="New song">
+                        <span class="material-icons">add</span>
+                    </button>
+                </div>
+
+                <div class="p-4">
+                    <div id="songs-list-view">
+                        <p class="text-sm text-zinc-400 mb-4">Manage custom songs for Billy to perform</p>
+                        <div id="songs-grid" class="grid grid-cols-1 gap-4">
+                        </div>
+
+                        <div id="songs-empty-state" class="hidden text-center py-12">
+                            <span class="material-icons text-6xl text-zinc-600 mb-4">music_off</span>
+                            <p class="text-zinc-400 mb-4">No custom songs yet</p>
+                            <button class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm py-2 px-4 rounded"
+                                    onclick="document.getElementById('create-song-btn').click()">
+                                Create Your First Song
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section data-mobile-split-detail class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl overflow-hidden min-w-0">
+                <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-700">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <button id="back-to-songs-list-btn"
+                                data-mobile-split-back
+                                class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white md:hidden">
+                            <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+                            <span>Back</span>
+                        </button>
+                        <h2 class="text-lg text-white flex items-center gap-2">
+                            <span class="material-icons text-emerald-400">edit_note</span>
+                            <span id="songs-modal-title">Song Details</span>
+                        </h2>
+                    </div>
+                </div>
+
+                <div class="p-4">
+                    <div id="song-edit-empty-state" class="flex min-h-[18rem] items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 px-6 text-center text-zinc-400">
+                        Select a song on the left or create a new one to edit it here.
+                    </div>
+
+                    <div id="song-edit-view" class="hidden">
+                    <form id="song-edit-form" class="space-y-6">
+                    <div id="song-name-field">
+                        <label for="song-name" class="block text-sm text-slate-300 mb-2">
+                            Song Name (folder name)
+                        </label>
+                        <input type="text" id="song-name" name="name"
+                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                               placeholder="e.g., my_awesome_song"
+                               pattern="[a-z0-9_]+"
+                               title="Only lowercase letters, numbers, and underscores">
+                        <p class="text-xs text-zinc-500 mt-1">Only lowercase letters, numbers, and underscores</p>
+                    </div>
+
+                    <div>
+                        <label for="song-title" class="block text-sm text-slate-300 mb-2">
+                            Display Title
+                        </label>
+                        <input type="text" id="song-title" name="title"
+                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                               placeholder="e.g., My Awesome Song"
+                               required>
+                    </div>
+
+                    <div>
+                        <label for="song-keywords" class="flex justify-between items-center text-sm text-slate-300">
+                            Keywords (comma-separated)
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
+                                  onclick="toggleTooltip(this)">help_outline</span>
+                        </label>
+                        <div class="relative">
+                            <div data-tooltip>
+                                Keywords help Billy understand when to play this song.<br>
+                                Include song title, artist name, genre, mood, or themes.
+                            </div>
+                            <input type="text" id="song-keywords" name="keywords"
+                                   class="w-full px-3 py-2 mt-1 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                   placeholder="e.g., rock, guitar, upbeat">
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <label class="flex justify-between items-center text-sm text-slate-300">
+                            <span class="flex items-center gap-2">
+                                <span class="material-icons text-sm">audiotrack</span>
+                                Audio Files
+                            </span>
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
+                                  onclick="toggleTooltip(this)">help_outline</span>
+                        </label>
+                        <div class="relative">
+                            <div data-tooltip>
+                                Upload `full.wav`, `vocals.wav`, and `drums.wav` for playback and animation.
+                            </div>
+                        </div>
+
+                        <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700">
+                            <div class="flex items-center justify-between">
+                                <label class="text-sm text-zinc-300">
+                                    Full Mix (full.wav)
+                                    <span id="full-status" class="ml-2"></span>
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <label for="full-file" class="text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer" title="Upload file">
+                                        <span class="material-icons">upload</span>
+                                    </label>
+                                    <button type="button" id="play-full" class="text-zinc-400 hover:text-emerald-400 transition-colors hidden" title="Play/Pause">
+                                        <span class="material-icons">play_circle</span>
+                                    </button>
+                                    <input type="file" id="full-file" accept=".wav" class="hidden">
+                                </div>
+                            </div>
+                            <audio id="full-audio" class="hidden"></audio>
+                        </div>
+
+                        <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700">
+                            <div class="flex items-center justify-between">
+                                <label class="text-sm text-zinc-300">
+                                    Vocals (vocals.wav) - for mouth movements
+                                    <span id="vocals-status" class="ml-2"></span>
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <label for="vocals-file" class="text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer" title="Upload file">
+                                        <span class="material-icons">upload</span>
+                                    </label>
+                                    <button type="button" id="play-vocals" class="text-zinc-400 hover:text-emerald-400 transition-colors hidden" title="Play/Pause">
+                                        <span class="material-icons">play_circle</span>
+                                    </button>
+                                    <input type="file" id="vocals-file" accept=".wav" class="hidden">
+                                </div>
+                            </div>
+                            <audio id="vocals-audio" class="hidden"></audio>
+                        </div>
+
+                        <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700">
+                            <div class="flex items-center justify-between">
+                                <label class="text-sm text-zinc-300">
+                                    Drums (drums.wav) - for tail movements
+                                    <span id="drums-status" class="ml-2"></span>
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <label for="drums-file" class="text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer" title="Upload file">
+                                        <span class="material-icons">upload</span>
+                                    </label>
+                                    <button type="button" id="play-drums" class="text-zinc-400 hover:text-emerald-400 transition-colors hidden" title="Play/Pause">
+                                        <span class="material-icons">play_circle</span>
+                                    </button>
+                                    <input type="file" id="drums-file" accept=".wav" class="hidden">
+                                </div>
+                            </div>
+                            <audio id="drums-audio" class="hidden"></audio>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h3 class="text-sm text-slate-300 flex items-center gap-2">
+                            <span class="material-icons text-sm">tune</span>
+                            Animation Settings
+                        </h3>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="song-bpm" class="block text-sm text-zinc-300 mb-2">
+                                    BPM (Beats Per Minute)
+                                </label>
+                                <input type="number" id="song-bpm" name="bpm"
+                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       value="120" min="40" max="200" step="0.1">
+                            </div>
+
+                            <div>
+                                <label for="song-gain" class="block text-sm text-slate-300 mb-2">
+                                    Gain (Volume Multiplier)
+                                </label>
+                                <input type="number" id="song-gain" name="gain"
+                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       value="1.0" min="0.1" max="5.0" step="0.1">
+                            </div>
+
+                            <div>
+                                <label for="song-tail-threshold" class="block text-sm text-slate-300 mb-2">
+                                    Tail Threshold
+                                </label>
+                                <input type="number" id="song-tail-threshold" name="tail_threshold"
+                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       value="1500" min="0" max="10000" step="100">
+                            </div>
+
+                            <div>
+                                <label for="song-compensate-tail" class="block text-sm text-slate-300 mb-2">
+                                    Compensate Tail (0-1)
+                                </label>
+                                <input type="number" id="song-compensate-tail" name="compensate_tail"
+                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       value="0" min="0" max="1" step="0.05">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="song-head-moves" class="block text-sm text-slate-300 mb-2">
+                                Head Moves (time:duration pairs)
+                            </label>
+                            <input type="text" id="song-head-moves" name="head_moves"
+                                   class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                   placeholder="e.g., 2:2.0, 29.5:2.0, 33:2.0">
+                        </div>
+
+                        <div>
+                            <label for="song-half-tempo" class="block text-sm text-slate-300 mb-2">
+                                Half Tempo Tail Flap
+                            </label>
+                            <div class="flex items-center gap-2 mt-1">
+                                <input type="checkbox" id="song-half-tempo" name="half_tempo_tail_flap"
+                                       class="w-4 h-4 bg-zinc-800 border-zinc-700 rounded text-emerald-600 focus:ring-emerald-500">
+                                <span class="text-sm text-zinc-400">Enable half-tempo tail movement</span>
+                            </div>
+                        </div>
+                    </div>
+                    </form>
+                </div>
+                </div>
+
+                <div id="song-edit-footer" class="hidden border-t border-zinc-700 p-4 flex justify-between items-center">
+                    <button id="delete-song-btn" type="button"
+                            class="bg-rose-600 hover:bg-rose-500 transition-colors text-white text-sm py-2 px-4 rounded flex gap-2 items-center">
+                        <span class="material-icons text-sm">delete</span>
+                        Delete Song
+                    </button>
+                    <button id="save-song-btn" type="button"
+                            class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm py-2 px-4 rounded flex gap-2 items-center">
+                        <span class="material-icons text-sm">save</span>
+                        <span id="save-song-btn-text">Save Song</span>
+                    </button>
+                </div>
+            </section>
+        </div>
+    </div>
+</main>
+
+{% include "components/wifi-setup-modal.html" %}
+{% include "components/env-editor-modal.html" %}
+{% endblock %}

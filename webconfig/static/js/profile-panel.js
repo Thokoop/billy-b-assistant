@@ -120,7 +120,7 @@ const ProfilePanel = (() => {
         // Update main panel
         if (elements.currentUserInfo) {
             elements.currentUserInfo.innerHTML = `
-                <div class="text-white font-medium">${currentUser.name}</div>
+                <div class="text-white">${currentUser.name}</div>
                 <div class="text-zinc-400 text-sm mt-1">
                     Interactions: ${interactionCount} | 
                     Persona: ${preferredPersona} | 
@@ -209,7 +209,7 @@ const ProfilePanel = (() => {
                     const mainProfilesHtml = data.profiles.map(profile => `
                         <div class="flex justify-between items-center p-2 bg-zinc-700 rounded">
                             <div>
-                                <div class="text-white font-medium">${profile.display_name || profile.name}</div>
+                                <div class="text-white">${profile.display_name || profile.name}</div>
                                 <div class="text-zinc-400 text-xs">
                                     ${new Date(profile.modified * 1000).toLocaleDateString()}
                                 </div>

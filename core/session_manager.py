@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import inspect
 import json
+import re
 import socket
 import time
 from typing import Any
@@ -27,7 +28,46 @@ from .profile_manager import user_manager
 from .realtime_ai_provider import voice_provider_registry
 
 
-def get_instructions_with_user_context():
+_CONVERSATION_END_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(bye|goodbye|see you|see ya|later|farewell)\b",
+        r"\b(that'?s all|that is all|nothing else|no more|we'?re done|we are done)\b",
+        r"^(stop|cancel|end|quit)[.! ]*$",
+        r"\b(stop|cancel|end|quit)\b\s+(the\s+)?(conversation|chat|session)\b",
+        r"\b(ok|okay|alright|thanks|thank you|cheers)\b.*\b(for now|that'?s enough|that is enough|bye|goodbye)\b",
+    )
+)
+
+
+def _user_clearly_ended_conversation(transcript: str) -> bool:
+    text = re.sub(r"\s+", " ", (transcript or "").strip().lower())
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in _CONVERSATION_END_PATTERNS)
+
+
+EXPLICIT_FOLLOW_UP_SOURCES = {
+    "mode_always",
+    "conversation_state",
+    "conversation_state_low_conf",
+    "interactive_question",
+    "heuristic_question",
+}
+DEFAULT_LISTEN_SOURCES = {
+    "default_listen",
+    "default_listen_missing_conversation_state",
+    "default_listen_suggested_prompt",
+}
+
+
+def _strip_tools_section_for_provider(instructions: str, provider_name: str) -> str:
+    """Hook for provider-specific prompt shaping."""
+    _ = provider_name
+    return instructions
+
+
+def get_instructions_with_user_context(provider_name: str | None = None):
     """Generate instructions with current user context and persona if available."""
     import os
 
@@ -53,10 +93,12 @@ def get_instructions_with_user_context():
         user_profile=current_user,
     )
 
-    return instruction_builder.build(context)
+    instructions = instruction_builder.build(context)
+    provider_name = (provider_name or REALTIME_AI_PROVIDER or "").strip().lower()
+    return _strip_tools_section_for_provider(instructions, provider_name)
 
 
-def get_tools_for_current_mode():
+def get_tools_for_current_mode(provider_name: str | None = None):
     """Get tools list based on current mode (guest vs user mode)."""
     import os
 
@@ -253,8 +295,11 @@ class BillySession:
     # ---- Private handlers -----------------------------------------------
     def _on_response_created(self):
         self.state.on_response_created()
-        # Clear any buffered audio on OpenAI's side to prevent echo
-        asyncio.create_task(self._clear_input_audio_buffer())
+        # Clear buffered audio only for OpenAI. This was added to prevent echo
+        # there, but xAI has different realtime behavior and should not get this
+        # extra client event.
+        if self.realtime_ai_provider.get_provider_name() == "openai":
+            asyncio.create_task(self._clear_input_audio_buffer())
 
     async def _clear_input_audio_buffer(self):
         """Clear OpenAI's input audio buffer to prevent echo."""
@@ -305,6 +350,7 @@ class BillySession:
         if transcript:
             # Meaningful user reply received: clear follow-up retry counter.
             self.state.mark_user_turn_meaningful()
+            self.state.mark_user_transcript(transcript)
             if not item_id or item_id not in self._logged_user_transcript_item_ids:
                 logger.info(f"User said: {transcript!r}", "🗣️")
             if item_id:
@@ -346,7 +392,10 @@ class BillySession:
     async def _on_response_done(self, data: dict[str, Any]):
         if self.state._skip_post_response_once:
             response = data.get("response") or {}
-            status_details = response.get("status_details") or {}
+            raw_status_details = response.get("status_details")
+            status_details = (
+                raw_status_details if isinstance(raw_status_details, dict) else {}
+            )
             cancelled_by_client = (
                 status_details.get("type") == "cancelled"
                 and status_details.get("reason") == "client_cancelled"
@@ -397,7 +446,10 @@ class BillySession:
             self.state._skip_post_response_once = False
 
         response = data.get("response") or {}
-        status_details = response.get("status_details") or {}
+        raw_status_details = response.get("status_details")
+        status_details = (
+            raw_status_details if isinstance(raw_status_details, dict) else {}
+        )
         error = status_details.get("error")
         if error:
             error_type = (error.get("type") or error.get("code") or "error").lower()
@@ -517,24 +569,56 @@ class BillySession:
         if self.session_intent == "announcement":
             return False, "announcement"
 
+        user_ended = (
+            self.session_intent == "interactive"
+            and _user_clearly_ended_conversation(self.state._last_user_transcript)
+        )
+        if user_ended:
+            return False, "user_ended"
+
         # Honor explicit conversation_state whenever present.
         # This is especially important on models that reliably call the tool
         # (e.g. realtime-1.5), where rhetorical phrasing may contain '?' but
         # still not require a follow-up turn.
         if self.state._saw_follow_up_call:
-            if last_user_turn_meaningful:
-                return bool(self.state.follow_up_expected), "conversation_state"
             if self.state.follow_up_expected:
+                if last_user_turn_meaningful:
+                    return True, "conversation_state"
                 return True, "conversation_state_low_conf"
+            if self.session_intent == "interactive" and asked_question:
+                return True, "interactive_question"
+            if (
+                self.session_intent == "interactive"
+                and self.state.follow_up_prompt
+                and not self.state._post_response_listen_opened
+            ):
+                return True, "default_listen_suggested_prompt"
+            if (
+                self.session_intent == "interactive"
+                and not self.state._post_response_listen_opened
+            ):
+                return True, "default_listen"
             return False, "conversation_state_low_conf"
 
-        # Enforce deterministic UX fallback for interactive sessions: if Billy
-        # asked a question and no tool hint was provided, open follow-up.
+        # Enforce deterministic UX fallback for interactive sessions.
         if self.session_intent == "interactive" and asked_question:
             return True, "interactive_question"
 
+        if (
+            self.session_intent == "interactive"
+            and is_conversation_state_enabled()
+            and not self.state._post_response_listen_opened
+        ):
+            return True, "default_listen_missing_conversation_state"
+
+        if (
+            self.session_intent == "interactive"
+            and not self.state._post_response_listen_opened
+        ):
+            return True, "default_listen"
+
         # Fallback heuristic for models that skipped conversation_state.
-        return asked_question, "heuristic"
+        return asked_question, "heuristic_question" if asked_question else "heuristic"
 
     async def _post_response_handling(self):
         """Handle post-response logic: reopen mic or end session."""
@@ -544,11 +628,18 @@ class BillySession:
             loud_chunks = int(self.state._last_committed_loud_audio_chunks or 0)
             peak_rms = float(self.state._last_committed_peak_rms or 0.0)
             had_server_speech = bool(self.state._last_committed_had_server_speech)
-            soft_speech_floor = max(120.0, SILENCE_THRESHOLD * 0.15)
+            local_speech_floor = max(300.0, SILENCE_THRESHOLD * 0.5)
             audio_evidence_meaningful = (
-                peak_rms >= soft_speech_floor
-                or loud_chunks >= 2
-                or (had_server_speech and total_chunks >= 8)
+                (loud_chunks >= 2 and peak_rms >= local_speech_floor)
+                or loud_chunks >= 4
+                or (
+                    had_server_speech
+                    and total_chunks >= 8
+                    and (
+                        (loud_chunks >= 2 and peak_rms >= local_speech_floor)
+                        or loud_chunks >= 4
+                    )
+                )
             )
             if audio_evidence_meaningful:
                 last_user_turn_meaningful = True
@@ -557,7 +648,7 @@ class BillySession:
                     (
                         "Promoting last user turn to meaningful from audio evidence "
                         f"(chunks={total_chunks}, loud={loud_chunks}, peak_rms={peak_rms:.1f}, "
-                        f"server_speech={had_server_speech}, floor={soft_speech_floor:.1f})."
+                        f"server_speech={had_server_speech}, floor={local_speech_floor:.1f})."
                     ),
                     "🎤",
                 )
@@ -637,20 +728,27 @@ class BillySession:
             )
 
         if wants_follow_up:
-            # Retry budget is only for no-content/silence turns.
-            if not last_user_turn_meaningful:
-                had_server_speech = bool(self.state._last_committed_had_server_speech)
-                loud_chunks = int(self.state._last_committed_loud_audio_chunks or 0)
-                credible_server_speech = had_server_speech and loud_chunks >= 2
-                if credible_server_speech:
-                    logger.info(
-                        "Follow-up detected credible server speech with low-confidence transcript; not consuming retry budget.",
-                        "🔁",
+            if follow_up_source in DEFAULT_LISTEN_SOURCES:
+                self.state._post_response_listen_opened = True
+                logger.info(
+                    f"Opening default post-response listen window (source={follow_up_source}).",
+                    "🔁",
+                )
+            elif follow_up_source in EXPLICIT_FOLLOW_UP_SOURCES:
+                if not last_user_turn_meaningful:
+                    had_server_speech = bool(
+                        self.state._last_committed_had_server_speech
                     )
-                else:
-                    if self.state.follow_up_retry_count >= FOLLOW_UP_RETRY_LIMIT:
+                    loud_chunks = int(self.state._last_committed_loud_audio_chunks or 0)
+                    credible_server_speech = had_server_speech and loud_chunks >= 2
+                    if credible_server_speech:
                         logger.info(
-                            f"Follow-up retry limit reached ({FOLLOW_UP_RETRY_LIMIT}). Ending session.",
+                            "Explicit follow-up detected credible server speech with low-confidence transcript; not consuming retry budget.",
+                            "🔁",
+                        )
+                    elif self.state.follow_up_retry_count >= FOLLOW_UP_RETRY_LIMIT:
+                        logger.info(
+                            f"Follow-up retry limit reached ({FOLLOW_UP_RETRY_LIMIT}, source={follow_up_source}). Ending session.",
                             "🛑",
                         )
                         self.state._saw_follow_up_call = False
@@ -660,19 +758,45 @@ class BillySession:
                         stop_all_motors()
                         await self._close_ws()
                         return
-
+                    else:
+                        self.state.increment_follow_up_retry()
+                        logger.info(
+                            f"Explicit follow-up expected after empty/noisy turn (source={follow_up_source}). "
+                            f"Keeping session open (retry {self.state.follow_up_retry_count}/{FOLLOW_UP_RETRY_LIMIT}).",
+                            "🔁",
+                        )
+                else:
+                    self.state.follow_up_retry_count = 0
+                    logger.info(
+                        f"Explicit follow-up expected after meaningful user input (source={follow_up_source}). Keeping session open.",
+                        "🔁",
+                    )
+            else:
+                if not last_user_turn_meaningful:
+                    if self.state.follow_up_retry_count >= FOLLOW_UP_RETRY_LIMIT:
+                        logger.info(
+                            f"Follow-up retry limit reached ({FOLLOW_UP_RETRY_LIMIT}, source={follow_up_source}). Ending session.",
+                            "🛑",
+                        )
+                        self.state._saw_follow_up_call = False
+                        self.state.follow_up_retry_count = 0
+                        self.state._last_user_turn_meaningful = False
+                        self._set_idle_state()
+                        stop_all_motors()
+                        await self._close_ws()
+                        return
                     self.state.increment_follow_up_retry()
                     logger.info(
                         f"Follow-up expected after empty/noisy turn (source={follow_up_source}). "
                         f"Keeping session open (retry {self.state.follow_up_retry_count}/{FOLLOW_UP_RETRY_LIMIT}).",
                         "🔁",
                     )
-            else:
-                self.state.follow_up_retry_count = 0
-                logger.info(
-                    "Follow-up expected after meaningful user input. Keeping session open.",
-                    "🔁",
-                )
+                else:
+                    self.state.follow_up_retry_count = 0
+                    logger.info(
+                        f"Follow-up expected after meaningful user input (source={follow_up_source}). Keeping session open.",
+                        "🔁",
+                    )
             # Reset the flag after using it
             self.state._saw_follow_up_call = False
             self.state._last_user_turn_meaningful = False
@@ -680,36 +804,6 @@ class BillySession:
             if not opened:
                 logger.error(
                     "Failed to reopen mic for follow-up window. Ending session.",
-                    "❌",
-                )
-                self.state.follow_up_retry_count = 0
-                self._set_idle_state()
-                stop_all_motors()
-                await self._close_ws()
-                return
-            self.state.full_response_text = ""
-            self.last_activity[0] = time.time()
-            return
-
-        # In interactive sessions, provide one final listen window only when the
-        # user hasn't meaningfully engaged yet (e.g. first response without a question).
-        # If the user already spoke and Billy finished without asking a question,
-        # the conversation is naturally over — close the session.
-        if (
-            self.session_intent == "interactive"
-            and self.autofollowup != "never"
-            and not last_user_turn_meaningful
-        ):
-            logger.info(
-                "No follow-up predicted and no prior meaningful user turn; opening one final listen window.",
-                "🔁",
-            )
-            self.state._saw_follow_up_call = False
-            self.state._last_user_turn_meaningful = False
-            opened = await self.mic_manager.start_after_playback()
-            if not opened:
-                logger.error(
-                    "Failed to reopen mic for final listen window. Ending session.",
                     "❌",
                 )
                 self.state.follow_up_retry_count = 0
@@ -762,16 +856,23 @@ class BillySession:
             "🔧",
         )
 
+        # Open the capture stream while the realtime session connects. The mic
+        # callback ignores wake-up playback and buffers post-wake audio until the
+        # websocket/session is ready, so early words are not dropped.
+        if not TEXT_ONLY_MODE and not self.kickoff_text:
+            self.mic_manager.start()
+
         async with self.ws_lock:
             if self.ws is None:
                 try:
                     persona_voice = persona_manager.get_current_persona_voice()
+                    provider_name = self.realtime_ai_provider.get_provider_name()
                     logger.info(
                         f"Using persona '{persona_manager.current_persona}' voice '{persona_voice}' for session startup",
                         "🎭",
                     )
                     self.ws = await self.realtime_ai_provider.connect(
-                        instructions=get_instructions_with_user_context(),
+                        instructions=get_instructions_with_user_context(provider_name),
                         tools=get_tools_for_current_mode(),
                         server_vad_params=SERVER_VAD_PARAMS[TURN_EAGERNESS],
                         interrupt_response=False,
@@ -892,6 +993,7 @@ class BillySession:
 
                 if data.get("type") in ("session.updated", "session_updated"):
                     self.session_initialized = True
+                    self.mic_manager.flush_prebuffer()
                     # Fallback: start mic if it wasn't already started.
                     if not self.kickoff_text and not self.mic_manager.mic_running:
                         logger.info(
@@ -974,7 +1076,12 @@ class BillySession:
             error: dict[str, Any] = data.get("error") or {}
             code = error.get("code", "error").lower()
             message = error.get("message", "Unknown error")
-            if code == "response_cancel_not_active":
+            normalized_message = str(message).strip().lower()
+            if code == "response_cancel_not_active" or (
+                code == "invalid_request_error"
+                and "cancellation failed" in normalized_message
+                and "no active response found" in normalized_message
+            ):
                 logger.verbose(
                     "Ignoring non-fatal cancel race: no active response to cancel.",
                     "ℹ️",

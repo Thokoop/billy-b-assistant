@@ -36,6 +36,10 @@ window.handleStatusUpdate = (status) => {
 
 // ===================== INITIALIZE =====================
 document.addEventListener("DOMContentLoaded", async () => {
+    if (window.MainPageRouter?.bindUI) {
+        window.MainPageRouter.bindUI();
+    }
+
     const cfg = await AppConfig.load();
     LogPanel.bindUI(cfg);
     // Initial fetch, then WebSocket takes over
@@ -43,6 +47,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     ServiceStatus.fetchStatus();
 
     if (typeof AudioPanel !== 'undefined') {
+        AudioPanel.bindUI?.();
         AudioPanel.updateDeviceLabels();
         AudioPanel.loadMicGain();
         AudioPanel.loadAudioDeviceSelectors();
@@ -50,42 +55,20 @@ document.addEventListener("DOMContentLoaded", async () => {
         setTimeout(() => AudioPanel.updateDeviceLabels(), 3000);
         setTimeout(() => AudioPanel.updateDeviceLabels(), 12000);
     }
-    PersonaForm.loadPersona();
-    SettingsForm.handleSettingsSave();
-    SettingsForm.saveDropdownSelections();
-    SettingsForm.populateDropdowns(cfg);
-    SettingsForm.initMouthArticulationSlider();
-    SettingsForm.bindFactoryReset();
-    SettingsForm.bindEnvEditorCard();
     SettingsForm.bindNewsSources();
-    SettingsForm.bindWakeWordKeywordUpload();
-    SettingsForm.bindCameraPreview();
-    PersonaForm.handlePersonaSave();
-    PersonaForm.bindPersonaSelector();
-    PersonaForm.populatePersonaSelector();
-    PersonaForm.populateVoiceOptions();
-    PersonaForm.initPersonaMouthArticulationSlider();
     window.addBackstoryField = PersonaForm.addBackstoryField;
     window.savePersonaAs = PersonaForm.savePersonaAs;
     window.PersonaForm = PersonaForm;
-    
-    // Sync persona with current user after PersonaForm is ready
-    setTimeout(() => {
-        if (window.syncPersonaWithCurrentUser) {
-            window.syncPersonaWithCurrentUser();
-        }
-    }, 100);
+
     MotorPanel.bindUI();
     PinProfile.bindUI(cfg);
-        if (window.UserProfilePanel && window.UserProfilePanel.bindUI) {
-            window.UserProfilePanel.bindUI();
-        }
-    Sections.collapsible();
     ReleaseNotes.init();
-    SongsManager.init();
-    
-    // Initialize Create Persona Modal
-    if (window.PersonaForm && window.PersonaForm.initCreatePersonaModal) {
-        window.PersonaForm.initCreatePersonaModal();
+    window.BillyVersionUI?.refresh();
+
+    if (window.MainPageRouter?.updateActiveNav) {
+        window.MainPageRouter.updateActiveNav(document.getElementById("main-content")?.dataset.page || "personas");
+    }
+    if (window.MainPageRouter?.initializePage) {
+        await window.MainPageRouter.initializePage(document.getElementById("main-content")?.dataset.page || "personas");
     }
 });

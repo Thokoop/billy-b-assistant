@@ -14,7 +14,50 @@
     {% block main_content %}{% endblock %}
 
     {% block footer %}
-    <footer class="backdrop-blur-xs fixed bottom-0 p-4 left-0 w-full h-20 shadow-[0_-6px_12px_rgba(0,0,0,0.2)]">
+    <footer class="fixed bottom-2 left-0 z-20 w-full">
+        <div class="mx-auto flex max-w-[calc(100vw-1rem)] justify-center overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div class="flex w-max flex-nowrap items-center justify-start gap-1.5 md:gap-2 rounded-[1.75rem] md:rounded-[2rem] border border-white/20 bg-zinc-800/45 p-1.5 md:p-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-md">
+                {% set nav_item_base = "bg-transparent border border-transparent hover:bg-white/12 hover:border-white/18 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_10px_24px_rgba(0,0,0,0.18)] transition-all text-white text-sm py-2 px-3 md:py-3 md:px-5 rounded-[1.35rem] md:rounded-[1.6rem] flex flex-col gap-1.5 md:gap-2 items-center justify-center cursor-pointer min-w-20 md:min-w-28 shrink-0" %}
+                {% set nav_item_active = "bg-white/12 !text-emerald-400" %}
+
+                <a href="/personas"
+                        data-page-link
+                        data-page="personas"
+                        class="{{ nav_item_base }} {% if current_page == 'personas' %}{{ nav_item_active }}{% endif %}"
+                        title="Personas">
+                    <span class="material-icons text-[30px] md:!text-4xl">set_meal</span>
+                    <span class="text-xs">Personas</span>
+                </a>
+
+                <a href="/profiles"
+                        data-page-link
+                        data-page="profiles"
+                        class="{{ nav_item_base }} {% if current_page == 'profiles' %}{{ nav_item_active }}{% endif %}"
+                        title="Profiles">
+                    <span class="material-icons text-[30px] md:!text-4xl">person</span>
+                    <span class="text-xs">Profiles</span>
+                </a>
+
+                <a href="/songs-page"
+                        data-page-link
+                        data-page="songs"
+                        class="{{ nav_item_base }} {% if current_page == 'songs' %}{{ nav_item_active }}{% endif %}"
+                        title="Songs">
+                    <span class="material-icons text-[30px] md:!text-4xl">library_music</span>
+                    <span class="text-xs">Songs</span>
+                </a>
+
+                <a href="/library"
+                        data-page-link
+                        data-page="library"
+                        class="{{ nav_item_base }} {% if current_page == 'library' %}{{ nav_item_active }}{% endif %}"
+                        title="Library">
+                    <span class="material-icons text-[30px] md:!text-4xl">library_books</span>
+                    <span class="text-xs">Library</span>
+                </a>
+
+            </div>
+        </div>
     </footer>
     {% endblock %}
 
@@ -22,7 +65,7 @@
 
     <!-- Global Notification Bar -->
     <div id="notification"
-         class="hidden w-full fixed top-0 left-0 text-center text-white font-semibold py-2 px-4 rounded shadow-lg transition-opacity duration-300"
+         class="hidden w-full fixed top-0 left-0 text-center text-white py-2 px-4 rounded shadow-lg transition-opacity duration-300"
          style="z-index: 2147483647;"></div>
 
     <!-- Loading Overlay -->
@@ -50,6 +93,7 @@
     <script src="{{ url_for('static', filename='js/websocket.js') }}"></script>
     <script src="{{ url_for('static', filename='js/pin-profile.js') }}"></script>
     <script src="{{ url_for('static', filename='js/settings-form.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/knowledge-manager.js') }}"></script>
     <script src="{{ url_for('static', filename='js/persona-form.js') }}"></script>
     <script src="{{ url_for('static', filename='js/settings-panel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/wakeup-clips.js') }}"></script>
@@ -58,6 +102,7 @@
     <script src="{{ url_for('static', filename='js/sections.js') }}"></script>
     <script src="{{ url_for('static', filename='js/songs-manager.js') }}"></script>
     <script src="{{ url_for('static', filename='js/version-release.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/page-router.js') }}"></script>
     <script src="{{ url_for('static', filename='js/init.js') }}"></script>
     {% endblock %}
 </body>
