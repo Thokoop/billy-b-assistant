@@ -972,6 +972,8 @@ def _page_context(current_page: str) -> dict:
 
 @bp.route("/")
 def index():
+    if _is_unified_wifi_hotspot_onboarding():
+        return redirect("/settings")
     return redirect("/personas")
 
 
@@ -1003,7 +1005,9 @@ def settings_page():
 def _captive_portal_redirect():
     host = _get_wlan0_ip_address() or "192.168.4.1"
     port = str(getattr(core_config, "FLASK_PORT", "80"))
-    target = f"http://{host}/" if port == "80" else f"http://{host}:{port}/"
+    target = (
+        f"http://{host}/settings" if port == "80" else f"http://{host}:{port}/settings"
+    )
     return redirect(target, code=302)
 
 
