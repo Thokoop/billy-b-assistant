@@ -727,7 +727,7 @@
                     </label>
                     <input type="number" step="1" min="0" max="32768" id="SILENCE_THRESHOLD"
                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                           name="SILENCE_THRESHOLD" value="{{ config.get('SILENCE_THRESHOLD', '1000') }}">
+                           name="SILENCE_THRESHOLD" value="{{ config.get('SILENCE_THRESHOLD', '2000') }}">
                 </div>
             </div>
 
@@ -774,7 +774,7 @@
                             </div>
 
                             <!-- Threshold line -->
-                            {% set speech_threshold_percent = ((config.get('SILENCE_THRESHOLD', '1000') | float) / 32768 * 100) | round(4) %}
+                            {% set speech_threshold_percent = ((config.get('SILENCE_THRESHOLD', '2000') | float) / 32768 * 100) | round(4) %}
                             <div id="threshold-line"
                                  class="absolute top-0 bottom-0 bg-red-500 cursor-ew-resize"
                                  style="left: {{ speech_threshold_percent }}%; width: 4px; transform: translateX(-50%);"

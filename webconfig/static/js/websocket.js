@@ -45,13 +45,21 @@ function connectWebSocket() {
     };
     
     ws.onerror = (error) => {
+        if (window.LoadingOverlay?.shouldReloadOnReconnect?.()) {
+            return;
+        }
         console.error('WebSocket error:', error);
     };
     
     ws.onclose = () => {
-        console.log('WebSocket disconnected, reconnecting in 3s...');
         window.dispatchEvent(new CustomEvent('billy:websocket:disconnected'));
         ws = null;
+        if (window.LoadingOverlay?.shouldReloadOnReconnect?.()) {
+            window.dispatchEvent(new CustomEvent('billy:restart-unavailable'));
+            console.log('WebSocket disconnected during restart; waiting for interface reload.');
+            return;
+        }
+        console.log('WebSocket disconnected, reconnecting in 3s...');
         reconnectTimeout = setTimeout(connectWebSocket, 3000);
     };
 }

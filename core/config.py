@@ -185,12 +185,12 @@ MIC_GAIN = os.getenv("MIC_GAIN", "max").strip()
 def _resolve_silence_threshold():
     raw_value = os.getenv("SILENCE_THRESHOLD")
     if raw_value in (None, ""):
-        return 1000.0
+        return 2000.0
 
     try:
         return float(raw_value)
     except (TypeError, ValueError):
-        return 1000.0
+        return 2000.0
 
 
 SILENCE_THRESHOLD = _resolve_silence_threshold()

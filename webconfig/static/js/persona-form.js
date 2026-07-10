@@ -104,29 +104,12 @@ const PersonaForm = (() => {
                 }
             }
             // Add any missing core traits with default values
-            for (const [key, displayName] of Object.entries(coreTraits)) {
+            for (const key of Object.keys(coreTraits)) {
                 if (!traitsToRender.hasOwnProperty(key)) {
                     traitsToRender[key] = defaultTraitValues[key] || 50; // Use specific default or fallback
                 }
             }
         }
-        
-        // Helper functions for level management
-        const getLevel = (val) => {
-            if (val < 15) return "min";
-            if (val < 35) return "low";
-            if (val < 65) return "med";
-            if (val < 85) return "high";
-            return "max";
-        };
-        
-        const getLevelColor = (val) => {
-            if (val < 15) return "text-red-400";
-            if (val < 35) return "text-orange-400";
-            if (val < 65) return "text-yellow-400";
-            if (val < 85) return "text-green-400";
-            return "text-emerald-400";
-        };
 
         for (const [key, value] of Object.entries(traitsToRender)) {
             const wrapper = document.createElement("div");
@@ -158,7 +141,7 @@ const PersonaForm = (() => {
             // Remove numeric display - no longer showing 0-100 values
 
             // Function to update the block slider
-            const updateBlockSlider = (slider, newValue, traitKey) => {
+            const updateBlockSlider = (slider, newValue) => {
                 // Update all blocks
                 const blocks = slider.querySelectorAll('[data-level]');
                 blocks.forEach(block => {
@@ -181,7 +164,7 @@ const PersonaForm = (() => {
             };
 
             // Create blocks
-            levels.forEach((level, index) => {
+            levels.forEach((level) => {
                 const block = document.createElement("div");
                 // Default to dark grey background, no text
                 block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs text-slate-200`;
@@ -203,7 +186,7 @@ const PersonaForm = (() => {
                 block.addEventListener('click', () => {
                     // Set value to middle of the range
                     const newValue = Math.round((level.range[0] + level.range[1]) / 2);
-                    updateBlockSlider(blockSlider, newValue, key);
+                    updateBlockSlider(blockSlider, newValue);
                 });
                 
                 blockSlider.appendChild(block);
@@ -343,6 +326,8 @@ const PersonaForm = (() => {
         Object.entries(backstory).forEach(([k, v]) => addBackstoryField(k, v));
     };
 
+    let activePersonaName = null;
+
     const loadPersona = async (personaName = null) => {
         const metaText = document.getElementById("meta-text");
         if (!metaText) return;
@@ -389,8 +374,7 @@ const PersonaForm = (() => {
         const voiceSelect = document.getElementById("VOICE");
         if (voiceSelect) {
             // Set voice from persona data, or default to 'ballad' if not specified
-            const voice = data.META && data.META.voice || 'ballad';
-            voiceSelect.value = voice;
+            voiceSelect.value = data.META && data.META.voice || 'ballad';
         }
         
         // Load mouth articulation setting
@@ -408,53 +392,12 @@ const PersonaForm = (() => {
         
         // Update the current persona tracking for export/import
         window.PersonaForm = window.PersonaForm || {};
+        activePersonaName = personaName;
         window.PersonaForm.currentPersona = personaName;
         
         // Update the UI to show the active persona
         updatePersonaListSelection(personaName);
     };
-
-    const setPersonaActive = async (personaName) => {
-        try {
-            debugLog('INFO', 'Switching to persona:', personaName);
-            
-            // Switch to the persona in the system
-            const response = await fetch('/profiles/current-user', {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                    action: 'switch_persona',
-                    preferred_persona: personaName
-                })
-            });
-
-            debugLog('VERBOSE', 'Persona switch response status:', response.status);
-            
-            if (response.ok) {
-                const result = await response.json();
-                debugLog('VERBOSE', 'Persona switch result:', result);
-                
-                // Update the current persona tracking
-                window.PersonaForm = window.PersonaForm || {};
-                window.PersonaForm.currentPersona = personaName;
-                
-                // Immediately update the UI to show the new active persona
-                updatePersonaListSelection(personaName);
-                
-                // Note: Success notification is now handled by the user switching function
-            } else {
-                const errorData = await response.json();
-                console.error('Failed to switch persona:', errorData);
-                showNotification(`Failed to switch persona: ${errorData.error || 'Unknown error'}`, 'error');
-            }
-        } catch (error) {
-            console.error('Error switching persona:', error);
-            showNotification('Error switching persona: ' + error.message, 'error');
-        }
-    };
-
 
     const handlePersonaSave = () => {
         const personaForm = document.getElementById("persona-form");
@@ -594,7 +537,11 @@ const PersonaForm = (() => {
                         showNotification("Persona saved and applied", "success");
                         ServiceStatus.fetchStatus();
                     } else {
-                        throw new Error(refreshData.error || "Auto-refresh failed");
+                        console.error("Auto-refresh failed, falling back to restart:", refreshData.error || "Auto-refresh failed");
+                        // Fallback to restart Billy service if auto-refresh fails
+                        await fetch("/restart-billy", {method: "POST"});
+                        showNotification("Persona saved – service restarted", "success");
+                        ServiceStatus.fetchStatus();
                     }
                 } catch (error) {
                     console.error("Auto-refresh failed, falling back to restart:", error);
@@ -638,14 +585,17 @@ const PersonaForm = (() => {
                 if (selectedRow) {
                     currentPersona = selectedRow.getAttribute('data-persona');
                 }
+
+                if (!currentPersona) {
+                    currentPersona = activePersonaName || window.PersonaForm?.currentPersona || null;
+                }
                 
                 // Fallback to user's preferred persona or current persona for guest mode
                 if (!currentPersona) {
-                    // First try to get from CURRENT_PERSONA (works for both guest and user mode)
-                    if (configData && configData.CURRENT_PERSONA) {
-                        currentPersona = configData.CURRENT_PERSONA;
-                    } else if (configData && configData.CURRENT_USER && typeof configData.CURRENT_USER === 'object' && configData.CURRENT_USER.data && configData.CURRENT_USER.data.USER_INFO) {
+                    if (configData && configData.CURRENT_USER && typeof configData.CURRENT_USER === 'object' && configData.CURRENT_USER.data && configData.CURRENT_USER.data.USER_INFO) {
                         currentPersona = configData.CURRENT_USER.data.USER_INFO.preferred_persona || 'default';
+                    } else if (configData && configData.CURRENT_PERSONA) {
+                        currentPersona = configData.CURRENT_PERSONA;
                     } else {
                         // Final fallback
                         currentPersona = 'default';

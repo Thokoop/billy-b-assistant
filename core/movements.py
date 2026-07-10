@@ -517,6 +517,7 @@ def stop_motor_watchdog():
     _motor_watchdog_running = False
 
 
-# Ensure safe shutdown
-atexit.register(stop_all_motors)
+# Ensure safe shutdown. cleanup_gpio frees lgpio claims; stopping motors alone can
+# still leave pins busy during a fast service restart.
+atexit.register(cleanup_gpio)
 atexit.register(stop_motor_watchdog)
