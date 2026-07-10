@@ -96,6 +96,14 @@ Expand the filesystem to fill available storage:
 raspi-config --expand-rootfs
 ```
 
+If you use the optional WS2812B status LED on a Raspberry Pi 5, enable SPI:
+
+```bash
+sudo raspi-config
+```
+
+Go to **Interface Options** -> **SPI**, enable it, then reboot the Raspberry Pi after the system update below.
+
 Update the system:
 
 ```bash
