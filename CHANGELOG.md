@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.3.0] — 2026-07-10
+## [2.3.0] — 2026-07-11
 
 ### Added
 - **openWakeWord Wake-word Support**: Added `openwakeword` as a local wake-word backend with ONNX wake-word model selection from `wakewords/`.
@@ -30,6 +30,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Session Stop Shortcut**: A double-press on the device button during an active session now ends the session immediately.
 - **Mic RMS Consistency**: Shared the same local RMS calculation between the Web UI mic test and actual session mic handling, so the displayed calibration values match the threshold logic used during conversations.
+- **Motor GPIO Restart Reliability**: Improved restart and cleanup behavior around motor GPIO ownership to reduce busy-pin failures after saving settings.
+- **Camera Tool Looping**: Prevented camera tool responses from getting stuck in repeated tool-call loops after a scene capture.
 
 ---
 ---

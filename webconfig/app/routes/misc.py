@@ -1,12 +1,14 @@
 import getpass
 import os
 import subprocess
+import threading
 import time
 
 from flask import Blueprint, jsonify, request
 
 
 bp = Blueprint("misc", __name__)
+_service_restart_lock = threading.Lock()
 
 
 def _restart_billy_service_gracefully():
@@ -24,6 +26,29 @@ def _restart_billy_service_gracefully():
         time.sleep(0.25)
     time.sleep(0.5)
     subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=True)
+
+
+def _restart_billy_services_in_background():
+    if not _service_restart_lock.acquire(blocking=False):
+        return
+    try:
+        # Let the HTTP response flush before restarting either service.
+        time.sleep(0.5)
+        _restart_billy_service_gracefully()
+        time.sleep(0.5)
+        subprocess.run(["sudo", "systemctl", "restart", "billy-webconfig.service"])
+    finally:
+        _service_restart_lock.release()
+
+
+def _restart_billy_only_in_background():
+    if not _service_restart_lock.acquire(blocking=False):
+        return
+    try:
+        time.sleep(0.25)
+        _restart_billy_service_gracefully()
+    finally:
+        _service_restart_lock.release()
 
 
 @bp.route("/logs")
@@ -106,8 +131,10 @@ def control_service(action):
 @bp.route('/restart', methods=['POST'])
 def restart_billy_services():
     try:
-        subprocess.Popen(["sudo", "systemctl", "restart", "billy-webconfig.service"])
-        subprocess.Popen(["sudo", "systemctl", "restart", "billy.service"])
+        threading.Thread(
+            target=_restart_billy_services_in_background,
+            daemon=True,
+        ).start()
         return jsonify({"status": "ok", "message": "Restarting..."})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -117,8 +144,11 @@ def restart_billy_services():
 def restart_billy_only():
     """Restart only billy.service (not the webconfig), used for persona changes."""
     try:
-        _restart_billy_service_gracefully()
-        return jsonify({"status": "ok", "message": "Billy service restarted"})
+        threading.Thread(
+            target=_restart_billy_only_in_background,
+            daemon=True,
+        ).start()
+        return jsonify({"status": "ok", "message": "Restarting Billy..."})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 

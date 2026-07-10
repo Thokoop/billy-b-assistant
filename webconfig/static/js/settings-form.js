@@ -334,15 +334,15 @@ const SettingsForm = (() => {
                 }
             }
 
-            try {
-                await fetch("/restart", {method: "POST"});
-                showNotification("Settings saved — restarting Billy services in background", "success");
-            } catch (error) {
-                console.error("Failed to restart Billy services after save:", error);
-                showNotification("Settings saved, but the background restart failed", "warning", 5000);
-            }
-
             if (portChanged || hostnameChanged) {
+                try {
+                    await fetch("/restart", {method: "POST"});
+                    showNotification("Settings saved — restarting interface in background", "success");
+                } catch (error) {
+                    console.error("Failed to restart Billy services after save:", error);
+                    showNotification("Settings saved, but the background restart failed", "warning", 5000);
+                }
+
                 const targetHost = hostnameChanged ? `${newHostname}.local` : window.location.hostname;
                 const targetPort = portChanged ? newPort : (window.location.port || 80);
 
@@ -350,6 +350,15 @@ const SettingsForm = (() => {
                 setTimeout(() => {
                     window.location.href = `http://${targetHost}:${targetPort}/`;
                 }, 3000);
+            } else {
+                try {
+                    sessionStorage.removeItem("billy:reload_on_ws_reconnect");
+                    await fetch("/restart-billy", {method: "POST"});
+                    showNotification("Settings saved — restarting Billy in background", "success");
+                } catch (error) {
+                    console.error("Failed to restart Billy after save:", error);
+                    showNotification("Settings saved, but the Billy restart failed", "warning", 5000);
+                }
             }
         });
     };

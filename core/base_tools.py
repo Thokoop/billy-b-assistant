@@ -151,7 +151,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "describe_scene",
             "type": "function",
-            "description": "Capture a fresh image from Billy's camera and describe what is visible. Use this when users ask what Billy can see, to look around, to check what's in front of him, or to describe a scene/object.",
+            "description": "Capture one fresh image from Billy's camera. Use this when users ask what Billy can see, to look around, to check what's in front of him, or to describe a scene/object. Do not call this again to analyze an image that has already been attached in the conversation.",
             "parameters": {
                 "type": "object",
                 "properties": {

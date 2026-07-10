@@ -21,6 +21,23 @@ class FunctionHandler:
     def __init__(self, session):
         self.session = session
 
+    @staticmethod
+    def _conversation_state_tool() -> dict[str, Any]:
+        return {
+            "type": "function",
+            "name": "conversation_state",
+            "description": "Call this internal function after speaking to indicate whether a follow-up is expected.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expects_follow_up": {"type": "boolean"},
+                    "suggested_prompt": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["expects_follow_up"],
+            },
+        }
+
     async def handle(
         self, function_name: str, raw_args: str | None, call_id: str | None = None
     ):
@@ -472,7 +489,8 @@ class FunctionHandler:
                             "type": "input_text",
                             "text": (
                                 f"{user_prompt} Keep the answer under {max_words} words. "
-                                "Be concrete and avoid speculation."
+                                "Be concrete and avoid speculation. Use the attached image in this message. "
+                                "Do not call describe_scene or any other tool again for this image."
                             ),
                         },
                         {
@@ -497,7 +515,13 @@ class FunctionHandler:
                 },
             })
         self.session.state._triggered_new_response = True
-        await self.session._ws_send_json({"type": "response.create"})
+        await self.session._ws_send_json({
+            "type": "response.create",
+            "response": {
+                "tools": [self._conversation_state_tool()],
+                "tool_choice": "auto",
+            },
+        })
 
     async def _handle_search_local_knowledge(
         self, raw_args: str | None, call_id: str | None = None

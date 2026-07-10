@@ -16,17 +16,6 @@ const ServiceStatus = (() => {
         );
     };
 
-    const scheduleRecoveryRefresh = () => {
-        [2500, 6000, 10000].forEach((delayMs) => {
-            setTimeout(() => {
-                fetchStatus(true);
-                if (window.LogPanel && window.LogPanel.fetchLogs) {
-                    window.LogPanel.fetchLogs();
-                }
-            }, delayMs);
-        });
-    };
-
     const setRestartButtonLoading = (loading) => {
         if (!restartButtonRef) return;
         const icon = restartButtonRef.querySelector(".material-icons");
@@ -49,7 +38,14 @@ const ServiceStatus = (() => {
         try {
             const res = await fetch("/service/status");
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                if (isRestartInProgress()) {
+                    updateServiceStatusUI("restarting");
+                    return statusCache || {status: "restarting"};
+                }
+                const fallback = statusCache || {status: "unknown"};
+                updateServiceStatusUI(fallback.status || "unknown");
+                console.error(`Failed to fetch service status: HTTP ${res.status}`);
+                return fallback;
             }
 
             const data = await res.json();
@@ -60,8 +56,7 @@ const ServiceStatus = (() => {
         } catch (err) {
             if (isRestartInProgress()) {
                 updateServiceStatusUI("restarting");
-                const fallback = statusCache || {status: "restarting"};
-                return fallback;
+                return statusCache || {status: "restarting"};
             }
 
             console.error("Failed to fetch service status:", err);
@@ -195,7 +190,9 @@ const ServiceStatus = (() => {
         }
 
         if (action === "restart") {
-            scheduleRecoveryRefresh();
+            if (window.LoadingOverlay?.waitForReload) {
+                window.LoadingOverlay.waitForReload();
+            }
             return;
         }
 

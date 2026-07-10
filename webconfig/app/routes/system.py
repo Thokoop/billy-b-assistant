@@ -929,16 +929,29 @@ def _reset_git_worktree() -> dict:
 
 def delayed_restart():
     time.sleep(1.5)
-    subprocess.run(["sudo", "systemctl", "stop", "billy.service"], check=False)
-    time.sleep(1.0)
-    subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=False)
+    _restart_billy_service_gracefully()
     subprocess.run(["sudo", "systemctl", "restart", "billy-webconfig.service"])
 
 
 def delayed_billy_restart():
     time.sleep(1.0)
+    _restart_billy_service_gracefully()
+
+
+def _restart_billy_service_gracefully():
     subprocess.run(["sudo", "systemctl", "stop", "billy.service"], check=False)
-    time.sleep(1.0)
+    deadline = time.time() + 8.0
+    while time.time() < deadline:
+        status = subprocess.run(
+            ["systemctl", "is-active", "billy.service"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if status.stdout.strip() in {"inactive", "failed", "unknown"}:
+            break
+        time.sleep(0.25)
+    time.sleep(0.5)
     subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=False)
 
 
@@ -1240,7 +1253,6 @@ def save():
         response["audio_restart_required"] = True
     if changed_port:
         response["port_changed"] = True
-        threading.Thread(target=delayed_restart).start()
     return jsonify(response)
 
 

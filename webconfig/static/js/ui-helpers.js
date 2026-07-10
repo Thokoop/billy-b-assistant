@@ -145,6 +145,28 @@ const LoadingOverlay = (() => {
     const overlayId = "loading-overlay";
     const textId = "loading-overlay-text";
     const reloadFlagKey = "billy:reload_on_ws_reconnect";
+    let reloadPollTimeout = null;
+    let restartSawUnavailable = false;
+
+    const shouldReloadOnReconnect = () => (
+        sessionStorage.getItem(reloadFlagKey) === "1"
+    );
+
+    const clearReloadFlag = () => {
+        sessionStorage.removeItem(reloadFlagKey);
+    };
+
+    const reloadSoon = () => {
+        clearReloadFlag();
+        if (reloadPollTimeout) {
+            clearTimeout(reloadPollTimeout);
+            reloadPollTimeout = null;
+        }
+        restartSawUnavailable = false;
+        setTimeout(() => {
+            window.location.reload();
+        }, 200);
+    };
 
     const show = (message = "Restarting Billy... reconnecting interface.") => {
         const overlay = document.getElementById(overlayId);
@@ -165,19 +187,54 @@ const LoadingOverlay = (() => {
         return !!overlay && !overlay.classList.contains("hidden");
     };
 
+    const waitForReload = (initialDelayMs = 600, timeoutMs = 45000) => {
+        const startedAt = Date.now();
+
+        const poll = async () => {
+            try {
+                const res = await fetch("/service/status", {cache: "no-store"});
+                if (res.ok && restartSawUnavailable) {
+                    reloadSoon();
+                    return;
+                }
+                if (!res.ok) {
+                    restartSawUnavailable = true;
+                }
+            } catch (err) {
+                restartSawUnavailable = true;
+                // Expected while billy-webconfig.service is restarting.
+            }
+
+            if (Date.now() - startedAt >= timeoutMs) {
+                clearReloadFlag();
+                hide();
+                window.dispatchEvent(new CustomEvent("billy:restart-timeout"));
+                return;
+            }
+
+            reloadPollTimeout = setTimeout(poll, 1200);
+        };
+
+        if (reloadPollTimeout) {
+            clearTimeout(reloadPollTimeout);
+        }
+        reloadPollTimeout = setTimeout(poll, initialDelayMs);
+    };
+
+    window.addEventListener("billy:restart-unavailable", () => {
+        restartSawUnavailable = true;
+    });
+
     window.addEventListener("billy:websocket:connected", () => {
         if (isVisible()) {
             hide();
         }
-        if (sessionStorage.getItem(reloadFlagKey) === "1") {
-            sessionStorage.removeItem(reloadFlagKey);
-            setTimeout(() => {
-                window.location.reload();
-            }, 200);
+        if (shouldReloadOnReconnect()) {
+            reloadSoon();
         }
     });
 
-    return { show, hide, isVisible };
+    return { show, hide, isVisible, waitForReload, shouldReloadOnReconnect };
 })();
 
 window.LoadingOverlay = LoadingOverlay;
