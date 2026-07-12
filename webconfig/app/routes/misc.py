@@ -1,3 +1,4 @@
+import contextlib
 import getpass
 import os
 import subprocess
@@ -428,7 +429,10 @@ def change_password():
 @bp.route("/test-motor", methods=["POST"])
 def test_motor():
     """Test individual motors (mouth, head, or tail)."""
+    movements = None
     try:
+        import importlib
+        import sys
         import time
 
         # Stop Billy service if running (to release GPIO)
@@ -443,27 +447,44 @@ def test_motor():
 
         if was_active:
             subprocess.check_call(["sudo", "systemctl", "stop", "billy.service"])
+            time.sleep(0.5)
 
         data = request.get_json()
         motor = data.get("motor")
 
-        import core.movements as movements
+        existing_movements = sys.modules.get("core.movements")
+        if existing_movements is not None:
+            with contextlib.suppress(Exception):
+                existing_movements.stop_all_motors()
+            with contextlib.suppress(Exception):
+                existing_movements.cleanup_gpio()
+            movements = importlib.reload(existing_movements)
+        else:
+            import core.movements as movements
 
         # Perform the requested test
         if motor == "mouth":
             movements.move_mouth(100, 1, brake=True)
+            time.sleep(1.1)
         elif motor == "head":
             movements.move_head("on")
             time.sleep(1)
             movements.move_head("off")
         elif motor == "tail":
             movements.move_tail(duration=1)
+            time.sleep(1.1)
         else:
             return jsonify({"error": "Invalid motor"}), 400
 
         return jsonify({"status": f"{motor} tested", "service_was_active": was_active})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if movements is not None:
+            with contextlib.suppress(Exception):
+                movements.stop_all_motors()
+            with contextlib.suppress(Exception):
+                movements.cleanup_gpio()
 
 
 @bp.route("/test-led", methods=["POST"])

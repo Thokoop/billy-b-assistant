@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.3.1] — 2026-07-12
+
+### Fixed
+- **Motor Test Reliability**: Fixed Web UI motor testing so mouth, head, and tail tests all trigger correctly again after recent Web UI changes.
+
+---
+
 ## [2.3.0] — 2026-07-11
 
 ### Added
