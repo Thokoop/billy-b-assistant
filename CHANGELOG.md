@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.3.2] — 2026-07-14
+
+### Added
+- **Expanded xAI Voice Roster**: Added all 21 new multilingual flagship Grok voices alongside the five upgraded original voices. The Web UI now exposes the complete built-in xAI voice lineup when xAI is selected.
+
+### Fixed
+- **Initial Persona Voice Selection**: Fixed the personas page selecting the provider's first voice instead of the saved voice when it first loads.
+- **Provider-Specific Persona Voices**: Fixed the persona voice dropdown retaining OpenAI voices after switching the configured realtime provider to xAI.
+
+---
+
 ## [2.3.1] — 2026-07-12
 
 ### Fixed

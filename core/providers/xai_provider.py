@@ -4,6 +4,36 @@ from typing import Any, Optional
 from ..realtime_ai_provider import RealtimeAIProvider
 
 
+XAI_BUILT_IN_VOICES = (
+    "carina",
+    "zagan",
+    "helix",
+    "orion",
+    "luna",
+    "iris",
+    "altair",
+    "zenith",
+    "perseus",
+    "helios",
+    "lux",
+    "kepler",
+    "rigel",
+    "cosmo",
+    "celeste",
+    "ursa",
+    "sirius",
+    "lumen",
+    "castor",
+    "naksh",
+    "atlas",
+    "ara",
+    "eve",
+    "leo",
+    "rex",
+    "sal",
+)
+
+
 class XAIProvider(RealtimeAIProvider):
     def __init__(
         self,
@@ -26,7 +56,7 @@ class XAIProvider(RealtimeAIProvider):
         return uri
 
     def get_supported_voices(self) -> list[str]:
-        return ["ara", "rex", "sal", "eve", "leo"]
+        return list(XAI_BUILT_IN_VOICES)
 
     def _normalize_voice(self, voice: Optional[str]) -> str:
         candidate = str(voice or "").strip().lower()

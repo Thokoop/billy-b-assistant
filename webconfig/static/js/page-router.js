@@ -38,12 +38,12 @@ const MainPageRouter = (() => {
         Sections.collapsible();
 
         if (pageName === "personas") {
+            await PersonaForm.populateVoiceOptions();
             await PersonaForm.loadPersona();
             window.bindWakeupClips?.();
             PersonaForm.handlePersonaSave();
             PersonaForm.bindPersonaSelector();
             await PersonaForm.populatePersonaSelector();
-            await PersonaForm.populateVoiceOptions();
             PersonaForm.initPersonaMouthArticulationSlider();
             window.addBackstoryField = PersonaForm.addBackstoryField;
             if (window.PersonaForm && window.PersonaForm.initCreatePersonaModal) {
