@@ -728,14 +728,25 @@ def _get_sports_digest(args: dict[str, Any], max_items: int) -> DigestResult:
             espn_candidates.append((source, resolved_url, inferred_sport))
 
     if espn_candidates:
-        chosen = None
-        if requested_sport:
-            for candidate in espn_candidates:
-                if candidate[2] == requested_sport:
-                    chosen = candidate
-                    break
-        if chosen is None:
-            chosen = espn_candidates[0]
+        query = str(args.get("query") or "").strip().lower()
+
+        def candidate_score(candidate: tuple[dict[str, Any], str, str]) -> int:
+            source, url, inferred_sport = candidate
+            searchable = " ".join([
+                str(source.get("name") or ""),
+                " ".join(source.get("topics") or []),
+                url,
+            ]).lower()
+            score = 0
+            if requested_sport and inferred_sport == requested_sport:
+                score += 20
+            if team and team in searchable:
+                score += 50
+            if query and query in searchable:
+                score += 40
+            return score
+
+        chosen = max(espn_candidates, key=candidate_score)
         source, url, inferred_sport = chosen
         source_name = str(source.get("name") or "ESPN").strip()
         if logger.get_level().name == "VERBOSE":
@@ -805,7 +816,9 @@ def _get_sports_digest_espn(
             error=str(exc),
         )
 
-    events = data.get("events") or []
+    # Scoreboard endpoints expose `events`; team endpoints expose the team's
+    # upcoming fixtures as `team.nextEvent`.
+    events = data.get("events") or (data.get("team") or {}).get("nextEvent") or []
     parsed_events: list[dict[str, Any]] = []
     for event in events:
         competitions = event.get("competitions") or []
@@ -880,7 +893,10 @@ def _infer_sport_from_espn_url(url: str) -> str:
         return "nhl"
     if "/soccer/eng.1/" in normalized:
         return "epl"
-    return "nfl"
+    match = re.search(r"/sports/soccer/([^/?#]+)", normalized)
+    if match:
+        return match.group(1)
+    return ""
 
 
 def _is_open_meteo_forecast_url(url: str) -> bool:

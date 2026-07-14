@@ -1243,7 +1243,9 @@ const PersonaForm = (() => {
         if (!voiceSelect) return;
 
         try {
-            const configData = await ConfigService.fetchConfig();
+            // Provider settings may have just changed on the settings page, so do
+            // not reuse its short-lived config cache when rebuilding this list.
+            const configData = await ConfigService.fetchConfig(true);
             if (configData && configData.VOICE_OPTIONS) {
                 const currentValue = voiceSelect.value;
                 // Clear existing options

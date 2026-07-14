@@ -124,7 +124,7 @@ def get_base_tools() -> list[dict[str, Any]]:
                     },
                     "sport": {
                         "type": "string",
-                        "description": "Sports league key (nfl, nba, mlb, nhl, epl)",
+                        "description": "Sports league or competition key. Common values: nfl, nba, mlb, nhl, epl, fifa.world. For association football World Cup requests use fifa.world, not epl or nfl.",
                     },
                     "team": {
                         "type": "string",

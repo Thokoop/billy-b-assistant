@@ -1666,13 +1666,28 @@ def get_config():
     # Get basic configuration
     config_data = {k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
 
-    # Add voice options from the current provider
+    # Add voice options for the freshly loaded provider setting. The registry's
+    # default reflects process startup and may be stale until webconfig restarts.
+    provider_name = str(config_data.get("REALTIME_AI_PROVIDER", "openai")).lower()
     try:
-        current_provider = voice_provider_registry.get_provider()
+        current_provider = voice_provider_registry.get_provider(provider_name)
         voices = current_provider.get_supported_voices()
     except Exception as e:
-        logger.warning(f"[config] No realtime provider available: {e}")
-        voices = []
+        # A key/provider may have been added moments ago and therefore not be in
+        # the startup registry yet. Voice metadata itself does not require a key.
+        if provider_name == "xai":
+            from core.providers.xai_provider import XAI_BUILT_IN_VOICES
+
+            voices = list(XAI_BUILT_IN_VOICES)
+        elif provider_name == "openai":
+            from core.providers.openai_provider import OpenAIProvider
+
+            voices = OpenAIProvider(api_key="").get_supported_voices()
+        else:
+            logger.warning(
+                f"[config] No realtime provider available for '{provider_name}': {e}"
+            )
+            voices = []
     config_data["VOICE_OPTIONS"] = voices
 
     # Add user profile information
