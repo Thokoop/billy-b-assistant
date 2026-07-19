@@ -541,7 +541,8 @@
                     <div data-tooltip>
                         Choose the camera used for Billy vision.<br>
                         This list is auto-populated with detected devices and always includes <b>None</b>.<br>
-                        <b>Raspberry Pi Camera Module</b>: uses <code>libcamera-still</code>.<br>
+                        <b>Raspberry Pi Camera Module</b>: uses <code>rpicam-still</code>
+                        with automatic fallback to <code>libcamera-still</code> on older systems.<br>
                         <b>USB Webcam</b>: uses <code>ffmpeg</code> via V4L2 (<code>/dev/videoX</code>).
                     </div>
 

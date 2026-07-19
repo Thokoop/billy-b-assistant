@@ -43,22 +43,41 @@ const SettingsForm = (() => {
         const select = document.getElementById("CAMERA_HARDWARE");
         if (!select) return;
 
+        const fallbackOptions = [
+            { value: "none", label: "None" },
+            { value: "rpi_camera", label: "Raspberry Pi Camera Module" },
+            { value: "usb_webcam", label: "USB Webcam" }
+        ];
+        const renderOptions = (entries) => {
+            const usableEntries = Array.isArray(entries)
+                ? entries.filter(entry => entry && entry.value)
+                : [];
+            const options = usableEntries.length > 0 ? usableEntries : fallbackOptions;
+            select.replaceChildren(...options.map((entry) => {
+                const opt = document.createElement("option");
+                opt.value = String(entry.value);
+                opt.textContent = String(entry.label || entry.value);
+                return opt;
+            }));
+        };
+
         try {
             const response = await fetch("/camera/devices");
+            if (!response.ok) {
+                console.error(`Camera discovery returned HTTP ${response.status}`);
+                return;
+            }
             const data = await response.json();
-            const options = Array.isArray(data.options) ? data.options : [];
-
-            select.innerHTML = "";
-            options.forEach((entry) => {
-                const opt = document.createElement("option");
-                opt.value = String(entry.value || "");
-                opt.textContent = String(entry.label || entry.value || "");
-                select.appendChild(opt);
-            });
+            renderOptions(data.options);
 
             const savedSelection = localStorage.getItem("dropdown_CAMERA_HARDWARE");
             const configSelection = getCameraSelectionFromConfig(cfg || {});
-            const target = preferredValue || savedSelection || configSelection || "none";
+            const hasConfiguredSelection = Boolean(
+                cfg && Object.prototype.hasOwnProperty.call(cfg, "CAMERA_HARDWARE")
+            );
+            const target = preferredValue
+                || (hasConfiguredSelection ? configSelection : savedSelection)
+                || "none";
             if (!setSelectValueSafely(select, target)) {
                 if (!setSelectValueSafely(select, configSelection)) {
                     setSelectValueSafely(select, "none");
@@ -67,7 +86,15 @@ const SettingsForm = (() => {
             localStorage.setItem("dropdown_CAMERA_HARDWARE", select.value);
         } catch (error) {
             console.error("Failed to load detected camera devices:", error);
-            // Keep existing fallback options if fetch fails.
+            if (select.options.length === 0) {
+                renderOptions(fallbackOptions);
+            }
+            const configSelection = getCameraSelectionFromConfig(cfg || {});
+            ensureSelectHasValue(
+                select,
+                preferredValue || configSelection,
+                "none"
+            );
         }
     };
 

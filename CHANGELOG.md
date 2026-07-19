@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.3.3] — 2026-07-20
+
+### Changed
+- **Python Version Guidance**: Updated project setup guidance to use the system Python on Raspberry Pi OS, including an explicit `openwakeword 0.6.0` manual-install workaround when `pip` resolves `openwakeword` down to `0.4.x` on Python `3.13`.
+- **Raspberry Pi Camera Compatibility**: Updated camera detection and capture to use the current `rpicam-still` command with automatic fallback to the legacy `libcamera-still` command, while preserving USB webcam support through FFmpeg and V4L2.
+
+### Fixed
+- **Software Update Dependency Drift**: Web UI software updates and simulated reinstalls now automatically reapply the `openwakeword 0.6.0` workaround after reinstalling `requirements.txt`, preventing Raspberry Pi systems from regressing back to `openwakeword 0.4.x`.
+---
+
 ## [2.3.2] — 2026-07-14
 
 ### Added

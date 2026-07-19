@@ -241,19 +241,21 @@ git clone https://github.com/Thokoop/billy-b-assistant.git
 
 ## G. Python Setup
 
+Billy should be run with the **system Python 3** available on your Raspberry Pi OS install.
+
 Make sure Python 3 is installed:
 
 ```bash
 python3 --version
 ```
 
-> **Note:** Python 3.13 is supported but requires the system lgpio library. If you experience issues, Python 3.11 or 3.12 are also recommended.
+> **Note:** On newer Raspberry Pi OS releases, `python3` may be Python `3.13`. That is fine, but `pip install -r requirements.txt` may resolve `openwakeword` down to an older `0.4.x` release. If you want `openwakeword` support and `pip show openwakeword` reports `0.4.x`, use the workaround below after creating the virtual environment. Billy's Web UI software update flow applies the same workaround automatically after reinstalling requirements.
 
 Install required system packages:
 
 ```bash
 sudo apt update
-sudo apt install -y python3-pip libportaudio2 ffmpeg liblgpio-dev liblgpio1 swig
+sudo apt install -y python3 python3-venv python3-pip libportaudio2 ffmpeg liblgpio-dev liblgpio1 swig
 ```
 
 Create Python virtual environment:
@@ -280,6 +282,22 @@ Install required Python dependencies into the virtual environment:
 ```bash
 pip3 install -r ./requirements.txt
 ```
+
+If you want to use `openwakeword` and `pip` resolved it to `0.4.x`, install the newer release manually:
+
+```bash
+pip uninstall -y openwakeword
+pip install --upgrade onnxruntime requests scikit-learn scipy tqdm ai-edge-litert
+pip install --no-deps --upgrade openwakeword==0.6.0
+```
+
+Verify the installed version:
+
+```bash
+pip show openwakeword
+```
+
+If you later run a software update from the Web UI, Billy will automatically reapply this `openwakeword 0.6.0` workaround after reinstalling `requirements.txt`, so the update process should not drift back to `0.4.x`.
 
 ---
 
@@ -401,7 +419,7 @@ Billy includes a lightweight Web UI for editing settings, debugging logs, and ma
 See **H. Systemd Services** to automatically start the web server or, to run the web server manually (from the project root):
 
 ```bash
-python3 webconfig/server.py
+./venv/bin/python webconfig/server.py
 ```
 
 Enter the your pi's hostname + .local in your browser (replace `billy` if you have set a custom hostname):
@@ -433,7 +451,7 @@ MIC_PREFERENCE=usbpath:1-1.3
 SPEAKER_PREFERENCE=usbpath:1-1.4
 FOLLOW_UP_RETRY_LIMIT=1
 CAMERA_HARDWARE=none
-LIBCAMERA_STILL_BIN=libcamera-still
+LIBCAMERA_STILL_BIN=rpicam-still
 FFMPEG_BIN=ffmpeg
 CAMERA_DEVICE_INDEX=0
 CAMERA_CAPTURE_WIDTH=1280
@@ -464,7 +482,7 @@ ALLOW_UPDATE_PERSONALITY_INI=true
 **MIC_PREFERENCE / SPEAKER_PREFERENCE**: Preferred USB mic/speaker. The Web UI stores stable USB bus-path values (for example `usbpath:1-1.3`) to survive `hw:X,Y` renumbering after reboot. Legacy name-based values are still accepted for backward compatibility.
 **FOLLOW_UP_RETRY_LIMIT**: Number of auto follow-up retries when Billy expects a follow-up but could not hear it clearly (or heard nothing), before ending the session (`1` default, allowed range `0..5`)  
 **CAMERA_HARDWARE**: Camera selection (`none`, `rpi_camera`, or `usb_webcam`). The Web UI **Camera Device** dropdown auto-lists detected camera options plus `None`.  
-**LIBCAMERA_STILL_BIN**: Capture binary name/path (default `libcamera-still`)  
+**LIBCAMERA_STILL_BIN**: Raspberry Pi capture binary name/path (default `rpicam-still`). Billy automatically falls back to the legacy `libcamera-still` name on older Raspberry Pi OS releases, so existing configurations remain supported.
 **FFMPEG_BIN**: ffmpeg binary name/path used for USB webcam capture (default `ffmpeg`)  
 **CAMERA_DEVICE_INDEX**: Camera index (`--camera` for Pi camera, `/dev/videoX` index for USB webcams; default `0`)  
 **CAMERA_CAPTURE_WIDTH / CAMERA_CAPTURE_HEIGHT**: Capture resolution in pixels (default `1280x720`)  
@@ -508,6 +526,7 @@ Notes:
 Billy also supports fully local wake-word detection using `openWakeWord`.
 
 1. Install the updated requirements so `openwakeword` and `onnxruntime` are available.
+   - If `pip show openwakeword` reports `0.4.x`, run the manual install workaround from **G. Python Setup** first so Billy uses `openwakeword 0.6.0`.
 2. Place your `.onnx` wake-word model in `wakewords/`.
 3. In the Web UI, open **Wake-word Settings** and:
    - Enable wake-word
@@ -521,6 +540,7 @@ Notes:
 - `WAKE_WORD_OPENWAKEWORD_MODEL_PATH` stores only the filename (for example `hey_billy.onnx`).
 - Billy resolves that filename automatically from `wakewords/`.
 - The bundled `wakewords/hey_billy.onnx` model can be selected directly.
+- If you are using local ONNX preprocessing support models, place `melspectrogram.onnx` and `embedding_model.onnx` in `wakewords/openwakeword/`.
 
 ### Example `persona.ini` File
 

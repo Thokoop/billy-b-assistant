@@ -17,7 +17,7 @@ from packaging.version import parse as parse_version
 from werkzeug.utils import secure_filename
 
 from core.news_manager import load_news_sources, save_news_sources
-from core.vision import describe_scene
+from core.vision import describe_scene, detect_rpi_camera_available
 
 from ..core_imports import core_config, voice_provider_registry
 from ..state import (
@@ -115,30 +115,55 @@ WIFI_COUNTRIES = [
     ("NL", "Netherlands"),
     ("US", "United States"),
 ]
+OPENWAKEWORD_WORKAROUND_VERSION = "0.6.0"
+
+
+def _reinstall_openwakeword_workaround(venv_pip: str) -> str:
+    """Force a working openwakeword install on Pi systems where pip resolves 0.4.x."""
+    logger.info(
+        f"[openwakeword] Applying install workaround for openwakeword {OPENWAKEWORD_WORKAROUND_VERSION}"
+    )
+    commands = [
+        [
+            venv_pip,
+            "uninstall",
+            "-y",
+            "openwakeword",
+        ],
+        [
+            venv_pip,
+            "install",
+            "--upgrade",
+            "onnxruntime",
+            "requests",
+            "scikit-learn",
+            "scipy",
+            "tqdm",
+            "ai-edge-litert",
+        ],
+        [
+            venv_pip,
+            "install",
+            "--no-deps",
+            "--upgrade",
+            f"openwakeword=={OPENWAKEWORD_WORKAROUND_VERSION}",
+        ],
+    ]
+    output_parts: list[str] = []
+    for cmd in commands:
+        output = subprocess.check_output(
+            cmd,
+            cwd=PROJECT_ROOT,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        output_parts.append(output)
+    return "\n".join(part for part in output_parts if part)
 
 
 def _detect_rpi_camera_available() -> bool:
-    camera_bin = str(getattr(core_config, "LIBCAMERA_STILL_BIN", "libcamera-still"))
-    try:
-        result = subprocess.run(
-            [camera_bin, "--list-cameras"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=3.0,
-        )
-    except FileNotFoundError:
-        return False
-    except Exception:
-        return False
-
-    combined = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
-    if "no cameras available" in combined:
-        return False
-    if "available cameras" in combined:
-        return True
-    # Fallback: some builds may still expose camera lines without the header.
-    return "camera" in combined and "/base/" in combined
+    camera_bin = str(getattr(core_config, "LIBCAMERA_STILL_BIN", "rpicam-still"))
+    return detect_rpi_camera_available(camera_bin)
 
 
 def _is_v4l2_capture_capable(sys_video_dir: Path) -> bool:
@@ -1108,6 +1133,7 @@ def perform_update():
             stderr=subprocess.STDOUT,
             text=True,
         )
+        output += "\n" + _reinstall_openwakeword_workaround(venv_pip)
         logger.info(f"📦 Pip install output:\n{output}")
         # Refresh current version from git after checkout to ensure accuracy
         actual_current = get_current_version()
@@ -1156,6 +1182,7 @@ def simulate_update():
             stderr=subprocess.STDOUT,
             text=True,
         )
+        output += "\n" + _reinstall_openwakeword_workaround(venv_pip)
         logger.info(f"📦 Reinstall current version pip output:\n{output}")
 
         actual_current = get_current_version()
@@ -1579,12 +1606,17 @@ def list_camera_devices():
     rpi_available = _detect_rpi_camera_available()
     usb_nodes = _detect_usb_video_nodes()
 
-    options: list[dict[str, str]] = [{"value": "none", "label": "None"}]
-    if rpi_available:
-        options.append({
+    options: list[dict[str, str]] = [
+        {"value": "none", "label": "None"},
+        {
             "value": "rpi_camera",
-            "label": "Raspberry Pi Camera Module",
-        })
+            "label": (
+                "Raspberry Pi Camera Module"
+                if rpi_available
+                else "Raspberry Pi Camera Module (not detected)"
+            ),
+        },
+    ]
     for node in usb_nodes:
         options.append({
             "value": f"usb_webcam:{node['index']}",

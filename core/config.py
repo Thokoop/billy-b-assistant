@@ -291,7 +291,9 @@ NEWS_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NEWS_REQUEST_TIMEOUT_SECONDS", "
 CAMERA_HARDWARE = os.getenv("CAMERA_HARDWARE", "none").strip().lower()
 if CAMERA_HARDWARE not in {"none", "rpi_camera", "usb_webcam"}:
     CAMERA_HARDWARE = "none"
-LIBCAMERA_STILL_BIN = os.getenv("LIBCAMERA_STILL_BIN", "libcamera-still").strip()
+# Kept under its original setting name for compatibility. Runtime camera handling
+# falls back between the current rpicam-still and legacy libcamera-still commands.
+LIBCAMERA_STILL_BIN = os.getenv("LIBCAMERA_STILL_BIN", "rpicam-still").strip()
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg").strip()
 CAMERA_DEVICE_INDEX = int(os.getenv("CAMERA_DEVICE_INDEX", "0"))
 CAMERA_ROTATION = int(os.getenv("CAMERA_ROTATION", "0"))
