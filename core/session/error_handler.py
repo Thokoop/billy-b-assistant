@@ -1,10 +1,13 @@
 """Error handling for Billy session."""
 
+from __future__ import annotations
+
 import asyncio
 import os
 
 from .. import audio
 from ..logger import logger
+from ..mood import mood_manager
 from ..movements import stop_all_motors
 from ..status_led import set_status_led_state
 
@@ -17,6 +20,7 @@ class ErrorHandler:
 
     async def play_error_sound(self, code: str = "error", message: str | None = None):
         """Play an error sound based on code (error, nowifi, noapikey)."""
+        mood_manager.apply_event("error")
         stop_all_motors()
         set_status_led_state("error")
 

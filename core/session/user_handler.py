@@ -1,5 +1,7 @@
 """User and profile management for Billy session."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os

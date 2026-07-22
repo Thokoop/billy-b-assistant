@@ -60,6 +60,7 @@ async def say(text: str, *, interactive: Optional[bool] = None):
                 "Speak the provided text exactly as written, with no added words "
                 "before or after."
             ),
+            strict_literal=True,
         )
         audio.playback_queue.put(clip)
         return

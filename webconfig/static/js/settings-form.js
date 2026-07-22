@@ -12,6 +12,29 @@ const SettingsForm = (() => {
         return MODEL_ALIASES[v] || v;
     };
 
+    const BOOLEAN_SELECT_IDS = new Set([
+        'AEC_ENABLED',
+        'STATUS_LED_ENABLED',
+        'WAKE_WORD_ENABLED',
+    ]);
+
+    const normalizeSelectValue = (id, value) => {
+        if (value === undefined || value === null) return value;
+        if (BOOLEAN_SELECT_IDS.has(id)) {
+            const normalized = String(value).trim().toLowerCase();
+            if (['true', '1', 'yes', 'y', 'on', 'enabled'].includes(normalized)) {
+                return 'true';
+            }
+            if (['false', '0', 'no', 'n', 'off', 'disabled'].includes(normalized)) {
+                return 'false';
+            }
+        }
+        if (id === 'OPENAI_MODEL' || id === 'XAI_MODEL') {
+            return normalizeModelValue(value);
+        }
+        return String(value).trim();
+    };
+
     const setSelectValueSafely = (element, value) => {
         if (!element || !value) return false;
         const exists = Array.from(element.options).some(opt => opt.value === value);
@@ -199,6 +222,8 @@ const SettingsForm = (() => {
             { id: 'HA_LANG', key: 'HA_LANG' },
             { id: 'STATUS_LED_ENABLED', key: 'STATUS_LED_ENABLED' },
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
+            { id: 'AEC_ENABLED', key: 'AEC_ENABLED' },
+            { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
             { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
             { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
@@ -216,14 +241,18 @@ const SettingsForm = (() => {
                 const configValue = id === "REALTIME_AI_PROVIDER"
                     ? (cfg[key] || "openai")
                     : cfg[key];
-                // For backend/model selectors, prefer .env/config over localStorage.
-                const preferConfigValue = id === 'OPENAI_MODEL' || id === 'XAI_MODEL' || id === 'WAKE_WORD_BACKEND' || id === 'REALTIME_AI_PROVIDER';
+                // For backend/model/boolean selectors, prefer .env/config over localStorage.
+                const preferConfigValue = id === 'OPENAI_MODEL'
+                    || id === 'XAI_MODEL'
+                    || id === 'WAKE_WORD_BACKEND'
+                    || id === 'REALTIME_AI_PROVIDER'
+                    || BOOLEAN_SELECT_IDS.has(id);
                 const preferredValue = preferConfigValue ? configValue : (savedValue || configValue);
                 const fallbackValue = preferConfigValue ? savedValue : null;
 
                 if (preferConfigValue) {
-                    const normalizedPreferred = normalizeModelValue(preferredValue);
-                    const normalizedFallback = normalizeModelValue(fallbackValue);
+                    const normalizedPreferred = normalizeSelectValue(id, preferredValue);
+                    const normalizedFallback = normalizeSelectValue(id, fallbackValue);
 
                     if (ensureSelectHasValue(element, normalizedPreferred, normalizedFallback)) {
                         localStorage.setItem(`dropdown_${id}`, element.value);
@@ -234,7 +263,7 @@ const SettingsForm = (() => {
                 } else if (preferredValue) {
                     ensureSelectHasValue(
                         element,
-                        preferredValue,
+                        normalizeSelectValue(id, preferredValue),
                         id === "WIFI_COUNTRY" ? "NL" : null
                     );
                 } else if (id === "WIFI_COUNTRY") {
@@ -260,7 +289,8 @@ const SettingsForm = (() => {
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY'
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY', 'AEC_ENABLED',
+            'AEC_BARGE_IN_SNR_DB'
         ];
 
         dropdowns.forEach(id => {
@@ -347,6 +377,13 @@ const SettingsForm = (() => {
             });
             const saveResult = await saveResponse.json();
             const portChanged = saveResult.port_changed || (oldPort !== newPort);
+
+            // Re-read the saved .env through webconfig so controls stay aligned
+            // with normalized server values without restarting the web UI.
+            const refreshedConfig = await ConfigService.fetchConfig(true);
+            if (refreshedConfig) {
+                refreshFromConfig(refreshedConfig);
+            }
 
             if (newHostname && newHostname !== oldHostname) {
                 const hostResponse = await fetch("/hostname", {
@@ -649,14 +686,20 @@ const SettingsForm = (() => {
         // Update dropdowns with new configuration values
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
+            'FOLLOW_UP_RETRY_LIMIT',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED',
+            'AEC_BARGE_IN_SNR_DB'
         ];
         dropdowns.forEach(id => {
             const element = document.getElementById(id);
-            if (element && config[id]) {
-                element.value = config[id];
-                localStorage.setItem(`dropdown_${id}`, config[id]);
+            if (element && config[id] !== undefined && config[id] !== null) {
+                const normalizedValue = normalizeSelectValue(id, config[id]);
+                if (ensureSelectHasValue(element, normalizedValue)) {
+                    localStorage.setItem(`dropdown_${id}`, element.value);
+                } else {
+                    localStorage.removeItem(`dropdown_${id}`);
+                }
             }
         });
         populateCameraHardwareDropdown(config);

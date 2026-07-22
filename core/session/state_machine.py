@@ -1,11 +1,14 @@
 """State machine for Billy session turn management."""
 
+from __future__ import annotations
+
 import threading
 import time
 from typing import Any
 
 from ..config import HEAD_RETRACT_DELAY_SECONDS, SILENCE_THRESHOLD
 from ..logger import logger
+from ..mood import mood_manager
 from ..movements import move_head
 from ..mqtt import mqtt_publish
 
@@ -50,6 +53,7 @@ class SessionState:
         self._current_input_had_server_speech = False
         self._last_committed_had_server_speech = False
         self._server_input_speaking = False
+        self._server_input_speech_started_at = 0.0
         self._head_retract_timer: threading.Timer | None = None
 
     def reset_for_new_session(self):
@@ -83,6 +87,7 @@ class SessionState:
         self._current_input_had_server_speech = False
         self._last_committed_had_server_speech = False
         self._server_input_speaking = False
+        self._server_input_speech_started_at = 0.0
         self._cancel_head_retract_timer()
 
     def on_response_created(self):
@@ -106,12 +111,14 @@ class SessionState:
         """Handle input_audio_buffer.speech_started event."""
         self._current_input_had_server_speech = True
         self._server_input_speaking = True
+        self._server_input_speech_started_at = time.time()
         # Server VAD detected actual speech; keep session alive for quiet users.
         self.update_activity()
 
     def on_input_speech_stopped(self):
         """Handle input_audio_buffer.speech_stopped event."""
         self._server_input_speaking = False
+        self._server_input_speech_started_at = 0.0
         self.update_activity()
 
     def on_audio_committed(self, chunks: int):
@@ -229,6 +236,7 @@ class SessionState:
             ):
                 should_ignore = False
             if should_ignore:
+                mood_manager.apply_event("unclear_audio")
                 self._ignore_next_short_audio_response = True
                 logger.info(
                     f"Ignoring non-speech audio turn "

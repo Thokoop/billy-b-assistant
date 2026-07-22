@@ -386,10 +386,6 @@ const PersonaForm = (() => {
             updatePersonaMouthArticulationUI(mouthArticulation);
         }
 
-        
-        // Load wakeup clips in background (non-blocking)
-        loadWakeupClips();
-        
         // Update the current persona tracking for export/import
         window.PersonaForm = window.PersonaForm || {};
         activePersonaName = personaName;
@@ -397,6 +393,9 @@ const PersonaForm = (() => {
         
         // Update the UI to show the active persona
         updatePersonaListSelection(personaName);
+
+        // Load wakeup clips for the persona being edited.
+        loadWakeupClips(personaName);
     };
 
     const handlePersonaSave = () => {
@@ -492,13 +491,7 @@ const PersonaForm = (() => {
                 mouth_articulation: mouthArticulation
             };
 
-            const wakeup = {};
-            const rows = document.querySelectorAll("#wakeup-sound-list .flex[data-index]");
-            let currentIndex = 1;
-            rows.forEach((row) => {
-                const phrase = row.querySelector("input[type='text']") && row.querySelector("input[type='text']").value && row.querySelector("input[type='text']").value.trim();
-                if (phrase) { wakeup[currentIndex++] = phrase; }
-            });
+            const wakeup = window.collectWakeupRows ? window.collectWakeupRows() : {};
 
             // Get the currently selected persona from the list
             const selectedRow = document.querySelector('#persona-list [data-persona].border-emerald-500');
@@ -971,13 +964,7 @@ const PersonaForm = (() => {
             debugLog('VERBOSE', 'Mouth articulation input found:', !!mouthArticulationInput);
             debugLog('VERBOSE', 'Mouth articulation value:', mouthArticulation);
 
-            const wakeup = {};
-            const rows = document.querySelectorAll("#wakeup-sound-list .flex[data-index]");
-            let currentIndex = 1;
-            rows.forEach((row) => {
-                const phrase = row.querySelector("input[type='text']") && row.querySelector("input[type='text']").value && row.querySelector("input[type='text']").value.trim();
-                if (phrase) { wakeup[currentIndex++] = phrase; }
-            });
+            const wakeup = window.collectWakeupRows ? window.collectWakeupRows() : {};
 
             const personaData = {
                 PERSONALITY: personality,

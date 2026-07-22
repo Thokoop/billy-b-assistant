@@ -61,6 +61,8 @@ CONFIG_KEYS = [
     "HA_LANG",
     "MIC_PREFERENCE",
     "SPEAKER_PREFERENCE",
+    "AEC_ENABLED",
+    "AEC_BARGE_IN_SNR_DB",
     "FLASK_PORT",
     "RUN_MODE",
     "SHOW_SUPPORT",
@@ -90,6 +92,12 @@ CONFIG_KEYS = [
     "WIFI_COUNTRY",
     "WIFI_ONBOARDING_MODE",
 ]
+BOOLEAN_CONFIG_KEYS = {
+    "AEC_ENABLED",
+    "WAKE_WORD_ENABLED",
+    "STATUS_LED_ENABLED",
+    "FLAP_ON_BOOT",
+}
 WAKEWORD_REL_ROOT = Path("wakewords")
 WIFI_ONBOARDING_FLAG = Path(PROJECT_ROOT) / "setup" / ".wifi_onboarding_active"
 WIFI_TEST_PREFIX = "billy-test-"
@@ -1235,6 +1243,8 @@ def save():
         "MIC_TIMEOUT_SECONDS",
         "SILENCE_THRESHOLD",
         "MIC_GAIN",
+        "AEC_ENABLED",
+        "AEC_BARGE_IN_SNR_DB",
     }
     for key, value in data.items():
         if key in CONFIG_KEYS:
@@ -1250,6 +1260,21 @@ def save():
                 except (TypeError, ValueError):
                     parsed = 1000.0
                 value = str(max(0.0, min(32768.0, parsed)))
+                if value.endswith(".0"):
+                    value = value[:-2]
+            elif key in BOOLEAN_CONFIG_KEYS:
+                value = (
+                    "true"
+                    if str(value).strip().lower()
+                    in {"true", "1", "yes", "y", "on", "enabled"}
+                    else "false"
+                )
+            elif key == "AEC_BARGE_IN_SNR_DB":
+                try:
+                    parsed = float(str(value).strip())
+                except (TypeError, ValueError):
+                    parsed = 9.0
+                value = str(max(3.0, min(20.0, parsed)))
                 if value.endswith(".0"):
                     value = value[:-2]
             elif key == "MIC_GAIN":
@@ -1276,6 +1301,15 @@ def save():
             if key in audio_restart_keys and new_value != old_value:
                 audio_restart_required = True
     response = {"status": "ok"}
+    # Keep the web UI's in-memory configuration synchronized without restarting
+    # billy-webconfig.service. This also makes subsequent server-rendered pages
+    # preselect newly saved dropdown values correctly.
+    from dotenv import load_dotenv
+
+    load_dotenv(ENV_PATH, override=True)
+    import importlib
+
+    importlib.reload(core_config)
     if audio_restart_required:
         response["audio_restart_required"] = True
     if changed_port:

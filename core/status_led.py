@@ -1,5 +1,7 @@
 """Single-pixel WS2812B status LED controller."""
 
+from __future__ import annotations
+
 import contextlib
 import math
 import threading

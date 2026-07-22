@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import inspect
@@ -22,6 +24,7 @@ from .config import (
     is_conversation_state_enabled,
 )
 from .logger import logger
+from .mood import mood_manager
 from .movements import stop_all_motors
 from .persona_manager import persona_manager
 from .profile_manager import user_manager
@@ -342,6 +345,7 @@ class BillySession:
         logger.info(f"User said: {transcript!r}", "🗣️")
         if item_id:
             self._logged_user_transcript_item_ids.add(item_id)
+        mood_manager.apply_user_text(transcript)
 
     def _on_user_transcript_done(self, data: dict[str, Any]):
         """Handle direct user transcription completion events."""
@@ -351,10 +355,14 @@ class BillySession:
             # Meaningful user reply received: clear follow-up retry counter.
             self.state.mark_user_turn_meaningful()
             self.state.mark_user_transcript(transcript)
-            if not item_id or item_id not in self._logged_user_transcript_item_ids:
+            already_logged = (
+                item_id and item_id in self._logged_user_transcript_item_ids
+            )
+            if not already_logged:
                 logger.info(f"User said: {transcript!r}", "🗣️")
-            if item_id:
-                self._logged_user_transcript_item_ids.add(item_id)
+                if item_id:
+                    self._logged_user_transcript_item_ids.add(item_id)
+                mood_manager.apply_user_text(transcript)
             return
 
         logger.verbose(
@@ -390,6 +398,9 @@ class BillySession:
         await self.function_handler.handle(name, raw_args, call_id)
 
     async def _on_response_done(self, data: dict[str, Any]):
+        # The provider response is no longer cancellable as soon as response.done
+        # arrives, even though locally queued speaker audio may continue playing.
+        self.state.response_active = False
         if self.state._skip_post_response_once:
             response = data.get("response") or {}
             raw_status_details = response.get("status_details")
@@ -462,6 +473,18 @@ class BillySession:
 
         if not TEXT_ONLY_MODE:
             await self.audio_handler.wait_for_playback_complete()
+            # A local barge-in may have stopped queued playback while this
+            # handler was awaiting completion. That path already owns the mic
+            # handoff, so do not save an emptied buffer or transition twice.
+            if self.state._skip_post_response_once:
+                self.state._skip_post_response_once = False
+                self.audio_handler.signal_playback_done()
+                self.state.on_response_done()
+                logger.info(
+                    "Skipping post-response handling after late playback interruption; mic handoff already active.",
+                    "🔇",
+                )
+                return
             self.audio_handler.save_response_audio()
             self.audio_handler.clear_buffer()
             self.audio_handler.signal_playback_done()
@@ -585,20 +608,7 @@ class BillySession:
                 if last_user_turn_meaningful:
                     return True, "conversation_state"
                 return True, "conversation_state_low_conf"
-            if self.session_intent == "interactive" and asked_question:
-                return True, "interactive_question"
-            if (
-                self.session_intent == "interactive"
-                and self.state.follow_up_prompt
-                and not self.state._post_response_listen_opened
-            ):
-                return True, "default_listen_suggested_prompt"
-            if (
-                self.session_intent == "interactive"
-                and not self.state._post_response_listen_opened
-            ):
-                return True, "default_listen"
-            return False, "conversation_state_low_conf"
+            return False, "conversation_state"
 
         # Enforce deterministic UX fallback for interactive sessions.
         if self.session_intent == "interactive" and asked_question:
@@ -829,6 +839,12 @@ class BillySession:
         self.loop = asyncio.get_running_loop()
         logger.info("Session starting...", "⏱️")
 
+        # Load the configured user and preferred persona before opening the
+        # realtime session. Otherwise startup configures a guest/default session
+        # and immediately sends a second full session.update after auto-identify.
+        await self.user_handler.auto_identify_default_user()
+        mood_manager.apply_event("session_start")
+
         await self.persona_handler.reload_persona_from_profile()
 
         vad_params = SERVER_VAD_PARAMS[TURN_EAGERNESS]
@@ -875,6 +891,8 @@ class BillySession:
                         instructions=get_instructions_with_user_context(provider_name),
                         tools=get_tools_for_current_mode(),
                         server_vad_params=SERVER_VAD_PARAMS[TURN_EAGERNESS],
+                        # Barge-in is confirmed locally after AEC. Letting remote
+                        # VAD cancel directly makes residual echo self-interrupt.
                         interrupt_response=False,
                         text_only_mode=TEXT_ONLY_MODE,
                         voice=persona_voice,
@@ -959,8 +977,6 @@ class BillySession:
             self._set_speaking_state()
 
         try:
-            asyncio.create_task(self.user_handler.auto_identify_default_user())
-
             # Start mic immediately for normal interactive sessions.
             # Keep the session.updated fallback below in case startup races.
             if not self.kickoff_text:
@@ -1108,6 +1124,8 @@ class BillySession:
                 caller = inspect.stack()[1]
                 reason = f"caller={caller.function}"
         logger.info(f"Stopping session... ({reason or 'unspecified'})", "🛑")
+        if reason in {"mic_timeout", "mic_retry_failed"}:
+            mood_manager.apply_event("idle_timeout")
 
         # Increment interaction count for current user at end of session
         if not self._interaction_count_recorded:
@@ -1142,12 +1160,21 @@ class BillySession:
             return
 
         logger.info("Interrupting assistant turn and reopening mic...", "🛑")
+        mood_manager.apply_event("barge_in")
         self.interrupt_event.clear()
         audio.stop_playback()
+        # A cancelled response bypasses the normal response-done cleanup. If its
+        # buffered audio remains here, the next response is not recognised as a
+        # fresh playback turn and playback_done_event stays set, disabling AEC
+        # barge-in detection for the rest of the session.
+        self.audio_handler.clear_buffer()
 
-        if self.state.response_active:
+        provider_response_active = self.state.response_active
+        # Also signals an already-running response.done handler that its queued
+        # playback was interrupted and it must not perform a second mic handoff.
+        self.state._skip_post_response_once = True
+        if provider_response_active:
             # Ignore the trailing response.done from this cancelled assistant turn.
-            self.state._skip_post_response_once = True
             with contextlib.suppress(Exception):
                 await self._ws_send_json({"type": "response.cancel"})
 
@@ -1155,7 +1182,8 @@ class BillySession:
         self.state.response_active = False
         self.state.allow_mic_input = True
         self.state.assistant_speaking = False
-        self.state._saw_follow_up_call = False
+        if provider_response_active:
+            self.state._saw_follow_up_call = False
         self.last_activity[0] = time.time()
         opened = await self.mic_manager.start_after_playback(delay=0.2, retries=2)
         if not opened:

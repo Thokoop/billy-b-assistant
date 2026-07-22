@@ -155,7 +155,7 @@ const ServiceStatus = (() => {
             }
             setRestartButtonLoading(true);
             if (window.LoadingOverlay && window.LoadingOverlay.show) {
-                window.LoadingOverlay.show("Restarting Billy... waiting for reconnect.");
+                window.LoadingOverlay.show("Restarting Billy and web interface... waiting for reconnect.");
             }
         }
 

@@ -4,14 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.3.3] — 2026-07-20
+## [2.4.0] — 2026-07-22
+
+### Added
+- **Profile-based Mood System**: Added a persistent per-profile mood system with continuous mood axes, derived mood presets, natural mood events, manual mood setting tools, and profile-page mood visibility.
+- **Mood-aware Wake-up Sounds**: Added mood tags for persona wake-up sounds so Billy can choose activation clips that match the current mood.
+- **Wake-up Sound Idea Generation**: Added AI-assisted wake-up sound idea generation from persona context, including short phrases, phonetic sounds, mixed sound-plus-phrase cues, automatic persona saving, duplicate filtering, and mood tag assignment.
+- **Mood-influenced Wake-up Voice Generation**: Wake-up clip generation now passes selected moods into the voice generation instructions so generated audio delivery can match the assigned mood.
+- **Conversation Mood Events**: Conversation state can now report mood events, allowing ordinary turns to nudge Billy's temporary mood without requiring explicit `set_mood` calls.
 
 ### Changed
+- **Realtime Session Startup**: User/profile/persona context now preloads before opening the realtime session, avoiding an unnecessary default-persona session update on cold start.
+- **Realtime Prompt Size**: Trimmed duplicated tool-routing instructions from the realtime prompt while keeping detailed behavior in tool schemas.
 - **Python Version Guidance**: Updated project setup guidance to use the system Python on Raspberry Pi OS, including an explicit `openwakeword 0.6.0` manual-install workaround when `pip` resolves `openwakeword` down to `0.4.x` on Python `3.13`.
 - **Raspberry Pi Camera Compatibility**: Updated camera detection and capture to use the current `rpicam-still` command with automatic fallback to the legacy `libcamera-still` command, while preserving USB webcam support through FFmpeg and V4L2.
 
 ### Fixed
+- **Settings Dropdown Persistence**: Fixed boolean Enabled/Disabled dropdowns falling back to Disabled when settings were saved.
+- **Duplicate Tool Responses**: Reduced repeated acknowledgement of tool results during silent/no-input periods.
 - **Software Update Dependency Drift**: Web UI software updates and simulated reinstalls now automatically reapply the `openwakeword 0.6.0` workaround after reinstalling `requirements.txt`, preventing Raspberry Pi systems from regressing back to `openwakeword 0.4.x`.
+
 ---
 
 ## [2.3.2] — 2026-07-14

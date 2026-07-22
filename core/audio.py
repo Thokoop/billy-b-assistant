@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import base64
 import glob
@@ -17,12 +19,14 @@ from scipy.signal import resample, resample_poly
 
 from . import movements
 from .config import (
+    AEC_ENABLED,
     CHUNK_MS,
     MIC_PREFERENCE,
     PLAYBACK_VOLUME,
     SPEAKER_PREFERENCE,
     TEXT_ONLY_MODE,
 )
+from .echo_canceller import EchoCanceller
 from .logger import logger
 from .movements import (
     flap_from_pcm_chunk,
@@ -58,6 +62,17 @@ song_tail_threshold = 1500
 
 PROVIDER_MIC_RATE = 24000
 PROVIDER_OUTPUT_RATE = 24000
+
+echo_canceller = EchoCanceller(AEC_ENABLED)
+
+
+def echo_cancellation_active() -> bool:
+    """Return whether AEC initialized successfully and barge-in is safe."""
+    return echo_canceller.initialize()
+
+
+def process_mic_with_aec(samples):
+    return echo_canceller.process_capture(samples, MIC_RATE or PROVIDER_MIC_RATE)
 
 
 def mic_input_samples_for_meter(indata):
@@ -259,6 +274,7 @@ def playback_worker(chunk_ms):
                             sub = mono[i : i + chunk_len]
                             if len(sub) == 0:
                                 continue
+                            echo_canceller.feed_render(sub, PROVIDER_OUTPUT_RATE)
                             flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
                             stream.write(_resample_24k_mono_to_48k_stereo(sub))
 
@@ -277,6 +293,7 @@ def playback_worker(chunk_ms):
                         sub = mono[i : i + chunk_len]
                         if len(sub) == 0:
                             continue
+                        echo_canceller.feed_render(sub, PROVIDER_OUTPUT_RATE)
                         flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
                         stream.write(_resample_24k_mono_to_48k_stereo(sub))
 
@@ -426,14 +443,20 @@ def play_random_wake_up_clip():
             # For non-default personas, check persona-specific directory
             persona_wakeup_dir = os.path.join("personas", current_persona, "wakeup")
             if os.path.exists(persona_wakeup_dir):
-                clips = glob.glob(os.path.join(persona_wakeup_dir, "*.wav"))
+                clips = _filter_wake_up_clips_for_mood(
+                    glob.glob(os.path.join(persona_wakeup_dir, "*.wav")),
+                    current_persona,
+                )
                 if clips:
                     logger.info(
                         f"Using wake-up clips from persona: {current_persona}", "🎭"
                     )
         elif current_persona == "default":
             # For default persona, use the custom folder
-            clips = glob.glob(os.path.join(WAKE_UP_DIR, "*.wav"))
+            clips = _filter_wake_up_clips_for_mood(
+                glob.glob(os.path.join(WAKE_UP_DIR, "*.wav")),
+                current_persona,
+            )
             if clips:
                 logger.info("Using custom wake-up clips for default persona", "🔧")
     except Exception as e:
@@ -489,6 +512,50 @@ def play_random_wake_up_clip():
     logger.verbose("playback_done_event set (wake-up sound finished)", "🔧")
 
     return clip
+
+
+def _filter_wake_up_clips_for_mood(clips: list[str], persona_name: str) -> list[str]:
+    """Return clips matching the current mood, falling back to untagged/all clips."""
+    if not clips:
+        return clips
+
+    try:
+        import configparser
+
+        from .mood import mood_manager
+
+        mood_label = str(mood_manager.snapshot().get("label") or "neutral").strip()
+        config = configparser.ConfigParser()
+        persona_file = (
+            "persona.ini"
+            if persona_name == "default"
+            else os.path.join("personas", persona_name, "persona.ini")
+        )
+        config.read(persona_file)
+        wakeup_moods = (
+            dict(config["WAKEUP_MOODS"]) if config.has_section("WAKEUP_MOODS") else {}
+        )
+        if not wakeup_moods:
+            return clips
+
+        tagged_matches = []
+        untagged = []
+        for clip in clips:
+            index = os.path.splitext(os.path.basename(clip))[0]
+            moods = {
+                mood.strip().lower()
+                for mood in wakeup_moods.get(index, "").split(",")
+                if mood.strip()
+            }
+            if not moods:
+                untagged.append(clip)
+            elif mood_label in moods:
+                tagged_matches.append(clip)
+
+        return tagged_matches or untagged or clips
+    except Exception as e:
+        logger.verbose(f"Could not filter wake-up clips by mood: {e}", "🎭")
+        return clips
 
 
 def stop_playback():

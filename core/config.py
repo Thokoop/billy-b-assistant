@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import configparser
 import os
@@ -30,62 +32,31 @@ _config.read(PERSONA_PATH)
 # === Instructions for GPT ===
 TOOL_INSTRUCTIONS = """
 === CRITICAL: EVERY RESPONSE MUST END WITH conversation_state ===
-AFTER you speak, ALWAYS call conversation_state(expects_follow_up=true/false).
-Set expects_follow_up=true if you asked a question, false otherwise.
-If you provide suggested_prompt or expect the user may naturally continue, set expects_follow_up=true.
-NEVER skip this - the system breaks without it.
-NEVER speak or print tool calls out loud. Do NOT include text like
-"conversation_state(...)" in spoken output. Tool calls are internal only.
+Speak first, then ALWAYS call conversation_state.
+Set expects_follow_up=true if you asked a question or expect the user to continue; otherwise false.
+Optionally set one mood_event only when the turn clearly affects Billy's temporary mood.
+Do not report system-observed events as mood_event; the app handles those.
+NEVER speak or print tool-call text. Tool calls are internal only.
 
-=== TOOLS ===
-
-PERSONALITY: Use update_personality when users request changes (e.g., "be funnier" -> update_personality({"humor": 80}))
-
-SMART HOME: Only call smart_home_command for DIRECT commands ("turn on lights"). If asked to "ask if" or "check if", just speak the question.
-NEWS: Use get_news_digest for headlines, weather, and sports updates. Team/location are OPTIONAL inputs. If missing, call the tool anyway with available context and configured sources first; only ask a follow-up if the tool response still lacks enough information. IMPORTANT: for headlines, always set a concise `subject` based on user intent (use keyword-style labels like "technology", "sports", "project updates", "weather", "finance") so source keywords are used during source selection. Also set `query` when user asks about a specific topic/person/event. BEFORE calling the news tool, acknowledge VERY briefly (max 2 words), preferably exactly: "Checking."
-KNOWLEDGE: Use search_local_knowledge when users ask about uploaded house files, manuals, PDFs, spreadsheets, notes, or other local documents. Prefer this over guessing when the answer may depend on uploaded private data. If the tool returns weak or no matches, say so briefly.
-VISION: Use describe_scene when user asks you to look/see/watch/check what's in front of you, or asks what the camera can see. Keep descriptions factual and brief.
-
-USER SYSTEM:
-- identify_user: Call when someone introduces themselves ("I am Tom")
-- store_memory: Store lasting facts users voluntarily share (NOT answers to your questions)
-- manage_profile/switch_persona: Change personas
-
-SONGS: Use play_song for special songs
+=== TOOL ROUTING ===
+Use tool schemas for exact arguments. Call tools when clearly useful.
+For Home Assistant, call smart_home_command only for direct commands; if asked to ask/check/confirm first, just speak.
+For news/headlines/weather/sports, briefly say "Checking." before get_news_digest.
+For memory, only store volunteered user facts/preferences, not answers to your own questions.
+For camera/vision or uploaded local files, prefer the matching tool over guessing.
 
 === RESPONSE FLOW ===
-1. [Optional: call tool functions]
-2. Generate speech (ALWAYS speak - never respond with only function calls)
-3. Call conversation_state (MANDATORY - NEVER skip this)
-
-EXAMPLES:
-✓ User: "Hello" -> Speak "Hey!" -> [internal tool call: conversation_state(expects_follow_up=false)]
-✓ User: "What's up?" -> Speak "Not much, you?" -> [internal tool call: conversation_state(expects_follow_up=true)]
-✗ User: "Hello" -> Speak "Hey! conversation_state(expects_follow_up=false)" (WRONG: tool call spoken)
-✗ User: "Hello" -> Speak "Hey!" -> NO conversation_state (SYSTEM BREAKS)
+1. Optional normal tools.
+2. Spoken answer.
+3. conversation_state.
 """.strip()
 
 TOOL_INSTRUCTIONS_NO_CONVERSATION_STATE = """
-=== TOOLS ===
-
-PERSONALITY: Use update_personality when users request changes (e.g., "be funnier" -> update_personality({"humor": 80}))
-
-SMART HOME: Only call smart_home_command for DIRECT commands ("turn on lights"). If asked to "ask if" or "check if", just speak the question.
-NEWS: Use get_news_digest for headlines, weather, and sports updates. Team/location are OPTIONAL inputs. If missing, call the tool anyway with available context and configured sources first; only ask a follow-up if the tool response still lacks enough information. IMPORTANT: for headlines, always set a concise `subject` based on user intent (use keyword-style labels like "technology", "sports", "project updates", "weather", "finance") so source keywords are used during source selection. Also set `query` when user asks about a specific topic/person/event. BEFORE calling the news tool, acknowledge VERY briefly (max 2 words), preferably exactly: "Checking."
-KNOWLEDGE: Use search_local_knowledge when users ask about uploaded house files, manuals, PDFs, spreadsheets, notes, or other local documents. Prefer this over guessing when the answer may depend on uploaded private data. If the tool returns weak or no matches, say so briefly.
-VISION: Use describe_scene when user asks you to look/see/watch/check what's in front of you, or asks what the camera can see. Keep descriptions factual and brief.
-
-USER SYSTEM:
-- identify_user: Call when someone introduces themselves ("I am Tom")
-- store_memory: Store lasting facts users voluntarily share (NOT answers to your questions)
-- manage_profile/switch_persona: Change personas
-
-SONGS: Use play_song for special songs
-
-=== RESPONSE FLOW ===
-1. [Optional: call tool functions]
-2. Generate speech (ALWAYS speak - never respond with only function calls)
-3. End naturally. Do NOT speak or print internal tool-call text.
+Use tool schemas for exact arguments. Call tools when clearly useful.
+For Home Assistant, call smart_home_command only for direct commands.
+For news/headlines/weather/sports, briefly say "Checking." before get_news_digest.
+For memory, only store volunteered user facts/preferences, not answers to your own questions.
+Never speak or print internal tool-call text.
 """.strip()
 
 CUSTOM_INSTRUCTIONS = _config.get("META", "instructions")
@@ -195,6 +166,13 @@ def _resolve_silence_threshold():
 
 SILENCE_THRESHOLD = _resolve_silence_threshold()
 CHUNK_MS = int(os.getenv("CHUNK_MS", "40"))
+AEC_ENABLED = os.getenv("AEC_ENABLED", "false").lower() == "true"
+try:
+    AEC_BARGE_IN_SNR_DB = max(
+        3.0, min(20.0, float(os.getenv("AEC_BARGE_IN_SNR_DB", "9")))
+    )
+except (TypeError, ValueError):
+    AEC_BARGE_IN_SNR_DB = 9.0
 FOLLOW_UP_RETRY_LIMIT = int(os.getenv("FOLLOW_UP_RETRY_LIMIT", "2"))
 PLAYBACK_VOLUME = 1
 MOUTH_ARTICULATION = int(os.getenv("MOUTH_ARTICULATION", "5"))

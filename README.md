@@ -283,6 +283,14 @@ Install required Python dependencies into the virtual environment:
 pip3 install -r ./requirements.txt
 ```
 
+To let people interrupt Billy while he is speaking, enable **Voice interruption
+(AEC)** in Hardware Settings. The prebuilt SpeexDSP echo canceller is installed
+with Billy's normal Python requirements. Interruption sensitivity is measured
+relative to the learned residual echo level, so it adapts to microphone gain and
+speaker volume. The default requires speech to rise 9 dB above that level.
+If AEC cannot start, Billy automatically
+keeps the existing half-duplex microphone gating instead of risking echo.
+
 If you want to use `openwakeword` and `pip` resolved it to `0.4.x`, install the newer release manually:
 
 ```bash

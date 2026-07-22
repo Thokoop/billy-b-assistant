@@ -187,6 +187,7 @@ def service_status():
 
         from dotenv import load_dotenv
 
+        from core.mood import mood_manager
         from core.persona_manager import persona_manager
         from core.profile_manager import user_manager
 
@@ -279,8 +280,15 @@ def service_status():
         except Exception as e:
             print(f"Failed to get current personality: {e}")
 
+        current_mood = None
+        try:
+            current_mood = mood_manager.snapshot()
+        except Exception as e:
+            print(f"Failed to get current mood: {e}")
+
         return jsonify({
             "status": service_status,
+            "mood": current_mood,
             "current_user": current_user_name,
             "current_user_loaded": current_user.name if current_user else None,
             "current_persona": persona_manager.current_persona,

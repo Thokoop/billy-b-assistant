@@ -1,12 +1,13 @@
 """Microphone management wrapper for Billy session."""
 
 import asyncio
+import math
 import time
 from collections import deque
 
 from .. import audio
 from ..audio import calculate_input_rms, mic_input_samples_for_meter
-from ..config import SILENCE_THRESHOLD, TEXT_ONLY_MODE
+from ..config import AEC_BARGE_IN_SNR_DB, CHUNK_MS, SILENCE_THRESHOLD, TEXT_ONLY_MODE
 from ..logger import logger
 from ..mic import MicManager
 
@@ -28,6 +29,18 @@ class MicManagerWrapper:
         self._last_local_activity_rms = 0.0
         self._last_timeout_progress_log = 0.0
         self._timeout_countdown_started_at = 0.0
+        self._logged_barge_in_active = False
+        self._barge_in_started_at = 0.0
+        self._barge_in_evidence = deque(
+            maxlen=max(4, int(round(480 / max(1, CHUNK_MS))))
+        )
+        self._barge_in_interrupt_requested = False
+        self._barge_in_prebuffer = deque()
+        self._barge_in_prebuffer_samples = 0
+        self._barge_in_raw_peak = 0.0
+        self._barge_in_cleaned_peak = 0.0
+        self._barge_in_last_level_log = 0.0
+        self._barge_in_residual_window = deque(maxlen=max(20, int(2000 / CHUNK_MS)))
         self._prebuffered_audio = deque()
         self._prebuffered_audio_samples = 0
         self._prebuffer_seconds = 3.0
@@ -183,29 +196,157 @@ class MicManagerWrapper:
         if not self.session.session_active.is_set():
             return
 
-        if not self.session.state.allow_mic_input:
+        aec_active = audio.echo_cancellation_active()
+        samples = mic_input_samples_for_meter(indata)
+        raw_rms = calculate_input_rms(samples)
+        playback_active = not audio.playback_done_event.is_set()
+        if aec_active and playback_active:
+            # Process even during wake-up playback so the adaptive filter learns
+            # Billy's real speaker/microphone path before the first response.
+            # Once playback stops, bypass AEC immediately: without a live render
+            # reference its stale tail can keep server VAD stuck in speech_started.
+            samples = audio.process_mic_with_aec(samples)
+
+        barge_in = aec_active and (
+            self.session.state.assistant_speaking or self.session.state.response_active
+        )
+
+        # Transcript streaming normally closes this gate while Billy speaks.
+        # A working AEC path must override it so user speech can interrupt him.
+        if not self.session.state.allow_mic_input and not barge_in:
             return
 
-        # Don't send audio while Billy is speaking (prevents echo)
-        if self.session.state.assistant_speaking:
+        if barge_in and not self._logged_barge_in_active:
+            logger.info(
+                "AEC barge-in listening while Billy speaks.",
+                "👂",
+            )
+            self._logged_barge_in_active = True
+            self._barge_in_started_at = time.time()
+            self._barge_in_evidence.clear()
+            self._barge_in_interrupt_requested = False
+            self._barge_in_raw_peak = 0.0
+            self._barge_in_cleaned_peak = 0.0
+            self._barge_in_last_level_log = time.time()
+            self._barge_in_residual_window.clear()
+            self._clear_barge_in_prebuffer()
+        elif not barge_in:
+            self._logged_barge_in_active = False
+            self._barge_in_started_at = 0.0
+            self._barge_in_evidence.clear()
+            self._barge_in_interrupt_requested = False
+            self._barge_in_residual_window.clear()
+            self._clear_barge_in_prebuffer()
+
+        # Without a working AEC engine, preserve the safe half-duplex behavior.
+        if self.session.state.assistant_speaking and not barge_in:
             return
 
         # Don't send audio while response is active (prevents echo from buffered audio)
-        if self.session.state.response_active:
+        if self.session.state.response_active and not barge_in:
             return
 
-        if not TEXT_ONLY_MODE and not audio.playback_done_event.is_set():
+        if (
+            not TEXT_ONLY_MODE
+            and not audio.playback_done_event.is_set()
+            and not barge_in
+        ):
             if not self._logged_waiting_for_wakeup:
                 logger.info("Mic waiting for wake-up sound to finish...", "⏳")
                 self._logged_waiting_for_wakeup = True
+            return
+
+        rms = calculate_input_rms(samples)
+
+        if barge_in:
+            self._store_barge_in_prebuffer(samples)
+            # response.created precedes actual speaker playback. Learn the
+            # residual only once audio is physically queued for playback.
+            if audio.playback_done_event.is_set():
+                self._barge_in_started_at = 0.0
+                self._barge_in_residual_window.clear()
+                return
+            if self._barge_in_started_at <= 0.0:
+                self._barge_in_started_at = time.time()
+
+            elapsed = time.time() - self._barge_in_started_at
+            learning = elapsed < 0.6 or len(self._barge_in_residual_window) < 8
+            if learning:
+                self._barge_in_residual_window.append(rms)
+
+            ordered_residuals = sorted(self._barge_in_residual_window)
+            if ordered_residuals:
+                residual_index = int(0.8 * (len(ordered_residuals) - 1))
+                residual_floor = max(1.0, ordered_residuals[residual_index])
+            else:
+                residual_floor = 1.0
+            ratio_required = 10 ** (AEC_BARGE_IN_SNR_DB / 20.0)
+            threshold = max(20.0, residual_floor * ratio_required)
+            snr_db = 20.0 * math.log10(max(1.0, rms) / residual_floor)
+            evidence_snr_db = max(3.0, AEC_BARGE_IN_SNR_DB - 3.0)
+            if learning:
+                self._barge_in_evidence.clear()
+            else:
+                self._barge_in_evidence.append(snr_db)
+            evidence_hits = sum(
+                value >= evidence_snr_db for value in self._barge_in_evidence
+            )
+            evidence_peak = max(self._barge_in_evidence, default=snr_db)
+            evidence_required = max(2, math.ceil(self._barge_in_evidence.maxlen * 0.6))
+            self._barge_in_raw_peak = max(self._barge_in_raw_peak, raw_rms)
+            self._barge_in_cleaned_peak = max(self._barge_in_cleaned_peak, rms)
+            if time.time() - self._barge_in_last_level_log >= 1.0:
+                logger.info(
+                    (
+                        "AEC barge-in levels "
+                        f"raw_peak={self._barge_in_raw_peak:.1f}, "
+                        f"cleaned_peak={self._barge_in_cleaned_peak:.1f}, "
+                        f"residual_floor={residual_floor:.1f}, "
+                        f"snr={snr_db:.1f}dB, required={AEC_BARGE_IN_SNR_DB:.1f}dB, "
+                        f"evidence={evidence_hits}/{self._barge_in_evidence.maxlen}, "
+                        f"evidence_peak={evidence_peak:.1f}dB."
+                    ),
+                    "🎚️",
+                )
+                self._barge_in_raw_peak = 0.0
+                self._barge_in_cleaned_peak = 0.0
+                self._barge_in_last_level_log = time.time()
+            # Continue tracking normal residual echo, but never learn from a
+            # possible near-end speaker or it would raise the bar mid-sentence.
+            possible_speech = any(
+                value >= evidence_snr_db for value in self._barge_in_evidence
+            )
+            if not learning and rms < threshold and not possible_speech:
+                self._barge_in_residual_window.append(rms)
+
+            if (
+                len(self._barge_in_evidence) == self._barge_in_evidence.maxlen
+                and evidence_hits >= evidence_required
+                and evidence_peak >= AEC_BARGE_IN_SNR_DB
+                and not self._barge_in_interrupt_requested
+            ):
+                self._barge_in_interrupt_requested = True
+                logger.info(
+                    (
+                        "Confirmed local AEC barge-in "
+                        f"(peak_snr={evidence_peak:.1f}dB, "
+                        f"required={AEC_BARGE_IN_SNR_DB:.1f}dB, "
+                        f"evidence={evidence_hits}/{self._barge_in_evidence.maxlen})."
+                    ),
+                    "🗣️",
+                )
+                self._flush_barge_in_prebuffer()
+                if self.session.loop is not None:
+                    asyncio.run_coroutine_threadsafe(
+                        self.session.interrupt_to_user_turn(), self.session.loop
+                    )
+            # Never expose unconfirmed residual echo to server-side VAD.
             return
 
         if not self._mic_data_started and not TEXT_ONLY_MODE:
             logger.info("Mic data now being sent", "🎤")
             self._mic_data_started = True
 
-        samples = mic_input_samples_for_meter(indata)
-        rms = calculate_input_rms(indata)
         self.last_rms = rms
         self.session.state.observe_rms(rms)
         now = time.time()
@@ -245,9 +386,36 @@ class MicManagerWrapper:
             self.flush_prebuffer()
         audio.send_mic_audio(self.session.ws, samples, self.session.loop)
 
+    def _clear_barge_in_prebuffer(self):
+        self._barge_in_prebuffer.clear()
+        self._barge_in_prebuffer_samples = 0
+
+    def _store_barge_in_prebuffer(self, samples):
+        chunk = samples.copy()
+        self._barge_in_prebuffer.append(chunk)
+        self._barge_in_prebuffer_samples += len(chunk)
+        max_samples = int((audio.MIC_RATE or audio.PROVIDER_MIC_RATE) * 0.6)
+        while self._barge_in_prebuffer_samples > max_samples:
+            removed = self._barge_in_prebuffer.popleft()
+            self._barge_in_prebuffer_samples -= len(removed)
+
+    def _flush_barge_in_prebuffer(self):
+        if self.session.ws is None or self.session.loop is None:
+            return
+        chunks = len(self._barge_in_prebuffer)
+        while self._barge_in_prebuffer:
+            audio.send_mic_audio(
+                self.session.ws,
+                self._barge_in_prebuffer.popleft(),
+                self.session.loop,
+            )
+        self._barge_in_prebuffer_samples = 0
+        logger.info(f"Forwarded {chunks} buffered interruption chunks.", "🎤")
+
     async def timeout_checker(self):
         """Monitor mic activity and timeout if idle too long."""
         from ..config import MIC_TIMEOUT_SECONDS
+        from ..mood import mood_manager
         from ..movements import move_tail_async
 
         logger.info("Mic timeout checker active", "🛡️")
@@ -269,6 +437,23 @@ class MicManagerWrapper:
                 continue
             # Don't timeout while the server is actively detecting user speech.
             if self.session.state._server_input_speaking:
+                speech_started_at = self.session.state._server_input_speech_started_at
+                speech_open_seconds = (
+                    now - speech_started_at if speech_started_at > 0.0 else 0.0
+                )
+                if speech_open_seconds >= 8.0 and now >= self._local_activity_until:
+                    logger.warning(
+                        (
+                            "Server VAD speech remained open for "
+                            f"{speech_open_seconds:.1f}s after local activity ended; "
+                            "releasing stale speech state."
+                        ),
+                        "⚠️",
+                    )
+                    self.session.state._server_input_speaking = False
+                    self.session.state._server_input_speech_started_at = 0.0
+                    self.session.last_activity[0] = now
+                    continue
                 if self._timeout_countdown_active:
                     logger.info(
                         "Mic timeout countdown paused while user speech is active.",
@@ -336,7 +521,8 @@ class MicManagerWrapper:
                     self._last_timeout_progress_log = now
 
                 if now - last_tail_move > 1.0:
-                    move_tail_async(duration=0.2)
+                    motion = mood_manager.get_motion_profile()
+                    move_tail_async(duration=motion.get("tail_duration", 0.2))
                     last_tail_move = now
 
                 if elapsed > MIC_TIMEOUT_SECONDS:

@@ -7,6 +7,42 @@ from ..state import PERSONA_PATH
 
 bp = Blueprint("persona", __name__)
 
+MOOD_PRESETS = {
+    "neutral",
+    "calm",
+    "cheerful",
+    "warm",
+    "curious",
+    "focused",
+    "playful",
+    "mischievous",
+    "excited",
+    "surprised",
+    "sleepy",
+    "bored",
+    "sad",
+    "anxious",
+    "flustered",
+    "annoyed",
+    "grumpy",
+    "dramatic",
+}
+
+
+def _normalize_wakeup_moods(value) -> str:
+    if isinstance(value, str):
+        raw_values = value.split(",")
+    elif isinstance(value, list):
+        raw_values = value
+    else:
+        raw_values = []
+    moods = []
+    for mood in raw_values:
+        normalized = str(mood).strip().lower()
+        if normalized in MOOD_PRESETS and normalized not in moods:
+            moods.append(normalized)
+    return ",".join(moods)
+
 
 @bp.route("/persona", methods=["GET"])
 def get_default_persona():
@@ -182,6 +218,14 @@ def save_persona():
         str(k): v["text"] if isinstance(v, dict) and "text" in v else str(v)
         for k, v in wakeup.items()
     }
+    wakeup_moods = {}
+    for k, v in wakeup.items():
+        if isinstance(v, dict):
+            moods = _normalize_wakeup_moods(v.get("moods", []))
+            if moods:
+                wakeup_moods[str(k)] = moods
+    if wakeup_moods:
+        config["WAKEUP_MOODS"] = wakeup_moods
 
     # Ensure the personas directory exists
     if persona_name != "default":
@@ -203,17 +247,20 @@ def save_single_wakeup_phrase():
     data = request.get_json()
     index = str(data.get("index"))
     phrase = data.get("phrase", "").strip()
+    moods = _normalize_wakeup_moods(data.get("moods", []))
+    requested_persona = str(data.get("persona") or "").strip()
     if not index or not phrase:
         return jsonify({"error": "Missing index or phrase"}), 400
 
     # Get current persona to determine which file to save to
-    current_persona = "default"
-    try:
-        from core.persona_manager import persona_manager
+    current_persona = requested_persona or "default"
+    if not requested_persona:
+        try:
+            from core.persona_manager import persona_manager
 
-        current_persona = persona_manager.current_persona
-    except Exception:
-        pass
+            current_persona = persona_manager.current_persona
+        except Exception:
+            pass
 
     # Determine the file path based on current persona
     if current_persona == "default":
@@ -231,6 +278,12 @@ def save_single_wakeup_phrase():
     if "WAKEUP" not in config:
         config["WAKEUP"] = {}
     config["WAKEUP"][index] = phrase
+    if moods:
+        if "WAKEUP_MOODS" not in config:
+            config["WAKEUP_MOODS"] = {}
+        config["WAKEUP_MOODS"][index] = moods
+    elif "WAKEUP_MOODS" in config and index in config["WAKEUP_MOODS"]:
+        del config["WAKEUP_MOODS"][index]
     with open(persona_file, "w") as f:
         config.write(f)
     return jsonify({"status": "ok"})
