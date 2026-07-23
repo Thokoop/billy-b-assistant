@@ -322,28 +322,47 @@
                 </div>
 
                 <div>
-                    <label for="AEC_ENABLED" class="block text-sm text-slate-300 mb-1">
+                    <label for="AEC_ENABLED"
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         Voice interruption (AEC)
+                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                              onclick="toggleTooltip(this)">help_outline</span>
                     </label>
-                    <select id="AEC_ENABLED" name="AEC_ENABLED"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        <option value="false" {% if config.get('AEC_ENABLED', 'false') == 'false' %}selected{% endif %}>Disabled</option>
-                        <option value="true" {% if config.get('AEC_ENABLED', 'false') == 'true' %}selected{% endif %}>Enabled</option>
-                    </select>
-                    <p class="text-xs text-slate-400 mt-1">Uses the built-in SpeexDSP echo canceller.</p>
+                    <div class="relative">
+                        <div data-tooltip>
+                            Keeps the microphone active while Billy speaks and uses the built-in
+                            SpeexDSP echo canceller to suppress Billy's own voice.
+                        </div>
+                        <select id="AEC_ENABLED" name="AEC_ENABLED"
+                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <option value="false" {% if config.get('AEC_ENABLED', 'false') == 'false' %}selected{% endif %}>Disabled</option>
+                            <option value="true" {% if config.get('AEC_ENABLED', 'false') == 'true' %}selected{% endif %}>Enabled</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div>
-                    <label for="AEC_BARGE_IN_SNR_DB" class="block text-sm text-slate-300 mb-1">
+                    <label for="AEC_BARGE_IN_SNR_DB"
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
                         Interruption sensitivity
+                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                              onclick="toggleTooltip(this)">help_outline</span>
                     </label>
-                    <select id="AEC_BARGE_IN_SNR_DB" name="AEC_BARGE_IN_SNR_DB"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        <option value="6" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '6' %}selected{% endif %}>High</option>
-                        <option value="9" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '9' %}selected{% endif %}>Balanced</option>
-                        <option value="12" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '12' %}selected{% endif %}>Conservative</option>
-                    </select>
-                    <p class="text-xs text-slate-400 mt-1">Adapts automatically to microphone gain and speaker volume.</p>
+                    <div class="relative">
+                        <div data-tooltip>
+                            Controls how readily speech interrupts Billy. Detection adapts automatically
+                            to microphone gain and speaker volume.<br>
+                            <b>High</b> = reacts to quieter speech, but may trigger more easily.<br>
+                            <b>Balanced</b> = recommended default.<br>
+                            <b>Conservative</b> = strongest protection against false interruptions.
+                        </div>
+                        <select id="AEC_BARGE_IN_SNR_DB" name="AEC_BARGE_IN_SNR_DB"
+                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <option value="6" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '6' %}selected{% endif %}>High</option>
+                            <option value="9" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '9' %}selected{% endif %}>Balanced</option>
+                            <option value="12" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '12' %}selected{% endif %}>Conservative</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 

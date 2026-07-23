@@ -1178,6 +1178,18 @@ class BillySession:
             with contextlib.suppress(Exception):
                 await self._ws_send_json({"type": "response.cancel"})
 
+        # Any server-speech marker at this point belongs to audio from before
+        # the handoff. Fresh speech_started events from the buffered/live user
+        # audio will set it again.
+        self.state._server_input_speaking = False
+        self.state._server_input_speech_started_at = 0.0
+
+        # Send preserved near-end speech only after the assistant cancellation
+        # has been placed on the websocket. Sending it first can leave those
+        # chunks attached to the response being cancelled instead of the new
+        # user turn, which stops playback without producing a barge-in turn.
+        self.mic_manager._flush_barge_in_prebuffer()
+
         # Force user-turn gating open even if provider state is racing.
         self.state.response_active = False
         self.state.allow_mic_input = True
@@ -1191,3 +1203,32 @@ class BillySession:
                 "Mic reopen failed after startup race fallback; session may need restart.",
                 "⚠️",
             )
+        asyncio.create_task(self._verify_interruption_handoff())
+
+    async def _verify_interruption_handoff(self):
+        """Ensure a barge-in cannot leave the session silently wedged."""
+        await asyncio.sleep(1.0)
+        if not self.session_active.is_set() or self.state.response_active:
+            return
+
+        audio.playback_done_event.set()
+        self.state.allow_mic_input = True
+        self.state.assistant_speaking = False
+
+        if not self.mic_manager.mic_running:
+            await self.mic_manager.start_after_playback(delay=0.2, retries=2)
+
+        timeout_task = self.mic_manager.mic_timeout_task
+        if timeout_task is None or timeout_task.done():
+            self.mic_manager.mic_timeout_task = asyncio.create_task(
+                self.mic_manager.timeout_checker()
+            )
+
+        logger.info(
+            (
+                "Interruption handoff verified "
+                f"(mic_running={self.mic_manager.mic_running}, "
+                "timeout_monitor=active)."
+            ),
+            "✅",
+        )

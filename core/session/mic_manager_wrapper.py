@@ -288,22 +288,38 @@ class MicManagerWrapper:
                 self._barge_in_evidence.clear()
             else:
                 self._barge_in_evidence.append(snr_db)
-            evidence_hits = sum(
-                value >= evidence_snr_db for value in self._barge_in_evidence
+            # High trades a shorter response time for a denser requirement:
+            # eight consecutive 40 ms frames. Other profiles retain the full
+            # 480 ms history and tolerate natural syllable gaps according to
+            # their larger SNR margins.
+            if AEC_BARGE_IN_SNR_DB <= 6.0:
+                evidence_window_size = min(8, self._barge_in_evidence.maxlen)
+                evidence_ratio_required = 1.0
+            elif AEC_BARGE_IN_SNR_DB <= 9.0:
+                evidence_window_size = self._barge_in_evidence.maxlen
+                evidence_ratio_required = 0.8
+            else:
+                evidence_window_size = self._barge_in_evidence.maxlen
+                evidence_ratio_required = 0.6
+            evidence_window = list(self._barge_in_evidence)[-evidence_window_size:]
+            evidence_hits = sum(value >= evidence_snr_db for value in evidence_window)
+            evidence_peak = max(evidence_window, default=snr_db)
+            evidence_required = max(
+                2,
+                math.ceil(evidence_window_size * evidence_ratio_required),
             )
-            evidence_peak = max(self._barge_in_evidence, default=snr_db)
-            evidence_required = max(2, math.ceil(self._barge_in_evidence.maxlen * 0.6))
             self._barge_in_raw_peak = max(self._barge_in_raw_peak, raw_rms)
             self._barge_in_cleaned_peak = max(self._barge_in_cleaned_peak, rms)
             if time.time() - self._barge_in_last_level_log >= 1.0:
-                logger.info(
+                logger.debug(
                     (
                         "AEC barge-in levels "
                         f"raw_peak={self._barge_in_raw_peak:.1f}, "
                         f"cleaned_peak={self._barge_in_cleaned_peak:.1f}, "
                         f"residual_floor={residual_floor:.1f}, "
                         f"snr={snr_db:.1f}dB, required={AEC_BARGE_IN_SNR_DB:.1f}dB, "
-                        f"evidence={evidence_hits}/{self._barge_in_evidence.maxlen}, "
+                        f"evidence={evidence_hits}/{evidence_window_size} "
+                        f"(need {evidence_required}), "
                         f"evidence_peak={evidence_peak:.1f}dB."
                     ),
                     "🎚️",
@@ -320,7 +336,7 @@ class MicManagerWrapper:
                 self._barge_in_residual_window.append(rms)
 
             if (
-                len(self._barge_in_evidence) == self._barge_in_evidence.maxlen
+                len(self._barge_in_evidence) >= evidence_window_size
                 and evidence_hits >= evidence_required
                 and evidence_peak >= AEC_BARGE_IN_SNR_DB
                 and not self._barge_in_interrupt_requested
@@ -331,11 +347,11 @@ class MicManagerWrapper:
                         "Confirmed local AEC barge-in "
                         f"(peak_snr={evidence_peak:.1f}dB, "
                         f"required={AEC_BARGE_IN_SNR_DB:.1f}dB, "
-                        f"evidence={evidence_hits}/{self._barge_in_evidence.maxlen})."
+                        f"evidence={evidence_hits}/{evidence_window_size}, "
+                        f"needed={evidence_required})."
                     ),
                     "🗣️",
                 )
-                self._flush_barge_in_prebuffer()
                 if self.session.loop is not None:
                     asyncio.run_coroutine_threadsafe(
                         self.session.interrupt_to_user_turn(), self.session.loop

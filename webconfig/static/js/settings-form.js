@@ -312,6 +312,18 @@ const SettingsForm = (() => {
         form.addEventListener("submit", async function (e) {
             e.preventDefault();
 
+            const saveButton = document.getElementById("save-btn");
+            const saveDropdownButton = document.getElementById("dropdown-btn");
+            const originalSaveMarkup = saveButton?.innerHTML;
+            if (saveButton) {
+                saveButton.disabled = true;
+                saveButton.classList.add("opacity-70", "cursor-not-allowed");
+                saveButton.innerHTML = '<span class="material-icons align-middle animate-spin">sync</span>Saving…';
+            }
+            if (saveDropdownButton) saveDropdownButton.disabled = true;
+
+            try {
+
             const formData = new FormData(this);
             const payload = Object.fromEntries(formData.entries());
 
@@ -376,13 +388,22 @@ const SettingsForm = (() => {
                 body: JSON.stringify(payload),
             });
             const saveResult = await saveResponse.json();
+            if (!saveResponse.ok || saveResult.status !== "ok") {
+                throw new Error(saveResult.error || "The settings could not be saved");
+            }
             const portChanged = saveResult.port_changed || (oldPort !== newPort);
 
             // Re-read the saved .env through webconfig so controls stay aligned
             // with normalized server values without restarting the web UI.
-            const refreshedConfig = await ConfigService.fetchConfig(true);
-            if (refreshedConfig) {
-                refreshFromConfig(refreshedConfig);
+            try {
+                const refreshedConfig = await ConfigService.fetchConfig(true);
+                if (refreshedConfig) {
+                    refreshFromConfig(refreshedConfig);
+                }
+            } catch (refreshError) {
+                // Saving succeeded; a control-refresh failure must not be
+                // reported as if writing .env failed.
+                console.error("Settings saved, but form refresh failed:", refreshError);
             }
 
             if (newHostname && newHostname !== oldHostname) {
@@ -423,6 +444,17 @@ const SettingsForm = (() => {
                     console.error("Failed to restart Billy after save:", error);
                     showNotification("Settings saved, but the Billy restart failed", "warning", 5000);
                 }
+            }
+            } catch (error) {
+                console.error("Failed to save settings:", error);
+                showNotification(`Settings were not saved: ${error.message}`, "error", 6000);
+            } finally {
+                if (saveButton) {
+                    saveButton.disabled = false;
+                    saveButton.classList.remove("opacity-70", "cursor-not-allowed");
+                    saveButton.innerHTML = originalSaveMarkup;
+                }
+                if (saveDropdownButton) saveDropdownButton.disabled = false;
             }
         });
     };
@@ -686,7 +718,6 @@ const SettingsForm = (() => {
         // Update dropdowns with new configuration values
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-            'FOLLOW_UP_RETRY_LIMIT',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED',
             'AEC_BARGE_IN_SNR_DB'
@@ -702,6 +733,14 @@ const SettingsForm = (() => {
                 }
             }
         });
+        const followUpRetryInput = document.getElementById("FOLLOW_UP_RETRY_LIMIT");
+        if (
+            followUpRetryInput
+            && config.FOLLOW_UP_RETRY_LIMIT !== undefined
+            && config.FOLLOW_UP_RETRY_LIMIT !== null
+        ) {
+            followUpRetryInput.value = String(config.FOLLOW_UP_RETRY_LIMIT);
+        }
         populateCameraHardwareDropdown(config);
         const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
         const cameraRotationLabel = document.getElementById("camera-rotation-label");

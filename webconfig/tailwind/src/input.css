@@ -543,3 +543,52 @@ button {
 .log-level-tooltip-inline[data-tooltip][data-visible="true"] {
     @apply !flex;
 }
+
+.wakeup-action-button {
+    width: 2.75rem;
+    padding-inline: 0;
+    gap: 0;
+    transition:
+        width 240ms cubic-bezier(0.22, 1, 0.36, 1),
+        padding 240ms cubic-bezier(0.22, 1, 0.36, 1),
+        gap 240ms cubic-bezier(0.22, 1, 0.36, 1),
+        color 150ms ease,
+        border-color 150ms ease,
+        background-color 150ms ease,
+        transform 150ms ease,
+        box-shadow 150ms ease;
+}
+
+.wakeup-action-label {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .wakeup-action-label {
+        display: inline-block;
+        max-width: 0;
+        overflow: hidden;
+        opacity: 0;
+        white-space: nowrap;
+        font-size: 0.875rem;
+        transform: translateX(-0.35rem);
+        transition:
+            max-width 240ms cubic-bezier(0.22, 1, 0.36, 1),
+            opacity 160ms ease,
+            transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .wakeup-action-button:hover,
+    .wakeup-action-button:focus-visible {
+        width: 7.25rem;
+        padding-inline: 0.75rem;
+        gap: 0.5rem;
+    }
+
+    .wakeup-action-button:hover .wakeup-action-label,
+    .wakeup-action-button:focus-visible .wakeup-action-label {
+        max-width: 5rem;
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
