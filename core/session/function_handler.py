@@ -277,7 +277,9 @@ class FunctionHandler:
             "Tell the user Billy's current mood in one short spoken sentence. "
             f"Use this mood state: {json.dumps(result)}. "
             "Do not list raw numbers unless the user asked for details. "
-            "Do not ask a follow-up question. After speaking, call conversation_state with expects_follow_up=false."
+            "Do not force a follow-up question, but keep the interactive "
+            "conversation open. After speaking, call conversation_state with "
+            "expects_follow_up=true."
         )
         await self.session._ws_send_json({
             "type": "conversation.item.create",
@@ -288,6 +290,7 @@ class FunctionHandler:
             },
         })
         self.session.state._triggered_new_response = True
+        self.session._next_response_is_tool_continuation = True
         await self.session._ws_send_json({"type": "response.create"})
 
     async def _handle_set_mood(self, raw_args: str | None, call_id: str | None = None):
@@ -311,13 +314,17 @@ class FunctionHandler:
             prompt = (
                 "Confirm in one short spoken sentence that Billy's temporary mood "
                 f"is now {result['mood']['label']}. Do not imply the persona changed. "
-                "Do not ask a follow-up question. After speaking, call conversation_state with expects_follow_up=false."
+                "Do not force a follow-up question, but keep the interactive "
+                "conversation open. After speaking, call conversation_state with "
+                "expects_follow_up=true."
             )
         else:
             prompt = (
                 f"The requested mood change failed: {json.dumps(result)}. "
                 "Briefly say which moods are available. "
-                "Do not ask a follow-up question. After speaking, call conversation_state with expects_follow_up=false."
+                "Do not force a follow-up question, but keep the interactive "
+                "conversation open. After speaking, call conversation_state with "
+                "expects_follow_up=true."
             )
 
         await self.session._ws_send_json({
@@ -329,6 +336,7 @@ class FunctionHandler:
             },
         })
         self.session.state._triggered_new_response = True
+        self.session._next_response_is_tool_continuation = True
         await self.session._ws_send_json({"type": "response.create"})
 
     async def _handle_smart_home_command(
@@ -486,6 +494,9 @@ class FunctionHandler:
             },
         })
         self.session.state._triggered_new_response = True
+        # This response is a synthetic continuation of the news tool result.
+        # A user barge-in must supersede it instead of letting it resume later.
+        self.session._next_response_is_tool_continuation = True
         await self.session._ws_send_json({"type": "response.create"})
 
     async def _handle_describe_scene(

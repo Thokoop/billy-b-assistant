@@ -13,6 +13,7 @@ import websockets.exceptions
 
 from . import audio
 from .config import (
+    AEC_BARGE_IN_SNR_DB,
     FOLLOW_UP_RETRY_LIMIT,
     MIC_TIMEOUT_SECONDS,
     REALTIME_AI_PROVIDER,
@@ -29,6 +30,7 @@ from .movements import stop_all_motors
 from .persona_manager import persona_manager
 from .profile_manager import user_manager
 from .realtime_ai_provider import voice_provider_registry
+from .status_led import flash_status_led_state
 
 
 _CONVERSATION_END_PATTERNS = tuple(
@@ -48,6 +50,15 @@ def _user_clearly_ended_conversation(transcript: str) -> bool:
     if not text:
         return False
     return any(pattern.search(text) for pattern in _CONVERSATION_END_PATTERNS)
+
+
+def _aec_vad_threshold(sensitivity_db: float) -> float:
+    """Map the existing UI profiles to provider speech confidence thresholds."""
+    if sensitivity_db <= 6.0:
+        return 0.55
+    if sensitivity_db <= 9.0:
+        return 0.70
+    return 0.82
 
 
 EXPLICIT_FOLLOW_UP_SOURCES = {
@@ -173,6 +184,21 @@ class BillySession:
         self._tool_args_buffer: dict[str, str] = {}
 
         self._logged_user_transcript_item_ids: set[str] = set()
+        self._response_done_event = asyncio.Event()
+        self._current_response_id: str | None = None
+        self._cancelled_response_ids: set[str] = set()
+        self._server_barge_in_enabled = False
+        self._server_barge_in_in_progress = False
+        self._server_barge_in_response_id: str | None = None
+        self._client_managed_vad = False
+        self._barge_in_confirmation_scheduled = False
+        self._pending_client_response_create = False
+        self._pending_barge_in_mood_event = False
+        self._active_server_speech_item_id: str | None = None
+        self._assistant_overlap_speech_item_ids: set[str] = set()
+        self._locally_confirmed_barge_in_item_ids: set[str] = set()
+        self._next_response_is_tool_continuation = False
+        self._current_response_is_tool_continuation = False
 
         # Initialize handlers
         from .session import (
@@ -205,7 +231,11 @@ class BillySession:
         return "interactive"
 
     def is_assistant_turn(self) -> bool:
-        return self.state.is_assistant_turn()
+        return self.session_active.is_set() and bool(
+            self.state.assistant_speaking
+            or self.state.response_active
+            or audio.is_billy_speaking()
+        )
 
     def is_user_turn(self) -> bool:
         return self.state.is_user_turn()
@@ -296,8 +326,25 @@ class BillySession:
     }
 
     # ---- Private handlers -----------------------------------------------
-    def _on_response_created(self):
+    def _on_response_created(self, data: dict[str, Any]):
+        response = data.get("response") or {}
+        response_id = response.get("id")
+        if (
+            self._server_barge_in_in_progress
+            and response_id != self._server_barge_in_response_id
+        ):
+            self._cancelled_response_ids.discard(self._server_barge_in_response_id)
+            self._server_barge_in_in_progress = False
+            self._server_barge_in_response_id = None
+            self._pending_barge_in_mood_event = False
+        self._current_response_id = response_id
+        self._response_done_event.clear()
+        self._current_response_is_tool_continuation = (
+            self._next_response_is_tool_continuation
+        )
+        self._next_response_is_tool_continuation = False
         self.state.on_response_created()
+        self.mic_manager.reset_barge_in_evidence()
         # Clear buffered audio only for OpenAI. This was added to prevent echo
         # there, but xAI has different realtime behavior and should not get this
         # extra client event.
@@ -312,15 +359,66 @@ class BillySession:
         except Exception as e:
             logger.warning(f"Failed to clear audio buffer: {e}")
 
-    def _on_input_speech_started(self):
+    def _on_input_speech_started(self, data: dict[str, Any] | None = None):
+        assistant_was_active = bool(
+            self.state.response_active
+            or self.state.assistant_speaking
+            or audio.is_billy_speaking()
+        )
+        self._active_server_speech_item_id = (data or {}).get("item_id")
+        if assistant_was_active and self._active_server_speech_item_id:
+            # Remember how this provider turn began. It may only be committed
+            # after response.done/playback completion, when a point-in-time
+            # assistant_active check can no longer distinguish echo from a real
+            # follow-up.
+            self._assistant_overlap_speech_item_ids.add(
+                self._active_server_speech_item_id
+            )
+        if self._client_managed_vad and assistant_was_active:
+            self.mic_manager.start_barge_in_candidate()
         self.state.on_input_speech_started()
+        if self._client_managed_vad and assistant_was_active:
+            confirmed, details = self.mic_manager.has_barge_in_evidence(
+                AEC_BARGE_IN_SNR_DB
+            )
+            if not confirmed:
+                playback_similarity = details.get("playback_similarity")
+                similarity_text = (
+                    "n/a"
+                    if playback_similarity is None
+                    else f"{playback_similarity:.2f}"
+                )
+                logger.verbose(
+                    (
+                        "Provider VAD barge-in candidate awaiting local evidence "
+                        f"({details['evidence']}/{details['required']}, "
+                        f"peak={details['peak']:.1f}, "
+                        f"threshold={details['threshold']:.1f}, "
+                        "post_aec_voice="
+                        f"{details['voice_evidence']}/"
+                        f"{details['voice_required']}, "
+                        "independent_voice="
+                        f"{details.get('independent_evidence', 0)}/"
+                        f"{details.get('independent_required', 0)}, "
+                        f"playback_similarity={similarity_text}, "
+                        f"residual_floor={details['residual_floor']:.1f})."
+                    ),
+                    "🎚️",
+                )
+                return False
+        return (
+            self._server_barge_in_enabled
+            and assistant_was_active
+            and not self._server_barge_in_in_progress
+        )
 
     def _on_input_speech_stopped(self):
         self.state.on_input_speech_stopped()
 
     def _on_conversation_item_done(self, data: dict[str, Any]):
-        self.state.on_conversation_item_done(data)
+        meaningful = self.state.on_conversation_item_done(data)
         self._log_user_transcript_from_item(data)
+        return meaningful
 
     def _log_user_transcript_from_item(self, data: dict[str, Any]):
         """Log finalized user transcript when present in conversation.item.done."""
@@ -372,6 +470,8 @@ class BillySession:
         self.state.on_transcript_done(data)
 
     def _on_audio_out(self, data: dict[str, Any]):
+        if data.get("response_id") in self._cancelled_response_ids:
+            return
         self.audio_handler.on_audio_delta(data)
 
     def _on_transcript_done(self, data: dict[str, Any]):
@@ -398,9 +498,35 @@ class BillySession:
         await self.function_handler.handle(name, raw_args, call_id)
 
     async def _on_response_done(self, data: dict[str, Any]):
+        response = data.get("response") or {}
+        response_id = response.get("id")
+        if response_id == self._current_response_id:
+            self._response_done_event.set()
         # The provider response is no longer cancellable as soon as response.done
         # arrives, even though locally queued speaker audio may continue playing.
         self.state.response_active = False
+        if (
+            self._server_barge_in_in_progress
+            and response_id == self._server_barge_in_response_id
+        ):
+            self._cancelled_response_ids.discard(response_id)
+            self.state._skip_post_response_once = False
+            self.state.allow_mic_input = True
+            self.state.assistant_speaking = False
+            self.last_activity[0] = time.time()
+            logger.info(
+                "Interrupted response closed; provider VAD is collecting the "
+                "rest of the user's turn.",
+                "🎤",
+            )
+            if self._pending_client_response_create:
+                self._pending_client_response_create = False
+                await self._ws_send_json({"type": "response.create"})
+                logger.info(
+                    "Confirmed user audio turn; requested assistant response.",
+                    "✅",
+                )
+            return
         if self.state._skip_post_response_once:
             response = data.get("response") or {}
             raw_status_details = response.get("status_details")
@@ -426,6 +552,7 @@ class BillySession:
             # Even if partial transcript/audio exists, post-response follow-up logic
             # should be skipped because the mic was already reopened explicitly.
             if cancelled_by_client:
+                self._cancelled_response_ids.discard(response_id)
                 self.state._skip_post_response_once = False
                 self.state.allow_mic_input = True
                 self.state.assistant_speaking = False
@@ -440,6 +567,7 @@ class BillySession:
             # no assistant output. If output exists, process it normally to avoid getting
             # stuck in a half-open "listening/retry" state.
             if not has_meaningful_output:
+                self._cancelled_response_ids.discard(response_id)
                 self.state._skip_post_response_once = False
                 self.state.allow_mic_input = True
                 self.state.assistant_speaking = False
@@ -477,6 +605,7 @@ class BillySession:
             # handler was awaiting completion. That path already owns the mic
             # handoff, so do not save an emptied buffer or transition twice.
             if self.state._skip_post_response_once:
+                self._cancelled_response_ids.discard(response_id)
                 self.state._skip_post_response_once = False
                 self.audio_handler.signal_playback_done()
                 self.state.on_response_done()
@@ -843,12 +972,31 @@ class BillySession:
         # realtime session. Otherwise startup configures a guest/default session
         # and immediately sends a second full session.update after auto-identify.
         await self.user_handler.auto_identify_default_user()
-        mood_manager.apply_event("session_start")
 
         await self.persona_handler.reload_persona_from_profile()
 
-        vad_params = SERVER_VAD_PARAMS[TURN_EAGERNESS]
+        aec_active = not TEXT_ONLY_MODE and audio.echo_cancellation_active()
+        provider_name = self.realtime_ai_provider.get_provider_name()
+        self._server_barge_in_enabled = aec_active
+        self._client_managed_vad = aec_active and provider_name == "openai"
+        self._server_barge_in_in_progress = False
+        self._server_barge_in_response_id = None
+        self._barge_in_confirmation_scheduled = False
+        self._pending_client_response_create = False
+        self._pending_barge_in_mood_event = False
+        self._active_server_speech_item_id = None
+        self._assistant_overlap_speech_item_ids.clear()
+        self._locally_confirmed_barge_in_item_ids.clear()
+        vad_params = dict(SERVER_VAD_PARAMS[TURN_EAGERNESS])
+        if aec_active:
+            vad_params["threshold"] = _aec_vad_threshold(AEC_BARGE_IN_SNR_DB)
         logger.info(f"🔧 VAD Parameters (eagerness={TURN_EAGERNESS}): {vad_params}")
+        if aec_active:
+            logger.info(
+                "Natural barge-in uses WebRTC AEC3 voice detection plus provider VAD "
+                f"(speech threshold={vad_params['threshold']:.2f}).",
+                "🎙️",
+            )
         logger.info(
             f"🔧 Audio Config: SILENCE_THRESHOLD={SILENCE_THRESHOLD}, MIC_TIMEOUT_SECONDS={MIC_TIMEOUT_SECONDS}"
         )
@@ -890,10 +1038,11 @@ class BillySession:
                     self.ws = await self.realtime_ai_provider.connect(
                         instructions=get_instructions_with_user_context(provider_name),
                         tools=get_tools_for_current_mode(),
-                        server_vad_params=SERVER_VAD_PARAMS[TURN_EAGERNESS],
-                        # Barge-in is confirmed locally after AEC. Letting remote
-                        # VAD cancel directly makes residual echo self-interrupt.
-                        interrupt_response=False,
+                        server_vad_params=vad_params,
+                        create_response=not self._client_managed_vad,
+                        interrupt_response=(
+                            aec_active and not self._client_managed_vad
+                        ),
                         text_only_mode=TEXT_ONLY_MODE,
                         voice=persona_voice,
                     )
@@ -1053,10 +1202,11 @@ class BillySession:
                     "🔇",
                 )
                 return
-            self._on_response_created()
+            self._on_response_created(data)
             return
         if t == "input_audio_buffer.speech_started":
-            self._on_input_speech_started()
+            if self._on_input_speech_started(data):
+                await self._handle_server_barge_in()
             return
         if t == "input_audio_buffer.speech_stopped":
             self._on_input_speech_stopped()
@@ -1071,7 +1221,9 @@ class BillySession:
             self.state.on_audio_committed(self.state._pending_input_audio_chunks)
             return
         if t == "conversation.item.done":
-            self._on_conversation_item_done(data)
+            meaningful = self._on_conversation_item_done(data)
+            if self._client_managed_vad and meaningful is not None:
+                await self._finish_client_managed_audio_turn(data, meaningful)
             return
         if t in self.USER_TRANSCRIPT_TYPES:
             self._on_user_transcript_done(data)
@@ -1109,6 +1261,12 @@ class BillySession:
                     "ℹ️",
                 )
                 return
+            if code == "input_audio_buffer_commit_empty":
+                logger.verbose(
+                    "Ignoring an empty input-audio commit.",
+                    "ℹ️",
+                )
+                return
             mapped_code = "noapikey" if "invalid_api_key" in code else "error"
             logger.error(f"API Error ({mapped_code}): {message}")
             await self.error_handler.play_error_sound(mapped_code, message)
@@ -1124,8 +1282,6 @@ class BillySession:
                 caller = inspect.stack()[1]
                 reason = f"caller={caller.function}"
         logger.info(f"Stopping session... ({reason or 'unspecified'})", "🛑")
-        if reason in {"mic_timeout", "mic_retry_failed"}:
-            mood_manager.apply_event("idle_timeout")
 
         # Increment interaction count for current user at end of session
         if not self._interaction_count_recorded:
@@ -1154,46 +1310,286 @@ class BillySession:
         # Ensure run_stream is not left waiting on recv() keepalive timeouts.
         await self._close_ws(timeout=0.5)
 
-    async def interrupt_to_user_turn(self):
-        """Interrupt the assistant response and hand control back to the user mic."""
-        if not self.session_active.is_set():
+    def schedule_server_barge_in_confirmation(self):
+        """Promote a provider VAD candidate once local adaptive evidence agrees."""
+        if (
+            not self._client_managed_vad
+            or self._server_barge_in_in_progress
+            or self._barge_in_confirmation_scheduled
+            or not self.state._server_input_speaking
+        ):
+            return
+        confirmed, _details = self.mic_manager.has_barge_in_evidence(
+            AEC_BARGE_IN_SNR_DB
+        )
+        if not confirmed or self.loop is None:
             return
 
-        logger.info("Interrupting assistant turn and reopening mic...", "🛑")
-        mood_manager.apply_event("barge_in")
-        self.interrupt_event.clear()
-        audio.stop_playback()
-        # A cancelled response bypasses the normal response-done cleanup. If its
-        # buffered audio remains here, the next response is not recognised as a
-        # fresh playback turn and playback_done_event stays set, disabling AEC
-        # barge-in detection for the rest of the session.
-        self.audio_handler.clear_buffer()
+        self._barge_in_confirmation_scheduled = True
 
-        provider_response_active = self.state.response_active
-        # Also signals an already-running response.done handler that its queued
-        # playback was interrupted and it must not perform a second mic handoff.
+        def create_confirmation_task():
+            asyncio.create_task(self._run_server_barge_in_confirmation())
+
+        self.loop.call_soon_threadsafe(create_confirmation_task)
+
+    async def _run_server_barge_in_confirmation(self):
+        try:
+            if not self.state._server_input_speaking:
+                return
+            confirmed, details = self.mic_manager.has_barge_in_evidence(
+                AEC_BARGE_IN_SNR_DB
+            )
+            if not confirmed:
+                return
+
+            evidence_threshold = float(details.get("threshold") or 0.0)
+            item_id = self._active_server_speech_item_id
+            if item_id:
+                self._locally_confirmed_barge_in_item_ids.add(item_id)
+            logger.info(
+                "Post-AEC independent voice and provider VAD agreed "
+                f"(energy={details['evidence']}/{details['required']}, "
+                "voice="
+                f"{details['voice_evidence']}/{details['voice_required']}, "
+                "independent_voice="
+                f"{details.get('independent_evidence', 0)}/"
+                f"{details.get('independent_required', 0)}, "
+                "playback_similarity_min="
+                f"{details.get('playback_similarity_min', 0.0):.2f}); "
+                "confirming interruption without pausing playback.",
+                "🗣️",
+            )
+            await self._handle_server_barge_in(
+                track_continuation=True,
+                locally_confirmed=True,
+                evidence_threshold=evidence_threshold,
+            )
+        finally:
+            self._barge_in_confirmation_scheduled = False
+
+    async def _finish_client_managed_audio_turn(
+        self, data: dict[str, Any], meaningful: bool
+    ):
+        """Create a response only for locally confirmed OpenAI audio turns."""
+        item = data.get("item") or {}
+        item_id = item.get("id")
+        content = item.get("content") or []
+        if item.get("role") != "user" or not all(
+            part.get("type") == "input_audio" for part in content
+        ):
+            return
+
+        overlapped_assistant = bool(
+            item_id and item_id in self._assistant_overlap_speech_item_ids
+        )
+        locally_confirmed = bool(
+            item_id and item_id in self._locally_confirmed_barge_in_item_ids
+        )
+
+        if item_id:
+            self._assistant_overlap_speech_item_ids.discard(item_id)
+            self._locally_confirmed_barge_in_item_ids.discard(item_id)
+
+        rejected_assistant_overlap = overlapped_assistant and not (
+            locally_confirmed and meaningful
+        )
+        if rejected_assistant_overlap:
+            # Aggregate RMS over a completed assistant response mostly measures
+            # how much Billy leaked into his own microphone. A turn that began
+            # during playback is valid only if post-AEC voice detection confirmed
+            # it and speech continued briefly after playback stopped.
+            meaningful = False
+
+        assistant_active = bool(
+            self.state.response_active
+            or self.state.assistant_speaking
+            or audio.is_billy_speaking()
+        )
+        if meaningful and assistant_active and not self._server_barge_in_in_progress:
+            # Overlapping audio was validated by post-AEC voice detection. A
+            # provider item that did not begin during playback is a normal turn.
+            meaningful = not overlapped_assistant or locally_confirmed
+
+        if not meaningful:
+            # No response is automatically created in client-managed mode. Remove
+            # the echo/noise item so Billy cannot answer his own speaker audio.
+            self.state.should_ignore_short_response()
+            if item_id:
+                with contextlib.suppress(Exception):
+                    await self._ws_send_json({
+                        "type": "conversation.item.delete",
+                        "item_id": item_id,
+                    })
+            if rejected_assistant_overlap:
+                logger.info(
+                    "Discarded assistant-overlap audio turn because the "
+                    "post-AEC voice evidence did not remain valid.",
+                    "🔇",
+                )
+            else:
+                logger.info(
+                    "Discarded provider VAD turn without local barge-in evidence.",
+                    "🔇",
+                )
+            if self._server_barge_in_in_progress:
+                self._cancelled_response_ids.discard(self._server_barge_in_response_id)
+                self._server_barge_in_in_progress = False
+                self._server_barge_in_response_id = None
+                self._pending_client_response_create = False
+                self._pending_barge_in_mood_event = False
+                logger.info(
+                    "AEC candidate did not continue after playback stopped; "
+                    "remaining in listening mode.",
+                    "🎤",
+                )
+            return
+
+        if self._pending_barge_in_mood_event:
+            mood_manager.apply_event("barge_in")
+            self._pending_barge_in_mood_event = False
+        if self.state.response_active:
+            self._pending_client_response_create = True
+            logger.verbose(
+                "Confirmed user turn is waiting for response cancellation.",
+                "⏳",
+            )
+            return
+        await self._ws_send_json({"type": "response.create"})
+        logger.info("Confirmed user audio turn; requested assistant response.", "✅")
+
+    async def _handle_server_barge_in(
+        self,
+        *,
+        track_continuation=True,
+        locally_confirmed=False,
+        evidence_threshold=0.0,
+    ):
+        """Stop an assistant turn after provider VAD detects cleaned user speech."""
+        if not self.session_active.is_set() or self._server_barge_in_in_progress:
+            return
+        if (
+            self._client_managed_vad
+            and track_continuation
+            and not self.state._server_input_speaking
+        ):
+            return
+
+        if self._client_managed_vad and not locally_confirmed:
+            confirmed, details = self.mic_manager.has_barge_in_evidence(
+                AEC_BARGE_IN_SNR_DB
+            )
+            if not confirmed:
+                return
+            evidence_threshold = float(details.get("threshold") or 0.0)
+
+        self._server_barge_in_in_progress = True
+        self._server_barge_in_response_id = self._current_response_id
+        interrupted_response_id = self._current_response_id
+        interruption_point = self.audio_handler.interruption_point()
+        provider_name = self.realtime_ai_provider.get_provider_name()
+
+        logger.info(
+            "Provider VAD confirmed user speech over Billy; stopping playback.",
+            "🗣️",
+        )
+        if self._client_managed_vad:
+            self._pending_barge_in_mood_event = True
+        else:
+            mood_manager.apply_event("barge_in")
+        if track_continuation:
+            self.state.begin_confirmed_barge_in(evidence_threshold)
+        if interrupted_response_id:
+            self._cancelled_response_ids.add(interrupted_response_id)
         self.state._skip_post_response_once = True
-        if provider_response_active:
-            # Ignore the trailing response.done from this cancelled assistant turn.
+
+        flash_status_led_state("interrupted")
+        audio.stop_playback()
+        self.audio_handler.clear_buffer()
+        self.state.allow_mic_input = True
+        self.state.assistant_speaking = False
+        self._set_listening_state()
+        self.last_activity[0] = time.time()
+
+        # WebSocket clients own playback, so tell OpenAI exactly how much of the
+        # item was heard. This removes the unheard tail from conversation context.
+        if provider_name == "openai" and interruption_point:
+            try:
+                await self._ws_send_json({
+                    "type": "conversation.item.truncate",
+                    **interruption_point,
+                })
+                logger.info(
+                    "Truncated interrupted assistant audio at "
+                    f"{interruption_point['audio_end_ms']} ms.",
+                    "✂️",
+                )
+            except Exception as exc:
+                logger.warning(f"Could not truncate interrupted audio: {exc}")
+
+        # Client-managed OpenAI VAD deliberately disables automatic interruption
+        # so echo-only speech events cannot cancel playback. Confirmed speech and
+        # providers without that option are cancelled explicitly here.
+        if (
+            provider_name != "openai" or self._client_managed_vad
+        ) and self.state.response_active:
             with contextlib.suppress(Exception):
                 await self._ws_send_json({"type": "response.cancel"})
 
-        # Any server-speech marker at this point belongs to audio from before
-        # the handoff. Fresh speech_started events from the buffered/live user
-        # audio will set it again.
+    async def interrupt_to_user_turn(self, *, source="button"):
+        """Interrupt the assistant from a physical/manual control."""
+        if not self.session_active.is_set():
+            return
+
+        logger.info(
+            f"Interrupting assistant turn from {source} and reopening mic...",
+            "🛑",
+        )
+        mood_manager.apply_event("barge_in")
+        self.interrupt_event.clear()
+
+        provider_response_active = self.state.response_active
+        provider_name = self.realtime_ai_provider.get_provider_name()
+        interrupted_response_id = self._current_response_id
+
+        # Stop capture forwarding before clearing the provider buffer. Without
+        # this short gate, speech immediately after the button can be appended to
+        # the echo-triggered item that began while Billy was still speaking; the
+        # assistant-overlap guard must then reject the entire mixed item.
+        self.state.allow_mic_input = False
+        self.state.response_active = False
+        self.state.assistant_speaking = False
+        flash_status_led_state("interrupted")
+        audio.stop_playback()
+        self.audio_handler.clear_buffer()
+
+        # Manual control owns this handoff. Discard any simultaneous automatic
+        # AEC candidate so it cannot keep the button path in barge-in state.
+        self._server_barge_in_in_progress = False
+        self._server_barge_in_response_id = None
+        self._barge_in_confirmation_scheduled = False
+        self._pending_client_response_create = False
+        self._pending_barge_in_mood_event = False
+        self._locally_confirmed_barge_in_item_ids.clear()
         self.state._server_input_speaking = False
         self.state._server_input_speech_started_at = 0.0
 
-        # Send preserved near-end speech only after the assistant cancellation
-        # has been placed on the websocket. Sending it first can leave those
-        # chunks attached to the response being cancelled instead of the new
-        # user turn, which stops playback without producing a barge-in turn.
-        self.mic_manager._flush_barge_in_prebuffer()
+        if interrupted_response_id:
+            self._cancelled_response_ids.add(interrupted_response_id)
+        self.state._skip_post_response_once = True
+        if provider_name == "openai" and self._client_managed_vad:
+            with contextlib.suppress(Exception):
+                await self._ws_send_json({"type": "input_audio_buffer.clear"})
+                logger.info(
+                    "Cleared echo-contaminated input for manual button handoff.",
+                    "🧹",
+                )
+            self._active_server_speech_item_id = None
 
-        # Force user-turn gating open even if provider state is racing.
-        self.state.response_active = False
+        if provider_response_active:
+            with contextlib.suppress(Exception):
+                await self._ws_send_json({"type": "response.cancel"})
+
         self.state.allow_mic_input = True
-        self.state.assistant_speaking = False
         if provider_response_active:
             self.state._saw_follow_up_call = False
         self.last_activity[0] = time.time()

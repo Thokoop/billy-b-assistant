@@ -54,6 +54,7 @@ class StatusLed:
         "idle": {"mode": "pulse", "color": (0, 32, 12), "period": 2.8},
         "listening": {"mode": "solid", "color": (0, 180, 24)},
         "speaking": {"mode": "pulse", "color": (255, 110, 0), "period": 0.9},
+        "interrupted": {"mode": "blink", "color": (255, 72, 0), "period": 0.16},
         "playing_song": {"mode": "rainbow", "period": 1.2},
         "error": {"mode": "blink", "color": (255, 0, 0), "period": 0.45},
         "stopping": {"mode": "blink", "color": (255, 48, 0), "period": 0.8},
@@ -67,6 +68,8 @@ class StatusLed:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._state = "off"
+        self._transient_state: str | None = None
+        self._transient_until = 0.0
         self._initialized = False
         self._brightness = max(0.0, min(config.STATUS_LED_BRIGHTNESS, 1.0))
         self._backend: str | None = None
@@ -136,6 +139,27 @@ class StatusLed:
         with self._lock:
             return self._state
 
+    def flash_state(self, state: str, duration_seconds: float = 0.45):
+        """Temporarily show a state, then reveal the latest logical state."""
+        if state not in self._STATE_CONFIG:
+            logger.warning(f"Unknown status LED state '{state}', ignoring.", "💡")
+            return
+        duration = max(0.0, float(duration_seconds))
+        if duration <= 0.0:
+            return
+        with self._lock:
+            self._transient_state = state
+            self._transient_until = time.monotonic() + duration
+
+    def _animation_state(self, now: float) -> str:
+        """Return a transient animation state without replacing logical state."""
+        with self._lock:
+            if self._transient_state and now < self._transient_until:
+                return self._transient_state
+            self._transient_state = None
+            self._transient_until = 0.0
+            return self._state
+
     def cleanup(self):
         """Stop animations and turn the LED off."""
         self._stop_event.set()
@@ -149,6 +173,9 @@ class StatusLed:
         self._backend = None
         self._animation_thread = None
         self._stop_event = threading.Event()
+        with self._lock:
+            self._transient_state = None
+            self._transient_until = 0.0
         if strip and hasattr(strip, "deinit"):
             with contextlib.suppress(Exception):
                 strip.deinit()
@@ -195,15 +222,12 @@ class StatusLed:
 
     def _run_animation_loop(self):
         while not self._stop_event.is_set():
-            with self._lock:
-                state = self._state
-
+            now = time.monotonic()
+            state = self._animation_state(now)
             config_for_state = self._STATE_CONFIG.get(state, self._STATE_CONFIG["off"])
             mode = str(config_for_state["mode"])
             color = config_for_state.get("color", (0, 0, 0))
             period = float(config_for_state.get("period", 1.0))
-            now = time.monotonic()
-
             if mode == "solid":
                 self._set_pixels(color)
                 self._stop_event.wait(0.1)
@@ -272,6 +296,11 @@ def set_status_led_state(state: str):
 def get_status_led_state() -> str:
     """Return the shared status LED state."""
     return status_led.get_state()
+
+
+def flash_status_led_state(state: str, duration_seconds: float = 0.45):
+    """Show a temporary LED animation without delaying later state updates."""
+    status_led.flash_state(state, duration_seconds)
 
 
 def cleanup_status_led():

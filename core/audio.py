@@ -53,6 +53,7 @@ playback_queue = Queue()
 head_move_queue = Queue()
 playback_done_event = threading.Event()
 _playback_thread = None
+_playback_output_latency_seconds = 0.0
 last_played_time = time.time()
 song_mode = False
 beat_length = 0.5
@@ -71,8 +72,43 @@ def echo_cancellation_active() -> bool:
     return echo_canceller.initialize()
 
 
-def process_mic_with_aec(samples):
-    return echo_canceller.process_capture(samples, MIC_RATE or PROVIDER_MIC_RATE)
+def process_mic_with_aec(samples, *, render_active=True):
+    return echo_canceller.process_capture(
+        samples,
+        MIC_RATE or PROVIDER_MIC_RATE,
+        render_active=render_active,
+    )
+
+
+def aec_voice_detected() -> bool | None:
+    """Return WebRTC VAD's latest decision on the echo-cancelled mic frame."""
+    return echo_canceller.voice_detected
+
+
+def aec_playback_similarity() -> float | None:
+    """Return gain-independent similarity of cleaned mic to Billy's playback."""
+    return echo_canceller.playback_similarity
+
+
+def set_aec_capture_latency(seconds):
+    echo_canceller.set_capture_latency(seconds)
+
+
+def set_aec_render_latency(seconds):
+    echo_canceller.set_render_latency(seconds)
+
+
+def begin_aec_playback_generation() -> int:
+    """Start a new isolated speaker-reference generation."""
+    return echo_canceller.begin_render_generation()
+
+
+def is_current_aec_playback_generation(generation: int) -> bool:
+    return echo_canceller.is_current_render_generation(generation)
+
+
+def aec_heard_audio_ms(generation=None) -> int:
+    return echo_canceller.heard_audio_ms(generation)
 
 
 def mic_input_samples_for_meter(indata):
@@ -191,6 +227,7 @@ def detect_devices(debug=False):
 def playback_worker(chunk_ms):
     global last_played_time
     global song_start_time
+    global _playback_output_latency_seconds
 
     interlude_counter = 0
     interlude_target = random.randint(150000, 300000)
@@ -205,6 +242,13 @@ def playback_worker(chunk_ms):
         with sd.OutputStream(
             samplerate=48000, channels=2, dtype='int16', device=OUTPUT_DEVICE_INDEX
         ) as stream:
+            try:
+                _playback_output_latency_seconds = max(
+                    0.0, float(getattr(stream, "latency", 0.0) or 0.0)
+                )
+            except (TypeError, ValueError):
+                _playback_output_latency_seconds = 0.0
+            set_aec_render_latency(_playback_output_latency_seconds)
             logger.info("Output stream opened", "🔈")
             while True:
                 item = playback_queue.get()
@@ -268,15 +312,31 @@ def playback_worker(chunk_ms):
 
                     elif mode == "tts":
                         chunk = item[1]
+                        generation = item[2] if len(item) > 2 else None
                         mono = np.frombuffer(chunk, dtype=np.int16)
                         chunk_len = int(PROVIDER_OUTPUT_RATE * chunk_ms / 1000)
                         for i in range(0, len(mono), chunk_len):
+                            if (
+                                generation is not None
+                                and not is_current_aec_playback_generation(generation)
+                            ):
+                                break
                             sub = mono[i : i + chunk_len]
                             if len(sub) == 0:
                                 continue
-                            echo_canceller.feed_render(sub, PROVIDER_OUTPUT_RATE)
+                            speaker_pcm = _resample_24k_mono_to_48k_stereo(sub)
+                            echo_canceller.feed_render(
+                                speaker_pcm[:, 0], 48000, generation
+                            )
                             flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
-                            stream.write(_resample_24k_mono_to_48k_stereo(sub))
+                            write_started_at = time.monotonic()
+                            stream.write(speaker_pcm)
+                            echo_canceller.mark_render_written(
+                                len(speaker_pcm),
+                                48000,
+                                generation,
+                                write_started_at,
+                            )
 
                             interlude_counter += len(sub)
                             interlude_counter, interlude_target = (
@@ -293,9 +353,16 @@ def playback_worker(chunk_ms):
                         sub = mono[i : i + chunk_len]
                         if len(sub) == 0:
                             continue
-                        echo_canceller.feed_render(sub, PROVIDER_OUTPUT_RATE)
+                        speaker_pcm = _resample_24k_mono_to_48k_stereo(sub)
+                        echo_canceller.feed_render(speaker_pcm[:, 0], 48000)
                         flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
-                        stream.write(_resample_24k_mono_to_48k_stereo(sub))
+                        write_started_at = time.monotonic()
+                        stream.write(speaker_pcm)
+                        echo_canceller.mark_render_written(
+                            len(speaker_pcm),
+                            48000,
+                            write_started_at=write_started_at,
+                        )
 
                         interlude_counter += len(sub)
                         interlude_counter, interlude_target = _maybe_trigger_interlude(
@@ -354,11 +421,11 @@ def send_mic_audio(ws, samples, loop):
     try:
         # Session teardown races can call this with invalid websocket/loop.
         if ws is None or loop is None:
-            return
+            return None
         if getattr(ws, "closed", False):
-            return
+            return None
         if getattr(loop, "is_closed", lambda: False)():
-            return
+            return None
 
         # Ensure samples is a proper numpy array
         if not isinstance(samples, np.ndarray):
@@ -370,7 +437,7 @@ def send_mic_audio(ws, samples, loop):
 
         # Check if samples is empty
         if len(samples) == 0:
-            return
+            return None
 
         if np.issubdtype(samples.dtype, np.floating):
             max_abs = float(np.max(np.abs(samples))) if samples.size else 0.0
@@ -388,7 +455,7 @@ def send_mic_audio(ws, samples, loop):
             samples = resample(samples.astype(np.float32), target_len).astype(np.int16)
         pcm = samples.tobytes()
 
-        asyncio.run_coroutine_threadsafe(
+        return asyncio.run_coroutine_threadsafe(
             ws.send(
                 json.dumps({
                     "type": "input_audio_buffer.append",
@@ -398,8 +465,7 @@ def send_mic_audio(ws, samples, loop):
             loop,
         )
 
-        # Don't block on websocket send - let it complete asynchronously
-        # This significantly improves audio response latency
+        # Keep capture non-blocking; callers may inspect the future if needed.
     except RuntimeError as e:
         # Typical during shutdown (event loop closed / scheduling after stop).
         logger.verbose(f"Skipping mic chunk during shutdown: {e}", "ℹ️")
@@ -560,6 +626,9 @@ def _filter_wake_up_clips_for_mood(clips: list[str], persona_name: str) -> list[
 
 def stop_playback():
     """Immediately stop playback and flush queue."""
+    # Invalidate first so a chunk already owned by the playback worker cannot
+    # add cancelled response audio to the next response's AEC reference.
+    echo_canceller.invalidate_render_generation()
     while not playback_queue.empty():
         try:
             playback_queue.get_nowait()

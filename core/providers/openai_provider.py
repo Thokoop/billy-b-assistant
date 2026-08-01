@@ -134,6 +134,7 @@ class OpenAIProvider(RealtimeAIProvider):
         server_vad_params = dict(kwargs.get("server_vad_params", {}))
         text_only_mode = bool(kwargs.get("text_only_mode", False))
         voice = str(kwargs.get("voice", self.default_voice))
+        create_response = bool(kwargs.get("create_response", True))
         interrupt_response = bool(kwargs.get("interrupt_response", False))
 
         audio_config = {
@@ -142,7 +143,7 @@ class OpenAIProvider(RealtimeAIProvider):
                 "turn_detection": {
                     "type": "server_vad",
                     **server_vad_params,
-                    "create_response": True,
+                    "create_response": create_response,
                     "interrupt_response": interrupt_response,
                 },
             },

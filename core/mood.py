@@ -12,7 +12,7 @@ import json
 import os
 import re
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,10 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 PROFILES_DIR = ROOT_DIR / "profiles"
 
 MOOD_DIMENSIONS = ("positivity", "energy", "irritability", "engagement", "composure")
+MOOD_DECAY_POINTS_PER_HOUR = 4
+MOOD_MEMORY_HOURS = 24
+MOOD_MEMORY_MAX_EVENTS = 12
+MOOD_MOMENTUM_HOURS = 6
 
 
 @dataclass
@@ -36,6 +40,7 @@ class MoodState:
     label: str = "neutral"
     last_updated: str = ""
     last_event: str = "startup"
+    memory: list[dict[str, Any]] = field(default_factory=list)
 
 
 MOOD_PRESETS: dict[str, dict[str, int]] = {
@@ -168,7 +173,6 @@ MOOD_PRESETS: dict[str, dict[str, int]] = {
 }
 
 MOOD_EVENTS: dict[str, dict[str, int]] = {
-    "session_start": {"energy": 4, "engagement": 5},
     "user_thanks": {"positivity": 8, "irritability": -3, "engagement": 4},
     "user_praise": {"positivity": 10, "composure": 8, "engagement": 4},
     "user_complaint": {"positivity": -8, "irritability": 5, "composure": -3},
@@ -182,11 +186,12 @@ MOOD_EVENTS: dict[str, dict[str, int]] = {
     "billy_bored": {"energy": -5, "engagement": -3},
     "unclear_audio": {"irritability": 6, "energy": -2},
     "barge_in": {"irritability": 7, "energy": 4, "positivity": -3},
-    "idle_timeout": {"energy": -5, "engagement": -3},
     "tool_success": {"composure": 3},
     "song_requested": {"energy": 10, "positivity": 4},
     "error": {"positivity": -10, "irritability": 5, "composure": -4},
 }
+
+MOOD_MEMORY_EVENTS = frozenset(MOOD_EVENTS) - {"tool_success"}
 
 MODEL_REPORTED_MOOD_EVENTS = (
     "none",
@@ -260,6 +265,15 @@ class MoodManager:
             )
             self.state.last_updated = str(raw.get("last_updated") or "")
             self.state.last_event = str(raw.get("last_event") or "loaded")
+            try:
+                loaded_memory = json.loads(raw.get("memory") or "[]")
+                if isinstance(loaded_memory, list):
+                    self.state.memory = [
+                        entry for entry in loaded_memory if isinstance(entry, dict)
+                    ][-MOOD_MEMORY_MAX_EVENTS:]
+            except (TypeError, json.JSONDecodeError):
+                self.state.memory = []
+            self._prune_memory_locked()
             self._loaded_mtime_ns = self._path_mtime_ns()
         except Exception as e:
             logger.warning(f"Failed to load mood state; using neutral mood: {e}")
@@ -330,7 +344,8 @@ class MoodManager:
         config.add_section("MOOD")
 
         for key, value in asdict(self.state).items():
-            config.set("MOOD", key, str(value))
+            serialized = json.dumps(value) if key == "memory" else str(value)
+            config.set("MOOD", key, serialized)
 
         with self.path.open("w") as f:
             config.write(f)
@@ -339,7 +354,19 @@ class MoodManager:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             self._sync_current_profile_locked()
+            mood_changed = self._decay_locked()
+            memory_changed = self._prune_memory_locked()
+            if mood_changed or memory_changed:
+                self._save_locked()
             state = asdict(self.state)
+            state.pop("memory", None)
+            state["momentum"] = self._momentum_summary_locked()
+            state["recent_influences"] = [
+                str(entry.get("event") or "")
+                for entry in self.state.memory[-3:]
+                if entry.get("event")
+            ]
+            state["memory_count"] = len(self.state.memory)
             state["profile"] = self._active_profile_key or self._current_profile_key()
             return state
 
@@ -356,6 +383,7 @@ class MoodManager:
             self._sync_current_profile_locked()
             for key, value in MOOD_PRESETS[normalized].items():
                 setattr(self.state, key, _clamp(value))
+            self.state.memory = []
             self.state.label = normalized
             self.state.last_event = event
             self._save_locked()
@@ -373,11 +401,16 @@ class MoodManager:
         with self._lock:
             self._sync_current_profile_locked()
             self._decay_locked()
-            for key, delta in adjustments.items():
-                if key in MOOD_DIMENSIONS:
-                    current = getattr(self.state, key)
-                    setattr(self.state, key, _clamp(current + delta * weight))
+            now = datetime.now(timezone.utc)
+            weighted_changes = {
+                key: delta * weight
+                for key, delta in adjustments.items()
+                if key in MOOD_DIMENSIONS
+            }
+            self._apply_with_momentum_locked(weighted_changes, now)
             self.state.last_event = event
+            if event in MOOD_MEMORY_EVENTS:
+                self._remember_event_locked(event, weighted_changes, now)
             self._save_locked()
             result = self.snapshot()
 
@@ -408,29 +441,162 @@ class MoodManager:
         with self._lock:
             self._sync_current_profile_locked()
             self._decay_locked()
-            for key, value in changes.items():
-                if key in MOOD_DIMENSIONS:
-                    setattr(self.state, key, _clamp(getattr(self.state, key) + value))
+            now = datetime.now(timezone.utc)
+            mood_changes = {
+                key: value for key, value in changes.items() if key in MOOD_DIMENSIONS
+            }
+            self._apply_with_momentum_locked(mood_changes, now)
             self.state.last_event = event
+            self._remember_event_locked(event, mood_changes, now)
             self._save_locked()
             result = self.snapshot()
 
         self.publish()
         return {"ok": True, "mood": result}
+
+    def _apply_with_momentum_locked(
+        self, changes: dict[str, Any], now: datetime
+    ) -> None:
+        self._prune_memory_locked(now)
+        for key, raw_delta in changes.items():
+            try:
+                delta = float(raw_delta)
+            except (TypeError, ValueError):
+                continue
+            if not delta:
+                continue
+
+            multiplier = self._momentum_multiplier_locked(key, delta, now)
+            effective_delta = int(round(delta * multiplier))
+            if not effective_delta:
+                effective_delta = 1 if delta > 0 else -1
+            setattr(
+                self.state,
+                key,
+                _clamp(getattr(self.state, key) + effective_delta),
+            )
+
+    def _momentum_multiplier_locked(
+        self, dimension: str, delta: float, now: datetime
+    ) -> float:
+        trend = self._momentum_values_locked(now).get(dimension, 0.0)
+        if not trend or trend * delta == 0:
+            return 1.0
+
+        strength = min(0.5, abs(trend) / 20)
+        if trend * delta > 0:
+            return 1.0 + strength
+
+        # Strong events can still break through an established mood direction.
+        minimum = 0.85 if abs(delta) >= 10 else 0.55
+        return max(minimum, 1.0 - strength)
+
+    def _remember_event_locked(
+        self, event: str, changes: dict[str, Any], now: datetime
+    ) -> None:
+        normalized_changes = {}
+        for key, value in changes.items():
+            if key not in MOOD_DIMENSIONS:
+                continue
+            try:
+                normalized_changes[key] = round(float(value), 2)
+            except (TypeError, ValueError):
+                continue
+        if not normalized_changes:
+            return
+
+        self._prune_memory_locked(now)
+        self.state.memory.append({
+            "event": event,
+            "timestamp": now.isoformat(),
+            "changes": normalized_changes,
+        })
+        self.state.memory = self.state.memory[-MOOD_MEMORY_MAX_EVENTS:]
+
+    def _prune_memory_locked(self, now: datetime | None = None) -> bool:
+        current_time = now or datetime.now(timezone.utc)
+        kept = []
+        for entry in self.state.memory:
+            timestamp = self._parse_timestamp(entry.get("timestamp"))
+            if timestamp is None:
+                continue
+            age_seconds = (current_time - timestamp).total_seconds()
+            if 0 <= age_seconds <= MOOD_MEMORY_HOURS * 3600:
+                kept.append(entry)
+
+        kept = kept[-MOOD_MEMORY_MAX_EVENTS:]
+        changed = kept != self.state.memory
+        self.state.memory = kept
+        return changed
+
+    def _momentum_values_locked(self, now: datetime | None = None) -> dict[str, float]:
+        current_time = now or datetime.now(timezone.utc)
+        momentum = {key: 0.0 for key in MOOD_DIMENSIONS}
+        for entry in self.state.memory:
+            timestamp = self._parse_timestamp(entry.get("timestamp"))
+            changes = entry.get("changes")
+            if timestamp is None or not isinstance(changes, dict):
+                continue
+            age_hours = max(0.0, (current_time - timestamp).total_seconds() / 3600)
+            if age_hours > MOOD_MEMORY_HOURS:
+                continue
+            influence = max(0.0, 1.0 - age_hours / MOOD_MOMENTUM_HOURS)
+            for key in MOOD_DIMENSIONS:
+                try:
+                    momentum[key] += float(changes.get(key, 0)) * influence
+                except (TypeError, ValueError):
+                    continue
+        return momentum
+
+    def _momentum_summary_locked(self) -> dict[str, str]:
+        summary = {}
+        for key, value in self._momentum_values_locked().items():
+            if value >= 2:
+                summary[key] = "rising"
+            elif value <= -2:
+                summary[key] = "falling"
+            else:
+                summary[key] = "steady"
+        return summary
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except (TypeError, ValueError):
+            return None
 
     def decay_toward_baseline(self):
         with self._lock:
             self._sync_current_profile_locked()
-            self._decay_locked()
-            self.state.last_event = "decay"
-            self._save_locked()
+            if self._decay_locked():
+                self._save_locked()
             result = self.snapshot()
 
         self.publish()
         return {"ok": True, "mood": result}
 
-    def _decay_locked(self):
+    def _decay_locked(self, now: datetime | None = None) -> bool:
+        if not self.state.last_updated:
+            return False
+
+        last_updated = self._parse_timestamp(self.state.last_updated)
+        if last_updated is None:
+            return False
+
+        current_time = now or datetime.now(timezone.utc)
+        elapsed_seconds = max(0.0, (current_time - last_updated).total_seconds())
+        decay_points = int(elapsed_seconds * MOOD_DECAY_POINTS_PER_HOUR / 3600)
+        if decay_points < 1:
+            return False
+
         baseline = MOOD_PRESETS["neutral"]
+        changed = False
         for key, target in baseline.items():
             current = getattr(self.state, key)
             if current == target:
@@ -439,8 +605,10 @@ class MoodManager:
             setattr(
                 self.state,
                 key,
-                _clamp(current + direction * min(3, abs(target - current))),
+                _clamp(current + direction * min(decay_points, abs(target - current))),
             )
+            changed = True
+        return changed
 
     def _derive_label(self) -> str:
         positivity = self.state.positivity

@@ -331,7 +331,9 @@
                     <div class="relative">
                         <div data-tooltip>
                             Keeps the microphone active while Billy speaks and uses the built-in
-                            SpeexDSP echo canceller to suppress Billy's own voice.
+                            WebRTC AEC3 audio processor to suppress Billy's own voice. The cleaned
+                            microphone must pass both WebRTC voice detection and the provider's
+                            speech detection.
                         </div>
                         <select id="AEC_ENABLED" name="AEC_ENABLED"
                                 class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
@@ -350,8 +352,8 @@
                     </label>
                     <div class="relative">
                         <div data-tooltip>
-                            Controls how readily speech interrupts Billy. Detection adapts automatically
-                            to microphone gain and speaker volume.<br>
+                            Controls how much sustained post-AEC voice and energy is required before
+                            Billy accepts the provider's speech detection as an interruption.<br>
                             <b>High</b> = reacts to quieter speech, but may trigger more easily.<br>
                             <b>Balanced</b> = recommended default.<br>
                             <b>Conservative</b> = strongest protection against false interruptions.

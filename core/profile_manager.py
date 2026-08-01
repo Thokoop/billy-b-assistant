@@ -130,6 +130,7 @@ class UserProfile:
                 'label': 'neutral',
                 'last_updated': '',
                 'last_event': 'startup',
+                'memory': '[]',
             },
             'core_memories': [],
         }
@@ -190,6 +191,7 @@ class UserProfile:
             'label': 'neutral',
             'last_updated': '',
             'last_event': 'startup',
+            'memory': '[]',
         }
         mood_keys = set(mood_defaults)
 

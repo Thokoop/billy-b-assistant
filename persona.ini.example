@@ -8,16 +8,6 @@ curiosity = 60
 verbosity = 40
 formality = 0
 
-[MOOD]
-positivity = 50
-energy = 50
-irritability = 30
-engagement = 50
-composure = 50
-label = neutral
-last_updated =
-last_event = startup
-
 [BACKSTORY]
 origin = River Thames, near Tower Bridge
 species = largemouth bass

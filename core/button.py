@@ -72,6 +72,7 @@ session_instance: BillySession | None = None
 wakeword_listener = None
 last_button_time = 0
 last_active_button_press_time = 0
+_button_was_pressed = False
 button_debounce_delay = 0.12  # seconds debounce against switch bounce
 button_double_press_window = 0.6  # second press in this window counts as double press
 _session_start_lock = threading.Lock()  # Lock to prevent concurrent session starts
@@ -222,11 +223,32 @@ def _handle_active_session_button_press(force_stop: bool = False):
     ):
         try:
             logger.info("Assistant is speaking. Handing turn back to user...", "🎙️")
+            # Stop audible output synchronously in the GPIO callback. The
+            # websocket cancellation and mic handoff can finish asynchronously,
+            # but the physical button must always feel immediate.
+            audio.stop_playback()
             future = asyncio.run_coroutine_threadsafe(
-                session_instance.interrupt_to_user_turn(), session_instance.loop
+                session_instance.interrupt_to_user_turn(source="button"),
+                session_instance.loop,
             )
-            future.result(timeout=3.0)
-            logger.success("Turn handed back to user (mic open).")
+
+            def handoff_done(completed_future):
+                try:
+                    completed_future.result()
+                    logger.success("Turn handed back to user (mic open).")
+                except Exception as e:
+                    logger.warning(
+                        f"Turn handoff failed, stopping session instead: {e}"
+                    )
+                    # A Future callback can run on the session event-loop thread;
+                    # stop from a separate thread so waiting for that loop cannot
+                    # deadlock it.
+                    threading.Thread(
+                        target=_stop_active_session,
+                        daemon=True,
+                    ).start()
+
+            future.add_done_callback(handoff_done)
             return
         except Exception as e:
             logger.warning(f"Turn handoff failed, stopping session instead: {e}")
@@ -385,16 +407,22 @@ def on_wake_word():
     trigger_session_start(source="wake-word")
 
 
-def on_button():
-    global last_button_time, last_active_button_press_time
+def on_button(source: str = "gpio-edge"):
+    global last_button_time, last_active_button_press_time, _button_was_pressed
 
     now = time.time()
+    if _button_was_pressed:
+        return
     if now - last_button_time < button_debounce_delay:
         return  # Ignore very quick repeat presses (debounce)
     last_button_time = now
+    _button_was_pressed = True
 
-    if not button.is_pressed:
-        return
+    if source == "poll":
+        logger.warning(
+            "Button press recovered by GPIO polling fallback.",
+            "🛠️",
+        )
 
     if is_active:
         double_press = (
@@ -418,7 +446,7 @@ def stop_background_services():
 
 
 def start_loop():
-    global wakeword_listener
+    global wakeword_listener, _button_was_pressed
 
     audio.detect_devices(debug=True)
     _ensure_button_hold_thread()
@@ -473,9 +501,22 @@ def start_loop():
                 input("Press Enter to simulate button press: ")
                 button.is_pressed = True
                 on_button()
+                button.is_pressed = False
+                _button_was_pressed = False
         except KeyboardInterrupt:
             pass
     else:
         while True:
             _ensure_button_hold_thread()
-            time.sleep(0.1)
+            # gpiozero normally supplies the falling-edge callback. Polling the
+            # level as well makes the physical control recover if its callback
+            # worker misses an edge or stops after a long-running handler.
+            try:
+                pressed = bool(button.is_pressed)
+                if pressed and not _button_was_pressed:
+                    on_button(source="poll")
+                elif not pressed:
+                    _button_was_pressed = False
+            except Exception as e:
+                logger.verbose(f"Button polling skipped: {e}", "ℹ️")
+            time.sleep(0.02)

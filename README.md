@@ -284,12 +284,22 @@ pip3 install -r ./requirements.txt
 ```
 
 To let people interrupt Billy while he is speaking, enable **Voice interruption
-(AEC)** in Hardware Settings. The prebuilt SpeexDSP echo canceller is installed
-with Billy's normal Python requirements. Interruption sensitivity is measured
-relative to the learned residual echo level, so it adapts to microphone gain and
-speaker volume. The default requires speech to rise 9 dB above that level.
-If AEC cannot start, Billy automatically
-keeps the existing half-duplex microphone gating instead of risking echo.
+(AEC)** in Hardware Settings. Billy uses WebRTC's AEC3 audio-processing front
+end with noise suppression and automatic gain control. The exact PCM written to
+the speaker is supplied as the echo reference, while provider VAD handles speech
+start and turn completion on the cleaned microphone stream. Billy confirms an
+interruption only when provider VAD, adaptive post-AEC energy and a standalone
+WebRTC detector applied to AEC3's cleaned output agree. A normalized waveform
+comparison also rejects cleaned speech that still matches Billy's recent
+speaker output, so changing microphone gain or speaker volume does not bypass
+the self-echo guard; verification never pauses speaker playback.
+
+AEC is installed with Billy's normal Python requirements, so no separate AEC
+installation step is needed. A compatible prebuilt wheel is used when one is
+available. On an unsupported Python or Raspberry Pi OS combination, the first
+installation may take several minutes while the native WebRTC component is
+built. If AEC3 cannot start, Billy automatically keeps the existing
+half-duplex microphone gating instead of risking echo.
 
 If you want to use `openwakeword` and `pip` resolved it to `0.4.x`, install the newer release manually:
 

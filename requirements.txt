@@ -23,4 +23,5 @@ onnxruntime
 pypdf
 openpyxl
 Pillow
-pyaec==1.0.1
+aec-audio-processing==1.0.1
+webrtcvad-wheels==2.0.14
