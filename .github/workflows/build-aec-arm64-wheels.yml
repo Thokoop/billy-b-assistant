@@ -1,0 +1,106 @@
+name: Build ARM64 AEC wheels
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish wheels to the fixed AEC dependency release
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  AEC_VERSION: "1.0.1"
+  AEC_RELEASE_TAG: "aec-wheels-v1.0.1-billy1"
+
+jobs:
+  build:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-22.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential meson ninja-build swig
+          python -m pip install --upgrade pip
+
+      - name: Build wheel from the pinned source release
+        run: |
+          mkdir -p source package wheelhouse
+          python -m pip download \
+            --no-deps \
+            --no-binary=:all: \
+            --dest source \
+            "aec-audio-processing==${AEC_VERSION}"
+          tar -xzf source/aec_audio_processing-${AEC_VERSION}.tar.gz \
+            --strip-components=1 \
+            -C package
+          python -m pip wheel \
+            --no-deps \
+            --wheel-dir wheelhouse \
+            ./package
+
+      - name: Verify the wheel
+        run: |
+          python -m pip install --force-reinstall wheelhouse/*.whl
+          python - <<'PY'
+          from aec_audio_processing import AudioProcessor
+
+          processor = AudioProcessor(
+              enable_aec=True,
+              enable_ns=True,
+              enable_agc=True,
+              enable_vad=False,
+          )
+          processor.set_stream_format(48000, 1, 48000, 1)
+          processor.set_reverse_stream_format(48000, 1)
+          processor.process_stream(b"\0" * 480 * 2)
+          print("AEC wheel import and processor initialization succeeded")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aec-wheel-cp${{ matrix.python-version }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  publish:
+    name: Publish dependency release
+    if: ${{ inputs.publish_release }}
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: aec-wheel-*
+          path: wheelhouse
+          merge-multiple: true
+
+      - name: Create or update the dependency release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "${AEC_RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release create "${AEC_RELEASE_TAG}" \
+              --target "${GITHUB_SHA}" \
+              --title "Billy AEC ARM64 wheels ${AEC_VERSION}" \
+              --notes "Prebuilt ARM64 wheels used by Billy devices. This is a dependency release, not an application release."
+          fi
+          gh release upload "${AEC_RELEASE_TAG}" wheelhouse/*.whl --clobber
