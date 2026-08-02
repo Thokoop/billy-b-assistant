@@ -54,7 +54,7 @@ class StatusLed:
         "idle": {"mode": "pulse", "color": (0, 32, 12), "period": 2.8},
         "listening": {"mode": "solid", "color": (0, 180, 24)},
         "speaking": {"mode": "pulse", "color": (255, 110, 0), "period": 0.9},
-        "interrupted": {"mode": "blink", "color": (255, 72, 0), "period": 0.16},
+        "interrupted": {"mode": "blink", "color": (255, 28, 0), "period": 0.12},
         "playing_song": {"mode": "rainbow", "period": 1.2},
         "error": {"mode": "blink", "color": (255, 0, 0), "period": 0.45},
         "stopping": {"mode": "blink", "color": (255, 48, 0), "period": 0.8},
@@ -150,6 +150,15 @@ class StatusLed:
         with self._lock:
             self._transient_state = state
             self._transient_until = time.monotonic() + duration
+
+    def show_interruption(self, duration_seconds: float = 0.75):
+        """Atomically queue listening green beneath an interruption flash."""
+        duration = max(0.0, float(duration_seconds))
+        with self._lock:
+            self._state = "listening"
+            if duration > 0.0:
+                self._transient_state = "interrupted"
+                self._transient_until = time.monotonic() + duration
 
     def _animation_state(self, now: float) -> str:
         """Return a transient animation state without replacing logical state."""
@@ -298,9 +307,16 @@ def get_status_led_state() -> str:
     return status_led.get_state()
 
 
-def flash_status_led_state(state: str, duration_seconds: float = 0.45):
+def flash_status_led_state(state: str, duration_seconds: float = 0.75):
     """Show a temporary LED animation without delaying later state updates."""
     status_led.flash_state(state, duration_seconds)
+
+
+def show_status_led_interruption(duration_seconds: float = 0.75):
+    """Flash a distinct interruption signal, then settle on listening green."""
+    # Session/MQTT state can still replace the queued fallback if Billy
+    # legitimately enters another state meanwhile.
+    status_led.show_interruption(duration_seconds)
 
 
 def cleanup_status_led():

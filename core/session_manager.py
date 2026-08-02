@@ -30,7 +30,7 @@ from .movements import stop_all_motors
 from .persona_manager import persona_manager
 from .profile_manager import user_manager
 from .realtime_ai_provider import voice_provider_registry
-from .status_led import flash_status_led_state
+from .status_led import show_status_led_interruption
 
 
 _CONVERSATION_END_PATTERNS = tuple(
@@ -1502,7 +1502,7 @@ class BillySession:
             self._cancelled_response_ids.add(interrupted_response_id)
         self.state._skip_post_response_once = True
 
-        flash_status_led_state("interrupted")
+        show_status_led_interruption()
         audio.stop_playback()
         self.audio_handler.clear_buffer()
         self.state.allow_mic_input = True
@@ -1558,7 +1558,7 @@ class BillySession:
         self.state.allow_mic_input = False
         self.state.response_active = False
         self.state.assistant_speaking = False
-        flash_status_led_state("interrupted")
+        show_status_led_interruption()
         audio.stop_playback()
         self.audio_handler.clear_buffer()
 
