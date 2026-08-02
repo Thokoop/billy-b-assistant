@@ -1287,6 +1287,12 @@ def save():
                     else:
                         raw_value = str(max(0, parsed))
                 value = raw_value or "max"
+            elif key == "MQTT_PORT":
+                try:
+                    parsed = int(str(value).strip())
+                except (TypeError, ValueError):
+                    parsed = 1883
+                value = str(max(1, min(65535, parsed)))
             elif key == "STATUS_LED_BRIGHTNESS":
                 try:
                     parsed = float(str(value).strip())

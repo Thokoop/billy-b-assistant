@@ -15,7 +15,7 @@ All notable changes to this project will be documented in this file.
 - **Natural Voice Interruption**: Added full-duplex voice interruption using WebRTC AEC3 with noise suppression, automatic gain control, hardware-latency reporting and Billy's exact speaker PCM as the echo reference. Provider VAD, adaptive post-AEC energy and a standalone WebRTC voice detector jointly confirm speech without pausing or stuttering playback.
 - **Echo-safe Barge-in Validation**: Added candidate-scoped echo-floor calibration, provider prefix preservation and a gain-independent waveform ownership check against Billy's recent speaker output. This keeps interruption sensitivity adaptive across microphone gain and speaker volume while preventing residual speech from making Billy interrupt or answer himself.
 - **Interruption LED Feedback**: Added a short orange status LED blink when voice or button input interrupts Billy. Listening-state updates are retained underneath the animation, so the LED changes to green immediately after the interruption indication finishes.
-- **ARM64 AEC Wheel Builds**: Added a release workflow that builds and verifies native `aec-audio-processing` wheels for Python 3.11 through 3.13.
+- **ARM64 AEC Wheel Builds**: Added a release workflow that builds and verifies native `aec-audio-processing` wheels for Python 3.11 through 3.13. Normal installs and Web UI upgrades on 64-bit Raspberry Pi OS now select those published wheels automatically instead of compiling WebRTC locally.
 
 ### Changed
 - **Interrupted Conversation Context**: OpenAI WebSocket sessions now truncate the unheard tail of interrupted assistant audio so subsequent turns do not resume content the user never heard.

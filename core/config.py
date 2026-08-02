@@ -236,7 +236,7 @@ STATUS_LED_PWM_CHANNEL = int(os.getenv("STATUS_LED_PWM_CHANNEL", "0"))
 
 # === MQTT Config ===
 MQTT_HOST = os.getenv("MQTT_HOST", "")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "0"))
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 

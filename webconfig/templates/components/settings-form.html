@@ -324,16 +324,16 @@
                 <div>
                     <label for="AEC_ENABLED"
                            class="flex justify-between items-center text-sm text-slate-300 relative">
-                        Voice interruption (AEC)
+                        Voice interruption
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
                     </label>
                     <div class="relative">
                         <div data-tooltip>
-                            Keeps the microphone active while Billy speaks and uses the built-in
-                            WebRTC AEC3 audio processor to suppress Billy's own voice. The cleaned
-                            microphone must pass both WebRTC voice detection and the provider's
-                            speech detection.
+                            Voice interruption requires acoustic echo cancellation (AEC). While
+                            Billy speaks, the built-in WebRTC AEC3 audio processor suppresses his
+                            own voice. The cleaned microphone must pass both WebRTC voice detection
+                            and the provider's speech detection.
                         </div>
                         <select id="AEC_ENABLED" name="AEC_ENABLED"
                                 class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
@@ -917,15 +917,29 @@
                 <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
             </h3>
 
-            <div class="mb-4">
-                <label for="MQTT_HOST" class="block text-sm text-slate-300">MQTT Host</label>
-                <input
-                        id="MQTT_HOST"
-                        name="MQTT_HOST"
-                        type="text"
-                        class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                        value="{{ config.get('MQTT_HOST', '') }}"
-                >
+            <div class="flex flex-wrap mb-4 gap-4">
+                <div class="w-full md:w-[calc(75%-0.5rem)]">
+                    <label for="MQTT_HOST" class="block text-sm text-slate-300">MQTT Host</label>
+                    <input
+                            id="MQTT_HOST"
+                            name="MQTT_HOST"
+                            type="text"
+                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            value="{{ config.get('MQTT_HOST', '') }}"
+                    >
+                </div>
+                <div class="w-full md:w-[calc(25%-0.5rem)]">
+                    <label for="MQTT_PORT" class="block text-sm text-slate-300">Port</label>
+                    <input
+                            id="MQTT_PORT"
+                            name="MQTT_PORT"
+                            type="number"
+                            min="1"
+                            max="65535"
+                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            value="{{ config.get('MQTT_PORT', '1883') }}"
+                    >
+                </div>
             </div>
 
             <div class="flex flex-wrap mb-4 gap-4">

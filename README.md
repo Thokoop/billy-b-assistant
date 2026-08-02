@@ -249,8 +249,6 @@ Make sure Python 3 is installed:
 python3 --version
 ```
 
-> **Note:** On newer Raspberry Pi OS releases, `python3` may be Python `3.13`. That is fine, but `pip install -r requirements.txt` may resolve `openwakeword` down to an older `0.4.x` release. If you want `openwakeword` support and `pip show openwakeword` reports `0.4.x`, use the workaround below after creating the virtual environment. Billy's Web UI software update flow applies the same workaround automatically after reinstalling requirements.
-
 Install required system packages:
 
 ```bash
@@ -283,25 +281,18 @@ Install required Python dependencies into the virtual environment:
 pip3 install -r ./requirements.txt
 ```
 
-To let people interrupt Billy while he is speaking, enable **Voice interruption
-(AEC)** in Hardware Settings. Billy uses WebRTC's AEC3 audio-processing front
-end with noise suppression and automatic gain control. The exact PCM written to
-the speaker is supplied as the echo reference, while provider VAD handles speech
-start and turn completion on the cleaned microphone stream. Billy confirms an
-interruption only when provider VAD, adaptive post-AEC energy and a standalone
-WebRTC detector applied to AEC3's cleaned output agree. A normalized waveform
-comparison also rejects cleaned speech that still matches Billy's recent
-speaker output, so changing microphone gain or speaker volume does not bypass
-the self-echo guard; verification never pauses speaker playback.
+### Optional: openWakeWord on Python 3.13
 
-AEC is installed with Billy's normal Python requirements, so no separate AEC
-installation step is needed. A compatible prebuilt wheel is used when one is
-available. On an unsupported Python or Raspberry Pi OS combination, the first
-installation may take several minutes while the native WebRTC component is
-built. If AEC3 cannot start, Billy automatically keeps the existing
-half-duplex microphone gating instead of risking echo.
+On newer Raspberry Pi OS releases, `python3` may be Python `3.13`. Python 3.13
+works with Billy, but `pip` may resolve the `openwakeword` package to an older
+`0.4.x` release. Check the installed version after installing the requirements:
 
-If you want to use `openwakeword` and `pip` resolved it to `0.4.x`, install the newer release manually:
+```bash
+pip show openwakeword
+```
+
+If it reports `0.4.x` and you want to use openWakeWord, replace it with the
+newer release:
 
 ```bash
 pip uninstall -y openwakeword
@@ -309,13 +300,11 @@ pip install --upgrade onnxruntime requests scikit-learn scipy tqdm ai-edge-liter
 pip install --no-deps --upgrade openwakeword==0.6.0
 ```
 
-Verify the installed version:
+Run `pip show openwakeword` again to confirm that version `0.6.0` is installed.
 
-```bash
-pip show openwakeword
-```
-
-If you later run a software update from the Web UI, Billy will automatically reapply this `openwakeword 0.6.0` workaround after reinstalling `requirements.txt`, so the update process should not drift back to `0.4.x`.
+Billy's Web UI software update flow automatically reapplies this workaround
+after reinstalling `requirements.txt`, so later updates should not revert the
+package to `0.4.x`.
 
 ---
 
@@ -467,6 +456,8 @@ SILENCE_THRESHOLD=2000
 MIC_GAIN=max
 MIC_PREFERENCE=usbpath:1-1.3
 SPEAKER_PREFERENCE=usbpath:1-1.4
+AEC_ENABLED=false
+AEC_BARGE_IN_SNR_DB=9
 FOLLOW_UP_RETRY_LIMIT=1
 CAMERA_HARDWARE=none
 LIBCAMERA_STILL_BIN=rpicam-still
@@ -498,6 +489,8 @@ ALLOW_UPDATE_PERSONALITY_INI=true
 **SILENCE_THRESHOLD**: Audio threshold (RMS) for what counts as speech. Lower this if Billy misses you; raise it if background noise keeps the conversation open. The default is `2000` on the raw `0-32768` RMS scale.
 **MIC_GAIN**: ALSA `Mic Capture Volume` applied on startup. The default is `max`, which resolves to the device's reported maximum. If you adjust mic gain in the Web UI, Billy saves the numeric value to `.env` and reuses it after restart.
 **MIC_PREFERENCE / SPEAKER_PREFERENCE**: Preferred USB mic/speaker. The Web UI stores stable USB bus-path values (for example `usbpath:1-1.3`) to survive `hw:X,Y` renumbering after reboot. Legacy name-based values are still accepted for backward compatibility.
+**AEC_ENABLED**: Enables voice interruption with acoustic echo cancellation (`false` by default).
+**AEC_BARGE_IN_SNR_DB**: Controls how strongly speech must stand out from the remaining echo before Billy accepts an interruption (`9` by default; higher values are more conservative).
 **FOLLOW_UP_RETRY_LIMIT**: Number of auto follow-up retries when Billy expects a follow-up but could not hear it clearly (or heard nothing), before ending the session (`1` default, allowed range `0..5`)  
 **CAMERA_HARDWARE**: Camera selection (`none`, `rpi_camera`, or `usb_webcam`). The Web UI **Camera Device** dropdown auto-lists detected camera options plus `None`.  
 **LIBCAMERA_STILL_BIN**: Raspberry Pi capture binary name/path (default `rpicam-still`). Billy automatically falls back to the legacy `libcamera-still` name on older Raspberry Pi OS releases, so existing configurations remain supported.
@@ -516,6 +509,19 @@ ALLOW_UPDATE_PERSONALITY_INI=true
 **DEBUG_MODE**: Print debug information such as OpenAI responses to the output stream  
 **DEBUG_MODE_INCLUDE_DELTA**: Also print voice and speech delta data, which can get very noisy  
 **ALLOW_UPDATE_PERSONALITY_INI**: If true, personality updates asked for by the user will be written and committed to the personality file. If false, changes to personality parameters will only affect the current running process (`true` is default)
+
+### Voice interruption
+
+To let people interrupt Billy while he is speaking, enable **Voice
+interruption** in **Hardware Settings**. Billy compares the microphone input
+with the audio being played through the speaker and applies several speech and
+echo checks before accepting an interruption.
+
+AEC is included in Billy's normal Python requirements, so it does not need a
+separate installation step. The first requirements installation may take a few
+minutes if a compatible prebuilt wheel is unavailable and the native component
+must be built. If AEC cannot start, Billy falls back to its standard
+half-duplex microphone behavior.
 
 ### Wake-word setup (Porcupine)
 
