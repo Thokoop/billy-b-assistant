@@ -17,6 +17,7 @@ const SettingsForm = (() => {
         'STATUS_LED_ENABLED',
         'WAKE_WORD_ENABLED',
         'MIC_TIMEOUT_TAIL_FLAP',
+        'MOOD_INSTRUCTIONS_ENABLED',
     ]);
 
     const normalizeSelectValue = (id, value) => {
@@ -230,6 +231,7 @@ const SettingsForm = (() => {
             { id: 'AEC_ENABLED', key: 'AEC_ENABLED' },
             { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
             { id: 'MIC_TIMEOUT_TAIL_FLAP', key: 'MIC_TIMEOUT_TAIL_FLAP' },
+            { id: 'MOOD_INSTRUCTIONS_ENABLED', key: 'MOOD_INSTRUCTIONS_ENABLED' },
             { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
             { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
@@ -297,7 +299,7 @@ const SettingsForm = (() => {
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY', 'AEC_ENABLED',
-            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP'
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
         ];
 
         dropdowns.forEach(id => {
@@ -731,7 +733,7 @@ const SettingsForm = (() => {
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED',
-            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP'
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
         ];
         dropdowns.forEach(id => {
             const element = document.getElementById(id);

@@ -366,6 +366,29 @@
                         </select>
                     </div>
                 </div>
+
+                <div>
+                    <label for="MOOD_INSTRUCTIONS_ENABLED"
+                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                        Live mood in responses
+                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                              onclick="toggleTooltip(this)">help_outline</span>
+                    </label>
+                    <div class="relative">
+                        <div data-tooltip>
+                            When enabled, Billy's current mood is folded into his instructions so
+                            his tone shifts as the conversation goes (e.g. flustered after repeated
+                            interruptions). Each mood shift resends the full persona prompt to the
+                            API, which costs extra tokens. Disable to keep mood tracked internally
+                            (MQTT, get_mood/set_mood) without spending tokens on it.
+                        </div>
+                        <select id="MOOD_INSTRUCTIONS_ENABLED" name="MOOD_INSTRUCTIONS_ENABLED"
+                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <option value="true" {% if config.get('MOOD_INSTRUCTIONS_ENABLED', 'true') == 'true' %}selected{% endif %}>Enabled</option>
+                            <option value="false" {% if config.get('MOOD_INSTRUCTIONS_ENABLED', 'true') == 'false' %}selected{% endif %}>Disabled</option>
+                        </select>
+                    </div>
+                </div>
             </div>
 
         </div>

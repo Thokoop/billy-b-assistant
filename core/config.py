@@ -177,6 +177,19 @@ try:
 except (TypeError, ValueError):
     AEC_BARGE_IN_SNR_DB = 9.0
 FOLLOW_UP_RETRY_LIMIT = int(os.getenv("FOLLOW_UP_RETRY_LIMIT", "2"))
+# Injecting live mood into the realtime instructions costs real tokens: every
+# mood shift resends the full persona system prompt via session.update.
+# Enabled by default; cost-conscious users can turn it off entirely.
+MOOD_INSTRUCTIONS_ENABLED = (
+    os.getenv("MOOD_INSTRUCTIONS_ENABLED", "true").strip().lower() == "true"
+)
+# Minimum time between live mood-instruction pushes to the realtime API.
+# Mood state itself still updates immediately (MQTT, get_mood/set_mood); this
+# only throttles how often that state gets folded into a fresh, billable
+# session.update so a burst of barge-ins/mood events collapses into one push.
+MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS = float(
+    os.getenv("MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS", "10")
+)
 PLAYBACK_VOLUME = 1
 MOUTH_ARTICULATION = int(os.getenv("MOUTH_ARTICULATION", "5"))
 TURN_EAGERNESS = os.getenv("TURN_EAGERNESS", "high").strip().lower()
