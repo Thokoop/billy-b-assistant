@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.4.0] — 2026-07-22
+## [2.4.0] — 2026-08-04
 
 ### Added
 - **Profile-based Mood System**: Added a persistent per-profile mood system with continuous mood axes, derived mood presets, natural mood events, time-based decay, short-term mood memory and momentum, manual mood setting tools, and profile-page mood visibility.
@@ -13,11 +13,14 @@ All notable changes to this project will be documented in this file.
 - **Mood-influenced Wake-up Voice Generation**: Wake-up clip generation now passes selected moods into the voice generation instructions so generated audio delivery can match the assigned mood.
 - **Conversation Mood Events**: Conversation state can now report mood events, allowing ordinary turns to nudge Billy's temporary mood without requiring explicit `set_mood` calls.
 - **Natural Voice Interruption**: Added full-duplex voice interruption using WebRTC AEC3 with noise suppression, automatic gain control, hardware-latency reporting and Billy's exact speaker PCM as the echo reference. Provider VAD, adaptive post-AEC energy and a standalone WebRTC voice detector jointly confirm speech without pausing or stuttering playback.
-- **Echo-safe Barge-in Validation**: Added candidate-scoped echo-floor calibration, provider prefix preservation and a gain-independent waveform ownership check against Billy's recent speaker output. This keeps interruption sensitivity adaptive across microphone gain and speaker volume while preventing residual speech from making Billy interrupt or answer himself.
 - **Interruption LED Feedback**: Added a short orange status LED blink when voice or button input interrupts Billy. Listening-state updates are retained underneath the animation, so the LED changes to green immediately after the interruption indication finishes.
 - **ARM64 AEC Wheel Builds**: Added a release workflow that builds and verifies native `aec-audio-processing` wheels for Python 3.11 through 3.13. Normal installs and Web UI upgrades on 64-bit Raspberry Pi OS now select those published wheels automatically instead of compiling WebRTC locally.
+- **Optional Timeout Tail Flap**: Added an Audio setting for tail movement during the microphone silence countdown. It defaults to enabled, can be disabled by the user, and its movement is excluded from microphone activity detection.
 
 ### Changed
+- **Timeout Entry**: Billy now retracts his head and ignores the resulting motor noise before starting the microphone timeout.
+- **Wake-word Log Noise**: Suppressed ONNX Runtime's harmless Raspberry Pi DRM/GPU device-discovery warning during CPU-based openWakeWord initialization while preserving other native and Python errors.
+- **Timeout LED Countdown**: The listening timeout now blinks at a steady 500 ms on / 500 ms off cadence, transitioning from green through amber to red as the configured timeout approaches. Its phase begins with the countdown, identical LED frames are no longer rewritten between transitions, and full red is held briefly before expiry so the endpoint remains visible.
 - **Interrupted Conversation Context**: OpenAI WebSocket sessions now truncate the unheard tail of interrupted assistant audio so subsequent turns do not resume content the user never heard.
 - **Realtime Session Startup**: User/profile/persona context now preloads before opening the realtime session, avoiding an unnecessary default-persona session update on cold start.
 - **Realtime Prompt Size**: Trimmed duplicated tool-routing instructions from the realtime prompt while keeping detailed behavior in tool schemas.
@@ -28,7 +31,7 @@ All notable changes to this project will be documented in this file.
 - **Settings Dropdown Persistence**: Fixed boolean Enabled/Disabled dropdowns falling back to Disabled when settings were saved.
 - **Duplicate Tool Responses**: Reduced repeated acknowledgement of tool results during silent/no-input periods.
 - **Software Update Dependency Drift**: Web UI software updates and simulated reinstalls now automatically reapply the `openwakeword 0.6.0` workaround after reinstalling `requirements.txt`, preventing Raspberry Pi systems from regressing back to `openwakeword 0.4.x`.
-- **Physical Interruption Button**: Restored immediate speaker cancellation and a clean microphone handoff when the physical button is pressed during an assistant response. OpenAI's echo-contaminated input buffer is cleared before capture resumes, ensuring post-button speech starts a new trusted user turn instead of being discarded with the preceding playback echo. GPIO callbacks no longer block on the asynchronous handoff, and a latched physical-level polling fallback recovers subsequent presses if gpiozero misses an edge.
+- **Microphone Timeout Motor Feedback**: Prevented Billy's own timeout tail movement from repeatedly resetting the microphone silence countdown.
 
 ---
 

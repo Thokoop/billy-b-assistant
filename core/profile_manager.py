@@ -149,9 +149,10 @@ class UserProfile:
     def _set_guest_as_default_if_first_time(self):
         """Set guest as default user if this is the first time creating guest.ini."""
         try:
-            from dotenv import get_key, set_key
+            from dotenv import get_key
 
             from .config import ENV_PATH
+            from .env_utils import set_env_key
 
             # Check if DEFAULT_USER is already set to something other than guest
             current_default = get_key(ENV_PATH, "DEFAULT_USER")
@@ -164,7 +165,7 @@ class UserProfile:
                 return
 
             # Set DEFAULT_USER to guest (lowercase to match folder name)
-            set_key(ENV_PATH, "DEFAULT_USER", "guest", quote_mode='never')
+            set_env_key(ENV_PATH, "DEFAULT_USER", "guest")
             logger.info("Set guest as default user in .env file", "👤")
 
         except Exception as e:

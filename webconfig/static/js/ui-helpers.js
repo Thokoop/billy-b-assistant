@@ -187,13 +187,23 @@ const LoadingOverlay = (() => {
         return !!overlay && !overlay.classList.contains("hidden");
     };
 
-    const waitForReload = (initialDelayMs = 600, timeoutMs = 45000) => {
+    const waitForReload = (
+        previousWebconfigInstance = null,
+        initialDelayMs = 250,
+        timeoutMs = 45000,
+    ) => {
         const startedAt = Date.now();
 
         const poll = async () => {
             try {
-                const res = await fetch("/service/status", {cache: "no-store"});
-                if (res.ok && restartSawUnavailable) {
+                const res = await fetch("/health", {cache: "no-store"});
+                const data = res.ok ? await res.json().catch(() => ({})) : {};
+                const instanceChanged = Boolean(
+                    previousWebconfigInstance
+                    && data.webconfig_instance
+                    && data.webconfig_instance !== previousWebconfigInstance
+                );
+                if (res.ok && (restartSawUnavailable || instanceChanged)) {
                     reloadSoon();
                     return;
                 }
@@ -212,7 +222,7 @@ const LoadingOverlay = (() => {
                 return;
             }
 
-            reloadPollTimeout = setTimeout(poll, 1200);
+            reloadPollTimeout = setTimeout(poll, 350);
         };
 
         if (reloadPollTimeout) {

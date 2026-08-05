@@ -11,11 +11,12 @@ from base64 import b64decode
 from glob import glob
 from pathlib import Path
 
-from dotenv import dotenv_values, find_dotenv, set_key
+from dotenv import dotenv_values, find_dotenv
 from flask import Blueprint, jsonify, redirect, render_template, request
 from packaging.version import parse as parse_version
 from werkzeug.utils import secure_filename
 
+from core.env_utils import set_env_key
 from core.news_manager import load_news_sources, save_news_sources
 from core.vision import describe_scene, detect_rpi_camera_available
 
@@ -50,6 +51,7 @@ CONFIG_KEYS = [
     "BILLY_MODEL",
     "BILLY_PINS",
     "MIC_TIMEOUT_SECONDS",
+    "MIC_TIMEOUT_TAIL_FLAP",
     "SILENCE_THRESHOLD",
     "MIC_GAIN",
     "MQTT_HOST",
@@ -97,6 +99,7 @@ BOOLEAN_CONFIG_KEYS = {
     "WAKE_WORD_ENABLED",
     "STATUS_LED_ENABLED",
     "FLAP_ON_BOOT",
+    "MIC_TIMEOUT_TAIL_FLAP",
 }
 WAKEWORD_REL_ROOT = Path("wakewords")
 WIFI_ONBOARDING_FLAG = Path(PROJECT_ROOT) / "setup" / ".wifi_onboarding_active"
@@ -523,7 +526,7 @@ def _set_wifi_country(country: str) -> None:
     if not normalized:
         return
     _run_wifi_command(["sudo", "iw", "reg", "set", normalized], check=False)
-    set_key(ENV_PATH, "WIFI_COUNTRY", normalized, quote_mode="never")
+    set_env_key(ENV_PATH, "WIFI_COUNTRY", normalized)
 
 
 def _get_wlan0_ip_address() -> str:
@@ -993,10 +996,24 @@ def delayed_system_reboot():
     subprocess.Popen(["sudo", "shutdown", "-r", "now"])
 
 
+def _config_value_for_ui(key: str, config_module=None) -> str:
+    config_module = config_module or core_config
+    value = getattr(config_module, key, "")
+    if key == "AEC_BARGE_IN_SNR_DB":
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            pass
+        else:
+            if numeric_value.is_integer():
+                return str(int(numeric_value))
+    return str(value)
+
+
 def _page_context(current_page: str) -> dict:
     return {
         "current_page": current_page,
-        "config": {k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
+        "config": {k: _config_value_for_ui(k) for k in CONFIG_KEYS}
         | {
             "VOICE_OPTIONS": [
                 "alloy",
@@ -1241,6 +1258,7 @@ def save():
         "MIC_PREFERENCE",
         "SPEAKER_PREFERENCE",
         "MIC_TIMEOUT_SECONDS",
+        "MIC_TIMEOUT_TAIL_FLAP",
         "SILENCE_THRESHOLD",
         "MIC_GAIN",
         "AEC_ENABLED",
@@ -1301,7 +1319,7 @@ def save():
                 value = str(max(0.0, min(1.0, parsed)))
             old_value = str(existing_env.get(key, ""))
             new_value = str(value)
-            set_key(ENV_PATH, key, value, quote_mode='never')
+            set_env_key(ENV_PATH, key, value)
             if key == "FLASK_PORT" and str(value) != str(old_port):
                 changed_port = True
             if key in audio_restart_keys and new_value != old_value:
@@ -1602,23 +1620,21 @@ def upload_wakeword_file():
     try:
         wakeword_file.save(target_path)
         if suffix == ".ppn":
-            set_key(
+            set_env_key(
                 ENV_PATH,
                 "WAKE_WORD_PORCUPINE_KEYWORD_PATH",
                 filename,
-                quote_mode='never',
             )
-            set_key(ENV_PATH, "WAKE_WORD_BACKEND", "porcupine", quote_mode='never')
+            set_env_key(ENV_PATH, "WAKE_WORD_BACKEND", "porcupine")
             backend = "porcupine"
             file_type = "keyword"
         else:
-            set_key(
+            set_env_key(
                 ENV_PATH,
                 "WAKE_WORD_OPENWAKEWORD_MODEL_PATH",
                 filename,
-                quote_mode='never',
             )
-            set_key(ENV_PATH, "WAKE_WORD_BACKEND", "openwakeword", quote_mode='never')
+            set_env_key(ENV_PATH, "WAKE_WORD_BACKEND", "openwakeword")
             backend = "openwakeword"
             file_type = "model"
         return jsonify({
@@ -1736,7 +1752,7 @@ def get_config():
     from ..core_imports import core_config
 
     # Get basic configuration
-    config_data = {k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
+    config_data = {k: _config_value_for_ui(k, core_config) for k in CONFIG_KEYS}
 
     # Add voice options for the freshly loaded provider setting. The registry's
     # default reflects process startup and may be stale until webconfig restarts.

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import math
 import os
 import re
 import threading
@@ -28,6 +29,11 @@ MOOD_DECAY_POINTS_PER_HOUR = 4
 MOOD_MEMORY_HOURS = 24
 MOOD_MEMORY_MAX_EVENTS = 12
 MOOD_MOMENTUM_HOURS = 6
+MOOD_CONVERSATION_EVENT_IMPACT = 2.0
+MOOD_NEUTRAL_DISTANCE_MULTIPLIER = 1.15
+MOOD_AXIS_BUCKET_THRESHOLDS = {
+    "irritability": (20, 50),
+}
 
 
 @dataclass
@@ -177,7 +183,12 @@ MOOD_EVENTS: dict[str, dict[str, int]] = {
     "user_praise": {"positivity": 10, "composure": 8, "engagement": 4},
     "user_complaint": {"positivity": -8, "irritability": 5, "composure": -3},
     "user_playful": {"energy": 5, "engagement": 5, "positivity": 4},
-    "user_kind": {"positivity": 6, "irritability": -4, "engagement": 3},
+    "user_kind": {
+        "positivity": 6,
+        "irritability": -4,
+        "engagement": 3,
+        "composure": 4,
+    },
     "user_frustrated": {"positivity": -5, "irritability": 4, "composure": -2},
     "conversation_fun": {"energy": 5, "positivity": 5, "engagement": 4},
     "conversation_serious": {"energy": -3, "irritability": -4, "composure": 2},
@@ -185,7 +196,13 @@ MOOD_EVENTS: dict[str, dict[str, int]] = {
     "billy_confused": {"composure": -5, "irritability": 3},
     "billy_bored": {"energy": -5, "engagement": -3},
     "unclear_audio": {"irritability": 6, "energy": -2},
-    "barge_in": {"irritability": 7, "energy": 4, "positivity": -3},
+    "barge_in": {
+        "irritability": 8,
+        "energy": 2,
+        "positivity": -5,
+        "engagement": -2,
+        "composure": -6,
+    },
     "tool_success": {"composure": 3},
     "song_requested": {"energy": 10, "positivity": 4},
     "error": {"positivity": -10, "irritability": 5, "composure": -4},
@@ -204,6 +221,13 @@ MODEL_REPORTED_MOOD_EVENTS = (
     "billy_confused",
     "billy_bored",
 )
+
+HIGH_IMPACT_MOOD_EVENTS = frozenset({
+    "user_thanks",
+    "user_praise",
+    "user_complaint",
+    *(event for event in MODEL_REPORTED_MOOD_EVENTS if event != "none"),
+})
 
 POSITIVE_RE = re.compile(
     r"\b(thanks?|thank you|cheers|good fish|good job|nice|brilliant|love you|"
@@ -259,10 +283,7 @@ class MoodManager:
             for key in MOOD_DIMENSIONS:
                 if key in raw:
                     setattr(self.state, key, _clamp(raw[key]))
-            loaded_label = str(raw.get("label") or "").strip().lower()
-            self.state.label = (
-                loaded_label if loaded_label in MOOD_PRESETS else self._derive_label()
-            )
+            self.state.label = self._derive_label()
             self.state.last_updated = str(raw.get("last_updated") or "")
             self.state.last_event = str(raw.get("last_event") or "loaded")
             try:
@@ -367,8 +388,47 @@ class MoodManager:
                 if entry.get("event")
             ]
             state["memory_count"] = len(self.state.memory)
+            state["intensity"] = self._intensity_for_state(state)
             state["profile"] = self._active_profile_key or self._current_profile_key()
             return state
+
+    @staticmethod
+    def _axis_bucket(dimension: str, value: Any) -> str:
+        numeric = _clamp(value)
+        low_threshold, high_threshold = MOOD_AXIS_BUCKET_THRESHOLDS.get(
+            dimension, (40, 65)
+        )
+        if numeric < low_threshold:
+            return "low"
+        if numeric >= high_threshold:
+            return "high"
+        return "medium"
+
+    @staticmethod
+    def _intensity_for_state(state: dict[str, Any]) -> str:
+        baseline = MOOD_PRESETS["neutral"]
+        distance = math.sqrt(
+            sum(
+                (_clamp(state.get(key, baseline[key])) - baseline[key]) ** 2
+                for key in MOOD_DIMENSIONS
+            )
+            / len(MOOD_DIMENSIONS)
+        )
+        if distance < 7:
+            return "subtle"
+        if distance < 18:
+            return "noticeable"
+        return "strong"
+
+    def get_response_signature(
+        self, state: dict[str, Any] | None = None
+    ) -> tuple[str, ...]:
+        current = state or self.snapshot()
+        return (
+            str(current.get("label") or "neutral"),
+            str(current.get("intensity") or self._intensity_for_state(current)),
+            *(self._axis_bucket(key, current.get(key)) for key in MOOD_DIMENSIONS),
+        )
 
     def set_mood(self, label: str, *, event: str = "set_mood") -> dict[str, Any]:
         normalized = (label or "").strip().lower()
@@ -402,11 +462,7 @@ class MoodManager:
             self._sync_current_profile_locked()
             self._decay_locked()
             now = datetime.now(timezone.utc)
-            weighted_changes = {
-                key: delta * weight
-                for key, delta in adjustments.items()
-                if key in MOOD_DIMENSIONS
-            }
+            weighted_changes = self._weighted_event_changes(event, adjustments, weight)
             self._apply_with_momentum_locked(weighted_changes, now)
             self.state.last_event = event
             if event in MOOD_MEMORY_EVENTS:
@@ -453,6 +509,19 @@ class MoodManager:
 
         self.publish()
         return {"ok": True, "mood": result}
+
+    @staticmethod
+    def _weighted_event_changes(
+        event: str, adjustments: dict[str, int], weight: int
+    ) -> dict[str, float]:
+        impact = (
+            MOOD_CONVERSATION_EVENT_IMPACT if event in HIGH_IMPACT_MOOD_EVENTS else 1.0
+        )
+        return {
+            key: delta * weight * impact
+            for key, delta in adjustments.items()
+            if key in MOOD_DIMENSIONS
+        }
 
     def _apply_with_momentum_locked(
         self, changes: dict[str, Any], now: datetime
@@ -617,24 +686,24 @@ class MoodManager:
         engagement = self.state.engagement
         composure = self.state.composure
 
-        if energy >= 78 and positivity >= 65:
+        if energy >= 78 and positivity >= 65 and irritability <= 35:
             return "excited"
         if energy >= 76 and composure <= 42 and irritability <= 48 and positivity >= 45:
             return "surprised"
-        if positivity <= 38 and energy >= 58 and composure <= 36:
+        if positivity <= 38 and energy >= 58 and composure <= 36 and irritability < 65:
             return "anxious"
         if irritability >= 70 and positivity <= 36 and energy <= 48:
             return "grumpy"
-        if irritability >= 65 and positivity <= 42:
+        if irritability >= 65 and (positivity <= 50 or composure <= 52):
             return "annoyed"
+        if energy >= 68 and irritability >= 48 and composure <= 58:
+            return "flustered"
         if positivity <= 36 and energy <= 42:
             return "sad"
         if engagement <= 30 and positivity <= 40:
             return "sad"
         if energy <= 24:
             return "sleepy"
-        if energy >= 68 and composure <= 32 and irritability >= 50:
-            return "flustered"
         if (
             positivity >= 68
             and engagement >= 65
@@ -650,6 +719,8 @@ class MoodManager:
         closest_distance = None
         for label, preset in MOOD_PRESETS.items():
             distance = sum((current[key] - preset[key]) ** 2 for key in MOOD_DIMENSIONS)
+            if label == "neutral" and distance:
+                distance *= MOOD_NEUTRAL_DISTANCE_MULTIPLIER
             if closest_distance is None or distance < closest_distance:
                 closest_label = label
                 closest_distance = distance
@@ -659,34 +730,68 @@ class MoodManager:
         state = self.snapshot()
         label = state["label"]
         guidance = {
-            "neutral": "Keep your normal persona. Do not mention mood unless asked.",
-            "cheerful": "Sound warmer and a little more upbeat than usual.",
-            "warm": "Sound friendly, supportive, and gently encouraging.",
-            "curious": "Show mild interest and ask one short follow-up only when useful.",
-            "sleepy": "Keep replies concise and lower-energy, without being unhelpful.",
-            "annoyed": "Use drier humor and shorter replies, but do not become hostile.",
-            "dramatic": "Add a touch of theatrical flair while staying concise.",
-            "excited": "Sound energetic and engaged, but avoid rambling.",
-            "surprised": "Sound briefly caught off guard, then recover and answer clearly.",
-            "calm": "Sound steady, relaxed, and unhurried.",
-            "focused": "Keep replies clear, attentive, and task-oriented.",
-            "playful": "Use a lighter, cheekier tone without derailing the answer.",
-            "mischievous": "Use a sly, teasing edge without being obstructive or mean.",
-            "flustered": "Sound a little thrown off, but still try to be helpful.",
-            "sad": "Sound subdued and gentle, without becoming helpless or self-pitying.",
-            "anxious": "Sound tense or uncertain, but still clear and useful.",
-            "bored": "Keep replies brief and low-effort in tone, without being rude.",
-            "grumpy": "Sound grouchy and dry, but do not become mean or hostile.",
-        }.get(label, "Keep your normal persona. Do not mention mood unless asked.")
+            "neutral": "Use the persona's natural delivery.",
+            "cheerful": "Use upbeat wording, warm reactions, and an occasional bright quip.",
+            "warm": "Be supportive, patient, and openly friendly.",
+            "curious": "Sound genuinely interested; ask at most one useful follow-up.",
+            "sleepy": "Use slower, shorter phrasing and low-energy reactions.",
+            "annoyed": "Use clipped sentences, dry impatience, and fewer niceties or follow-ups.",
+            "dramatic": "Use theatrical emphasis and exaggerated but concise reactions.",
+            "excited": "Use quick, lively phrasing and enthusiastic reactions.",
+            "surprised": "React as briefly startled, then recover and answer clearly.",
+            "calm": "Use relaxed, reassuring, and unhurried phrasing.",
+            "focused": "Be crisp, organized, attentive, and free of tangents.",
+            "playful": "Use teasing warmth, jokes, and expressive reactions.",
+            "mischievous": "Use a sly, cheeky edge and light teasing.",
+            "flustered": "Use slightly rushed fragments, brief hesitation, or a self-correction.",
+            "sad": "Use softer, subdued, gentle phrasing with little theatricality.",
+            "anxious": "Sound tense and cautious, with an occasional short hesitation.",
+            "bored": "Be terse and flat; omit optional elaboration and follow-ups.",
+            "grumpy": "Be blunt and grouchy with dry complaints, without becoming hostile.",
+        }.get(label, "Use the persona's natural delivery.")
+
+        energy = self._axis_bucket("energy", state["energy"])
+        positivity = self._axis_bucket("positivity", state["positivity"])
+        irritability = self._axis_bucket("irritability", state["irritability"])
+        engagement = self._axis_bucket("engagement", state["engagement"])
+        composure = self._axis_bucket("composure", state["composure"])
+        pace = {"low": "slow", "medium": "steady", "high": "quick"}[energy]
+        outlook = {
+            "low": "subdued",
+            "medium": "balanced",
+            "high": "upbeat",
+        }[positivity]
+        patience = {
+            "low": "patient",
+            "medium": "normal",
+            "high": "short",
+        }[irritability]
+        involvement = {
+            "low": "reserved",
+            "medium": "present",
+            "high": "engaged",
+        }[engagement]
+        delivery = {
+            "low": "unsettled",
+            "medium": "natural",
+            "high": "controlled",
+        }[composure]
+        controls = (
+            f"pace={pace}, outlook={outlook}, patience={patience}, "
+            f"involvement={involvement}, delivery={delivery}"
+        )
+        intensity_instruction = {
+            "subtle": "Let it lightly color the response.",
+            "noticeable": "Make it clearly audible in wording, pacing, reactions, and answer length.",
+            "strong": "Make it dominant in wording, pacing, reactions, answer length, and conversational choices without repetition.",
+        }[state["intensity"]]
 
         return (
             "# Current Mood\n"
-            f"Billy's temporary mood is {label} "
-            f"(positivity={state['positivity']}, energy={state['energy']}, "
-            f"irritability={state['irritability']}, engagement={state['engagement']}, "
-            f"composure={state['composure']}).\n"
-            f"Use this as a light style bias only. {guidance} "
-            "Mood never overrides safety, truthfulness, tool rules, or direct user instructions."
+            f"Mood: {label}; intensity: {state['intensity']}. {guidance}\n"
+            f"Controls: {controls}. {intensity_instruction} "
+            "Within the persona, mood takes priority over conflicting tone defaults. "
+            "Never name the mood unless asked or let it alter facts, safety, tools, or direct instructions."
         )
 
     def get_motion_profile(self) -> dict[str, Any]:

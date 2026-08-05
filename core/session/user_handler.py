@@ -216,11 +216,10 @@ class UserHandler:
     async def save_current_user_to_env(self, user_name: str):
         """Save current user to .env file."""
         try:
-            from dotenv import set_key
-
             from ..config import ENV_PATH
+            from ..env_utils import set_env_key
 
-            set_key(ENV_PATH, "CURRENT_USER", user_name.lower(), quote_mode="never")
+            set_env_key(ENV_PATH, "CURRENT_USER", user_name.lower())
             logger.info(f"Saved to .env: {user_name}", "👤")
         except Exception as e:
             logger.warning(f"Failed to save to .env: {e}")
@@ -261,6 +260,7 @@ class UserHandler:
                 }
 
             await self.session._ws_send_json(session_update)
+            self.session.mark_mood_instructions_current()
             logger.info(
                 f"Updated session with user context (persona={persona_manager.current_persona}, voice={session_voice})",
                 "👤",

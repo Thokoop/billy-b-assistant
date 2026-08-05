@@ -15,10 +15,11 @@ from collections import deque
 import numpy as np
 import paho.mqtt.client as mqtt
 import sounddevice as sd
-from dotenv import find_dotenv, set_key
+from dotenv import find_dotenv
 from flask import Blueprint, Response, jsonify, request, send_from_directory
 
 from core.audio import calculate_input_rms
+from core.env_utils import set_env_key
 from core.wakeup import generate_wake_clip_async
 
 from ..core_imports import core_config
@@ -588,7 +589,7 @@ def save_configured_mic_gain(value: int) -> None:
     env_path = _env_path()
     if not os.path.exists(env_path):
         open(env_path, "a", encoding="utf-8").close()
-    set_key(env_path, "MIC_GAIN", str(value), quote_mode="never")
+    set_env_key(env_path, "MIC_GAIN", str(value))
     os.environ["MIC_GAIN"] = str(value)
     core_config.MIC_GAIN = str(value)
 

@@ -770,6 +770,30 @@
                 </div>
 
                 <div class="flex-1/2 flex flex-col justify-between">
+                    <label for="MIC_TIMEOUT_TAIL_FLAP"
+                           class="flex justify-between items-center text-sm text-slate-300">
+                        Tail flap during timeout
+                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                              onclick="toggleTooltip(this)">
+                           help_outline
+                        </span>
+                    </label>
+                    <div class="relative">
+                        <div data-tooltip>
+                            Flap Billy's tail while the microphone silence timeout counts down.<br/>
+                            Enabled by default; Billy ignores the resulting motor noise when checking for speech.
+                        </div>
+                        <select id="MIC_TIMEOUT_TAIL_FLAP" name="MIC_TIMEOUT_TAIL_FLAP"
+                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <option value="false" {% if config.get('MIC_TIMEOUT_TAIL_FLAP', 'True')|lower == 'false' %}selected{% endif %}>Disabled</option>
+                            <option value="true" {% if config.get('MIC_TIMEOUT_TAIL_FLAP', 'True')|lower == 'true' %}selected{% endif %}>Enabled</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex mb-4 gap-4">
+                <div class="flex-1/2 flex flex-col justify-between">
                     <label for="SILENCE_THRESHOLD" class="block text-sm text-slate-300">Speech
                         Threshold (0-32768)
                     </label>

@@ -150,6 +150,9 @@ BILLY_PINS = os.getenv("BILLY_PINS", "new").strip().lower()
 SPEAKER_PREFERENCE = os.getenv("SPEAKER_PREFERENCE")
 MIC_PREFERENCE = os.getenv("MIC_PREFERENCE")
 MIC_TIMEOUT_SECONDS = int(os.getenv("MIC_TIMEOUT_SECONDS", "5"))
+MIC_TIMEOUT_TAIL_FLAP = (
+    os.getenv("MIC_TIMEOUT_TAIL_FLAP", "true").strip().lower() == "true"
+)
 MIC_GAIN = os.getenv("MIC_GAIN", "max").strip()
 
 

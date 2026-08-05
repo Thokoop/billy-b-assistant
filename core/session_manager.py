@@ -57,7 +57,7 @@ def _aec_vad_threshold(sensitivity_db: float) -> float:
     if sensitivity_db <= 6.0:
         return 0.55
     if sensitivity_db <= 9.0:
-        return 0.70
+        return 0.65
     return 0.82
 
 
@@ -194,6 +194,8 @@ class BillySession:
         self._barge_in_confirmation_scheduled = False
         self._pending_client_response_create = False
         self._pending_barge_in_mood_event = False
+        self._next_response_follows_interruption = False
+        self._last_mood_instruction_signature = mood_manager.get_response_signature()
         self._active_server_speech_item_id: str | None = None
         self._assistant_overlap_speech_item_ids: set[str] = set()
         self._locally_confirmed_barge_in_item_ids: set[str] = set()
@@ -256,6 +258,9 @@ class BillySession:
         This method is a small convenience to avoid repeating the lock and
         json.dumps boilerplate across the codebase.
         """
+        if payload.get("type") == "response.create":
+            await self.refresh_mood_instructions()
+
         lock_acquired = False
         try:
             await asyncio.wait_for(self.ws_lock.acquire(), timeout=2.0)
@@ -269,6 +274,60 @@ class BillySession:
         finally:
             if lock_acquired:
                 self.ws_lock.release()
+
+    async def refresh_mood_instructions(self, *, force: bool = False) -> bool:
+        """Refresh realtime instructions when mood delivery has changed."""
+        current_mood = mood_manager.snapshot()
+        signature = mood_manager.get_response_signature(current_mood)
+        previous = getattr(self, "_last_mood_instruction_signature", None)
+        if not force and signature == previous:
+            return False
+        if not self.ws:
+            self._last_mood_instruction_signature = signature
+            return False
+        provider_name = self.realtime_ai_provider.get_provider_name()
+        await self._ws_send_json({
+            "type": "session.update",
+            "session": {
+                "type": "realtime",
+                "instructions": get_instructions_with_user_context(provider_name),
+            },
+        })
+        self._last_mood_instruction_signature = signature
+        logger.info(
+            f"Updated realtime mood delivery: {current_mood['label']} "
+            f"({current_mood['intensity']})",
+            "🎭",
+        )
+        return True
+
+    def mark_mood_instructions_current(self) -> None:
+        """Record that current full instructions already contain the mood."""
+        self._last_mood_instruction_signature = mood_manager.get_response_signature()
+
+    async def apply_mood_event(self, event: str) -> dict[str, Any]:
+        result = mood_manager.apply_event(event)
+        if result.get("ok", True):
+            await self.refresh_mood_instructions()
+        return result
+
+    def _create_user_response_payload(self) -> dict[str, Any]:
+        """Create a response request, adding one-turn barge-in guidance if needed."""
+        payload: dict[str, Any] = {"type": "response.create"}
+        if not self._next_response_follows_interruption:
+            return payload
+
+        self._next_response_follows_interruption = False
+        provider_name = self.realtime_ai_provider.get_provider_name()
+        instructions = get_instructions_with_user_context(provider_name)
+        instructions += (
+            "\n\n---\n# Interrupted-turn handoff\n"
+            "The user interrupted the preceding assistant response. Respond only "
+            "to the user's latest audio turn. Do not resume, repeat, or finish the "
+            "interrupted answer unless the user explicitly asks you to continue it."
+        )
+        payload["response"] = {"instructions": instructions}
+        return payload
 
     async def _close_ws(self, timeout: float = 1.0):
         lock_acquired = False
@@ -521,7 +580,7 @@ class BillySession:
             )
             if self._pending_client_response_create:
                 self._pending_client_response_create = False
-                await self._ws_send_json({"type": "response.create"})
+                await self._ws_send_json(self._create_user_response_payload())
                 logger.info(
                     "Confirmed user audio turn; requested assistant response.",
                     "✅",
@@ -983,6 +1042,7 @@ class BillySession:
         self._server_barge_in_response_id = None
         self._barge_in_confirmation_scheduled = False
         self._pending_client_response_create = False
+        self._next_response_follows_interruption = False
         self._pending_barge_in_mood_event = False
         self._active_server_speech_item_id = None
         self._assistant_overlap_speech_item_ids.clear()
@@ -1346,6 +1406,12 @@ class BillySession:
             item_id = self._active_server_speech_item_id
             if item_id:
                 self._locally_confirmed_barge_in_item_ids.add(item_id)
+            playback_similarity_min = details.get("playback_similarity_min")
+            playback_similarity_min_text = (
+                "n/a"
+                if playback_similarity_min is None
+                else f"{float(playback_similarity_min):.2f}"
+            )
             logger.info(
                 "Post-AEC independent voice and provider VAD agreed "
                 f"(energy={details['evidence']}/{details['required']}, "
@@ -1355,7 +1421,7 @@ class BillySession:
                 f"{details.get('independent_evidence', 0)}/"
                 f"{details.get('independent_required', 0)}, "
                 "playback_similarity_min="
-                f"{details.get('playback_similarity_min', 0.0):.2f}); "
+                f"{playback_similarity_min_text}); "
                 "confirming interruption without pausing playback.",
                 "🗣️",
             )
@@ -1445,7 +1511,7 @@ class BillySession:
             return
 
         if self._pending_barge_in_mood_event:
-            mood_manager.apply_event("barge_in")
+            await self.apply_mood_event("barge_in")
             self._pending_barge_in_mood_event = False
         if self.state.response_active:
             self._pending_client_response_create = True
@@ -1454,7 +1520,7 @@ class BillySession:
                 "⏳",
             )
             return
-        await self._ws_send_json({"type": "response.create"})
+        await self._ws_send_json(self._create_user_response_payload())
         logger.info("Confirmed user audio turn; requested assistant response.", "✅")
 
     async def _handle_server_barge_in(
@@ -1483,6 +1549,7 @@ class BillySession:
             evidence_threshold = float(details.get("threshold") or 0.0)
 
         self._server_barge_in_in_progress = True
+        self._next_response_follows_interruption = True
         self._server_barge_in_response_id = self._current_response_id
         interrupted_response_id = self._current_response_id
         interruption_point = self.audio_handler.interruption_point()
@@ -1495,7 +1562,7 @@ class BillySession:
         if self._client_managed_vad:
             self._pending_barge_in_mood_event = True
         else:
-            mood_manager.apply_event("barge_in")
+            await self.apply_mood_event("barge_in")
         if track_continuation:
             self.state.begin_confirmed_barge_in(evidence_threshold)
         if interrupted_response_id:
@@ -1544,7 +1611,8 @@ class BillySession:
             f"Interrupting assistant turn from {source} and reopening mic...",
             "🛑",
         )
-        mood_manager.apply_event("barge_in")
+        await self.apply_mood_event("barge_in")
+        self._next_response_follows_interruption = True
         self.interrupt_event.clear()
 
         provider_response_active = self.state.response_active

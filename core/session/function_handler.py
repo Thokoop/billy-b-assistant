@@ -144,6 +144,7 @@ class FunctionHandler:
         if mood_event != "none":
             result = mood_manager.apply_model_event(mood_event)
             if result.get("ok"):
+                await self.session.refresh_mood_instructions()
                 logger.verbose(
                     f"conversation_state mood_event={mood_event} reason={args.get('mood_event_reason')!r}",
                     "🎭",
@@ -714,6 +715,7 @@ class FunctionHandler:
                 }
 
             await self.session._ws_send_json(session_update)
+            self.session.mark_mood_instructions_current()
             logger.info(
                 f"Updated session with user context (persona={persona_manager.current_persona}, voice={session_voice})",
                 "👤",

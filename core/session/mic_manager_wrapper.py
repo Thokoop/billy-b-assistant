@@ -7,7 +7,12 @@ from collections import deque
 
 from .. import audio
 from ..audio import calculate_input_rms, mic_input_samples_for_meter
-from ..config import CHUNK_MS, SILENCE_THRESHOLD, TEXT_ONLY_MODE
+from ..config import (
+    CHUNK_MS,
+    MIC_TIMEOUT_TAIL_FLAP,
+    SILENCE_THRESHOLD,
+    TEXT_ONLY_MODE,
+)
 from ..logger import logger
 from ..mic import MicManager
 
@@ -22,6 +27,7 @@ class MicManagerWrapper:
         self.mic_timeout_task = None
         self.last_rms = 0.0
         self._mic_guard_until = 0.0
+        self._timeout_motor_guard_until = 0.0
         self._mic_data_started = False
         self._logged_waiting_for_wakeup = False
         self._timeout_countdown_active = False
@@ -29,6 +35,7 @@ class MicManagerWrapper:
         self._last_local_activity_rms = 0.0
         self._last_timeout_progress_log = 0.0
         self._timeout_countdown_started_at = 0.0
+        self._timeout_head_retracted = False
         self._logged_barge_in_active = False
         self._prebuffered_audio = deque()
         self._prebuffered_audio_samples = 0
@@ -61,6 +68,7 @@ class MicManagerWrapper:
             self._mic_guard_until = time.time() + 0.35
             self._timeout_countdown_active = False
             self._timeout_countdown_started_at = 0.0
+            self._timeout_head_retracted = False
             self._last_timeout_progress_log = 0.0
             logger.verbose("Mic started", "🎤")
             if not self.mic_timeout_task or self.mic_timeout_task.done():
@@ -82,6 +90,7 @@ class MicManagerWrapper:
                 logger.warning(f"Error stopping mic: {e}")
             self.mic_running = False
         self._timeout_countdown_active = False
+        self._timeout_head_retracted = False
         self._clear_prebuffer()
 
     def _clear_prebuffer(self):
@@ -395,6 +404,12 @@ class MicManagerWrapper:
             self._mic_data_started = True
 
         self.last_rms = rms
+        now = time.time()
+
+        # Ignore the short mechanical burst after opening/repositioning Billy.
+        if now < self._timeout_motor_guard_until:
+            return
+
         self.session.state.observe_rms(rms)
         if full_duplex_barge_in:
             if not self.session.state._server_input_speaking:
@@ -406,8 +421,6 @@ class MicManagerWrapper:
             self._barge_in_rms_window.clear()
             self._barge_in_voice_window.clear()
             self._barge_in_similarity_window.clear()
-        now = time.time()
-
         # Pause timeout countdown only when local mic activity reaches the
         # configured speech threshold.
         if rms >= SILENCE_THRESHOLD:
@@ -449,7 +462,11 @@ class MicManagerWrapper:
         """Monitor mic activity and timeout if idle too long."""
         from ..config import MIC_TIMEOUT_SECONDS
         from ..mood import mood_manager
-        from ..movements import move_tail_async
+        from ..movements import move_head, move_tail_async
+        from ..status_led import (
+            clear_status_led_timeout_progress,
+            set_status_led_timeout_progress,
+        )
 
         logger.info("Mic timeout checker active", "🛡️")
         last_tail_move = 0
@@ -519,6 +536,15 @@ class MicManagerWrapper:
             )
 
             if idle_seconds > 0.5:
+                if not self._timeout_head_retracted:
+                    move_head("off")
+                    self._timeout_head_retracted = True
+                    self._timeout_motor_guard_until = max(
+                        self._timeout_motor_guard_until, now + 0.6
+                    )
+                    self.session.last_activity[0] = now
+                    await asyncio.sleep(0.6)
+                    continue
                 if not self._timeout_countdown_active:
                     self._timeout_countdown_active = True
                     self._timeout_countdown_started_at = now
@@ -530,6 +556,7 @@ class MicManagerWrapper:
 
                 elapsed = now - self._timeout_countdown_started_at
                 progress = min(elapsed / MIC_TIMEOUT_SECONDS, 1.0)
+                set_status_led_timeout_progress(progress)
                 bar_len = 20
                 filled = int(bar_len * progress)
                 bar = "█" * filled + "-" * (bar_len - filled)
@@ -553,9 +580,12 @@ class MicManagerWrapper:
                     )
                     self._last_timeout_progress_log = now
 
-                if now - last_tail_move > 1.0:
+                if MIC_TIMEOUT_TAIL_FLAP and now - last_tail_move > 1.0:
                     motion = mood_manager.get_motion_profile()
                     move_tail_async(duration=motion.get("tail_duration", 0.2))
+                    self._timeout_motor_guard_until = max(
+                        self._timeout_motor_guard_until, now + 0.35
+                    )
                     last_tail_move = now
 
                 if elapsed > MIC_TIMEOUT_SECONDS:
@@ -569,6 +599,7 @@ class MicManagerWrapper:
                     self._timeout_countdown_active = False
                     self._timeout_countdown_started_at = 0.0
                     self._last_timeout_progress_log = 0.0
+                    clear_status_led_timeout_progress()
                     await self.session.stop_session(reason="mic_timeout")
                     break
             elif self._timeout_countdown_active:
@@ -579,6 +610,8 @@ class MicManagerWrapper:
                 self._timeout_countdown_active = False
                 self._timeout_countdown_started_at = 0.0
                 self._last_timeout_progress_log = 0.0
+                self._timeout_head_retracted = False
+                clear_status_led_timeout_progress()
 
             await asyncio.sleep(0.5)
 

@@ -554,6 +554,7 @@ const LogPanel = (() => {
             elements.toggleMotionBtn.addEventListener("click", toggleMotion);
         }
         if (elements.openEnvEditorBtn) {
+            elements.openEnvEditorBtn.dataset.envEditorOpenBound = "true";
             elements.openEnvEditorBtn.addEventListener("click", openEnvEditorModal);
         }
         if (elements.closeEnvEditorModalBtn) {
@@ -690,7 +691,15 @@ const LogPanel = (() => {
         hideSupportPanelIfDisabled(cfg);
     };
 
-    return {fetchLogs, bindUI, changePassword, showPasswordModal, checkAndShowPasswordModal, hideSupportPanelIfDisabled};
+    return {
+        fetchLogs,
+        bindUI,
+        changePassword,
+        showPasswordModal,
+        checkAndShowPasswordModal,
+        hideSupportPanelIfDisabled,
+        openEnvEditorModal,
+    };
 })();
 
 // Make LogPanel available globally

@@ -229,15 +229,10 @@ const PersonaForm = (() => {
 
     // Only setup sliders if the elements exist (they're now in the settings modal)
     const micGainBar = document.getElementById("mic-gain-bar");
-    const speakerVolumeBar = document.getElementById("speaker-volume-bar");
     
     if (micGainBar) {
         setupSlider("mic-gain-bar", "mic-gain-fill", "mic-gain", 0, 16);
     }
-    if (speakerVolumeBar) {
-        setupSlider("speaker-volume-bar", "speaker-volume-fill", "speaker-volume", 0, 100);
-    }
-
     // Export persona function
     window.exportPersona = async function() {
         try {

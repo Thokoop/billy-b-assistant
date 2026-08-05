@@ -4,9 +4,8 @@ import os
 import re
 import shutil
 import subprocess
-
-# Import logger after path setup
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -26,6 +25,27 @@ WAKE_UP_DIR = PROJECT_ROOT / "sounds" / "wake-up" / "custom"
 WAKE_UP_DIR_DEFAULT = PROJECT_ROOT / "sounds" / "wake-up" / "default"
 
 RELEASE_NOTE = {"tag": None, "body": "", "url": "", "fetched_at": 0}
+VERSION_STATE_LOCK = threading.RLock()
+GITHUB_CONNECT_TIMEOUT_SECONDS = 2
+GITHUB_REQUEST_TIMEOUT_SECONDS = 4
+
+
+def _fetch_github_json(url: str):
+    """Fetch GitHub metadata without ever holding startup indefinitely."""
+    output = subprocess.check_output(
+        [
+            "curl",
+            "-fsS",
+            "--connect-timeout",
+            str(GITHUB_CONNECT_TIMEOUT_SECONDS),
+            "--max-time",
+            str(GITHUB_REQUEST_TIMEOUT_SECONDS),
+            url,
+        ],
+        text=True,
+        timeout=GITHUB_REQUEST_TIMEOUT_SECONDS + 1,
+    )
+    return json.loads(output)
 
 
 def _show_rc_versions_enabled() -> bool:
@@ -34,17 +54,18 @@ def _show_rc_versions_enabled() -> bool:
 
 
 def load_versions():
-    config = configparser.ConfigParser()
-    if not os.path.exists(VERSIONS_PATH):
-        example_path = os.path.join(PROJECT_ROOT, "versions.ini.example")
-        if os.path.exists(example_path):
-            shutil.copy(example_path, VERSIONS_PATH)
-        else:
-            config["version"] = {"current": "unknown", "latest": "unknown"}
-            with open(VERSIONS_PATH, "w") as f:
-                config.write(f)
-    config.read(VERSIONS_PATH)
-    return config
+    with VERSION_STATE_LOCK:
+        config = configparser.ConfigParser()
+        if not os.path.exists(VERSIONS_PATH):
+            example_path = os.path.join(PROJECT_ROOT, "versions.ini.example")
+            if os.path.exists(example_path):
+                shutil.copy(example_path, VERSIONS_PATH)
+            else:
+                config["version"] = {"current": "unknown", "latest": "unknown"}
+                with open(VERSIONS_PATH, "w") as f:
+                    config.write(f)
+        config.read(VERSIONS_PATH)
+        return config
 
 
 def save_versions(current: str, latest: str):
@@ -62,10 +83,11 @@ def save_versions(current: str, latest: str):
             f"[save_versions] Skipping downgrade from {parsed_current} to {parsed_latest}"
         )
         latest = current
-    config = configparser.ConfigParser()
-    config["version"] = {"current": current, "latest": latest}
-    with open(VERSIONS_PATH, "w") as f:
-        config.write(f)
+    with VERSION_STATE_LOCK:
+        config = configparser.ConfigParser()
+        config["version"] = {"current": current, "latest": latest}
+        with open(VERSIONS_PATH, "w") as f:
+            config.write(f)
 
 
 def get_current_version():
@@ -162,15 +184,9 @@ def get_current_version():
 
 def fetch_latest_tag():
     try:
-        output = subprocess.check_output(
-            [
-                "curl",
-                "-s",
-                "https://api.github.com/repos/Thokoop/Billy-B-assistant/tags",
-            ],
-            text=True,
+        data = _fetch_github_json(
+            "https://api.github.com/repos/Thokoop/Billy-B-assistant/tags"
         )
-        data = json.loads(output)
         if isinstance(data, dict) and data.get("message"):
             logger.warning(f"[fetch_latest_tag] GitHub error: {data['message']}")
             return None
@@ -205,15 +221,9 @@ def fetch_latest_tag():
 
 def fetch_release_note_for_tag(tag: str):
     try:
-        output = subprocess.check_output(
-            [
-                "curl",
-                "-s",
-                f"https://api.github.com/repos/Thokoop/billy-b-assistant/releases/tags/{tag}",
-            ],
-            text=True,
+        data = _fetch_github_json(
+            f"https://api.github.com/repos/Thokoop/billy-b-assistant/releases/tags/{tag}"
         )
-        data = json.loads(output)
         if isinstance(data, dict) and data.get("body"):
             return {
                 "tag": data.get("tag_name") or tag,

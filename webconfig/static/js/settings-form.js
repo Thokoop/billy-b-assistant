@@ -16,6 +16,7 @@ const SettingsForm = (() => {
         'AEC_ENABLED',
         'STATUS_LED_ENABLED',
         'WAKE_WORD_ENABLED',
+        'MIC_TIMEOUT_TAIL_FLAP',
     ]);
 
     const normalizeSelectValue = (id, value) => {
@@ -31,6 +32,10 @@ const SettingsForm = (() => {
         }
         if (id === 'OPENAI_MODEL' || id === 'XAI_MODEL') {
             return normalizeModelValue(value);
+        }
+        if (id === 'AEC_BARGE_IN_SNR_DB') {
+            const numericValue = Number(value);
+            if (Number.isFinite(numericValue)) return String(numericValue);
         }
         return String(value).trim();
     };
@@ -224,6 +229,7 @@ const SettingsForm = (() => {
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
             { id: 'AEC_ENABLED', key: 'AEC_ENABLED' },
             { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
+            { id: 'MIC_TIMEOUT_TAIL_FLAP', key: 'MIC_TIMEOUT_TAIL_FLAP' },
             { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
             { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
@@ -241,11 +247,12 @@ const SettingsForm = (() => {
                 const configValue = id === "REALTIME_AI_PROVIDER"
                     ? (cfg[key] || "openai")
                     : cfg[key];
-                // For backend/model/boolean selectors, prefer .env/config over localStorage.
+                // System-controlled selectors prefer .env/config over localStorage.
                 const preferConfigValue = id === 'OPENAI_MODEL'
                     || id === 'XAI_MODEL'
                     || id === 'WAKE_WORD_BACKEND'
                     || id === 'REALTIME_AI_PROVIDER'
+                    || id === 'AEC_BARGE_IN_SNR_DB'
                     || BOOLEAN_SELECT_IDS.has(id);
                 const preferredValue = preferConfigValue ? configValue : (savedValue || configValue);
                 const fallbackValue = preferConfigValue ? savedValue : null;
@@ -290,7 +297,7 @@ const SettingsForm = (() => {
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY', 'AEC_ENABLED',
-            'AEC_BARGE_IN_SNR_DB'
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP'
         ];
 
         dropdowns.forEach(id => {
@@ -621,9 +628,13 @@ const SettingsForm = (() => {
             envEditorBtnWrapper.classList.toggle("hidden", !isHidden);
         });
 
-        openEnvEditorBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-        });
+        if (openEnvEditorBtn.dataset.envEditorOpenBound !== "true") {
+            openEnvEditorBtn.dataset.envEditorOpenBound = "true";
+            openEnvEditorBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                window.LogPanel?.openEnvEditorModal?.();
+            });
+        }
     };
 
     const initHostFields = async () => {
@@ -720,7 +731,7 @@ const SettingsForm = (() => {
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED',
-            'AEC_BARGE_IN_SNR_DB'
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP'
         ];
         dropdowns.forEach(id => {
             const element = document.getElementById(id);

@@ -48,8 +48,8 @@ class InstructionBuilder:
                 f"# Role & Objective\n{persona_instructions}",
                 f"# Tools\n{get_tool_instructions().strip()}",
                 self._build_personality_section(persona_data),
-                mood_manager.get_prompt_section(),
                 self._build_backstory_section(persona_data),
+                mood_manager.get_prompt_section(),
             ]
             return "\n---\n".join(filter(None, sections))
 
@@ -80,9 +80,9 @@ class InstructionBuilder:
                 f"# Role & Objective\n{persona_instructions}",
                 f"# Tools\n{get_tool_instructions().strip()}",
                 self._build_personality_section(persona_data),
-                mood_manager.get_prompt_section(),
                 self._build_backstory_section(persona_data),
                 self._build_user_context_section(user_profile),
+                mood_manager.get_prompt_section(),
             ]
             return "\n---\n".join(filter(None, sections))
 
