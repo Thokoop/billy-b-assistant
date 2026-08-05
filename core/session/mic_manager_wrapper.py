@@ -50,6 +50,17 @@ class MicManagerWrapper:
         # leakage looks like near-end speech.
         self._barge_in_residual_floor = max(100.0, SILENCE_THRESHOLD * 0.5)
         self._barge_in_candidate_floor = None
+        # Tracks whether the current provider-VAD candidate has ever shown a
+        # moment of independent (non-echo) voice evidence. Used to release
+        # pure-echo candidates faster than the full stale-speech timeout.
+        self._barge_in_candidate_ever_independent = False
+        # Similarity reading observed at (or just before) this candidate's
+        # onset. Residual echo cancellation is imperfect on this hardware, so
+        # playback_similarity starts elevated even for genuine barge-ins and
+        # only falls as sustained independent speech outweighs the echo
+        # residual. Comparing against this baseline lets a clear downward
+        # trend confirm faster than waiting for the absolute 0.30 floor.
+        self._barge_in_candidate_initial_similarity: float | None = None
 
     def start(self, *, retry=True):
         """Try to open the mic with optional retry on failure."""
@@ -152,6 +163,11 @@ class MicManagerWrapper:
             SILENCE_THRESHOLD * 0.35,
             self._barge_in_residual_floor,
         )
+        self._barge_in_candidate_ever_independent = False
+        recent_measured_similarity = [v for v in recent_similarity if v is not None]
+        self._barge_in_candidate_initial_similarity = (
+            recent_measured_similarity[0] if recent_measured_similarity else None
+        )
 
     def has_barge_in_evidence(self, sensitivity_db: float) -> tuple[bool, dict]:
         """Confirm post-AEC voice and energy without disturbing playback."""
@@ -209,6 +225,35 @@ class MicManagerWrapper:
             len(similarity_candidate) >= independent_required
             and independent_evidence >= independent_required
         )
+        # Residual echo cancellation is imperfect on this hardware: similarity
+        # starts elevated even for genuine barge-ins and only falls as
+        # sustained independent speech outweighs leftover echo, which can take
+        # several seconds against the fixed 0.30 floor above. A clear, sustained
+        # drop relative to this candidate's own starting similarity is a much
+        # faster-arriving signal than waiting for the absolute floor, while
+        # still requiring the same energy+voice evidence as the strict check.
+        trend_limit = None
+        if self._barge_in_candidate_initial_similarity is not None:
+            trend_limit = min(0.55, self._barge_in_candidate_initial_similarity * 0.6)
+        trend_evidence = 0
+        if trend_limit is not None:
+            trend_evidence = sum(
+                rms >= adaptive_threshold
+                and voice
+                and similarity is not None
+                and similarity <= trend_limit
+                for rms, voice, similarity in zip(
+                    candidate, voice_candidate, similarity_candidate
+                )
+            )
+        trend_confirmed = (
+            trend_limit is not None
+            and len(similarity_candidate) >= independent_required
+            and trend_evidence >= independent_required
+        )
+        if independent_evidence > 0 or trend_evidence > 0:
+            self._barge_in_candidate_ever_independent = True
+        independent_confirmed = independent_confirmed or trend_confirmed
         measured_similarities = [
             value for value in similarity_candidate if value is not None
         ]
@@ -220,6 +265,10 @@ class MicManagerWrapper:
             "voice_frames": len(voice_candidate),
             "independent_evidence": independent_evidence,
             "independent_required": independent_required,
+            "trend_evidence": trend_evidence,
+            "trend_limit": trend_limit,
+            "trend_confirmed": trend_confirmed,
+            "candidate_initial_similarity": self._barge_in_candidate_initial_similarity,
             "playback_similarity": max(measured_similarities, default=None),
             "playback_similarity_min": min(measured_similarities, default=None),
             "playback_similarity_limit": playback_similarity_limit,
@@ -477,6 +526,78 @@ class MicManagerWrapper:
                 await asyncio.sleep(0.2)
                 continue
 
+            # This stale-speech release must run even while a response/playback
+            # is nominally still active. It exists specifically to unstick a
+            # provider VAD speech segment that never resolves (e.g. a barge-in
+            # candidate that can never satisfy the independent-voice gate);
+            # gating it behind response_active/playback_done_event meant it
+            # could never fire during exactly the situation it was meant to
+            # catch, since those flags only clear once this segment resolves.
+            if self.session.state._server_input_speaking:
+                speech_started_at = self.session.state._server_input_speech_started_at
+                speech_open_seconds = (
+                    now - speech_started_at if speech_started_at > 0.0 else 0.0
+                )
+                local_activity_ended = now >= self._local_activity_until
+                # Release sooner once local activity has stopped (the provider
+                # is clearly stuck). Give an actively-talking user more room,
+                # but still force a release eventually so continuous overlap
+                # speech that never passes the barge-in gate cannot wedge the
+                # session indefinitely.
+                stale_after = 8.0 if local_activity_ended else 20.0
+                echo_only = (
+                    local_activity_ended
+                    and not self._barge_in_candidate_ever_independent
+                )
+                if echo_only:
+                    # Local mic activity is already quiet and this candidate
+                    # has never shown a moment of independent (non-echo)
+                    # voice evidence — almost certainly Billy's own echo
+                    # tripping the provider VAD at response start, not real
+                    # speech trailing off (that would normally close out via
+                    # the provider's own silence_duration_ms). Don't make
+                    # every single turn wait out the full stale-timeout for
+                    # this extremely common case. Kept above 2.5s (tried
+                    # first) because a brief-but-real interruption can end
+                    # (local activity stops) before independent/trend
+                    # evidence ever gets a chance to appear at all, and got
+                    # discarded here before it could confirm; this gives it
+                    # more runway while still being well under the 8s/20s
+                    # general fallback.
+                    stale_after = min(stale_after, 4.0)
+                if speech_open_seconds >= stale_after:
+                    logger.warning(
+                        (
+                            "Server VAD speech remained open for "
+                            f"{speech_open_seconds:.1f}s "
+                            + ("(echo-only candidate) " if echo_only else "")
+                            + (
+                                "after local activity ended; "
+                                if local_activity_ended
+                                else "despite ongoing local activity; "
+                            )
+                            + "releasing stale speech state."
+                        ),
+                        "⚠️",
+                    )
+                    self.session.state._server_input_speaking = False
+                    self.session.state._server_input_speech_started_at = 0.0
+                    # Local activity has already ended and nothing here was
+                    # ever confirmed as real speech, so there is no basis left
+                    # to keep treating this provider item as an assistant-echo
+                    # overlap. Without this, if the server never splits this
+                    # segment into a new item and the user's next real answer
+                    # lands in the same one, the whole thing — echo tail and
+                    # genuine answer alike — gets discarded on commit as
+                    # "assistant-overlap", silently dropping a real reply.
+                    stale_item_id = self.session._active_server_speech_item_id
+                    if stale_item_id:
+                        self.session._assistant_overlap_speech_item_ids.discard(
+                            stale_item_id
+                        )
+                    self.session.last_activity[0] = now
+                    continue
+
             if not TEXT_ONLY_MODE and not audio.playback_done_event.is_set():
                 await asyncio.sleep(0.2)
                 continue
@@ -487,23 +608,6 @@ class MicManagerWrapper:
                 continue
             # Don't timeout while the server is actively detecting user speech.
             if self.session.state._server_input_speaking:
-                speech_started_at = self.session.state._server_input_speech_started_at
-                speech_open_seconds = (
-                    now - speech_started_at if speech_started_at > 0.0 else 0.0
-                )
-                if speech_open_seconds >= 8.0 and now >= self._local_activity_until:
-                    logger.warning(
-                        (
-                            "Server VAD speech remained open for "
-                            f"{speech_open_seconds:.1f}s after local activity ended; "
-                            "releasing stale speech state."
-                        ),
-                        "⚠️",
-                    )
-                    self.session.state._server_input_speaking = False
-                    self.session.state._server_input_speech_started_at = 0.0
-                    self.session.last_activity[0] = now
-                    continue
                 if self._timeout_countdown_active:
                     logger.info(
                         "Mic timeout countdown paused while user speech is active.",
@@ -599,7 +703,12 @@ class MicManagerWrapper:
                     self._timeout_countdown_active = False
                     self._timeout_countdown_started_at = 0.0
                     self._last_timeout_progress_log = 0.0
-                    clear_status_led_timeout_progress()
+                    # Don't clear the progress overlay here: the LED state is
+                    # still "listening" at this instant (it only becomes
+                    # "idle" once stop_session's MQTT publish round-trips back
+                    # to the LED's subscriber), so clearing it now made the
+                    # LED flash back to plain listening-green for that whole
+                    # window instead of staying red through to idle.
                     await self.session.stop_session(reason="mic_timeout")
                     break
             elif self._timeout_countdown_active:

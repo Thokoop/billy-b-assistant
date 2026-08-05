@@ -126,7 +126,17 @@ class SessionState:
         self._added_done_text = False
         self._last_heuristic_signature = None
         self._post_response_listen_opened = False
-        # Don't reset _saw_follow_up_call here - it will be reset after decision is made
+        # _saw_follow_up_call/follow_up_expected reflect whether *this specific*
+        # response called conversation_state. Reset both at response start (like
+        # follow_up_expected already was) so a stale True from an earlier
+        # response can't leak into this turn's follow-up decision. Previously
+        # only follow_up_expected was reset here; _saw_follow_up_call stayed
+        # True whenever the prior response's own _post_response_handling was
+        # skipped (e.g. "late playback interruption"), which never reset it —
+        # causing a later, unrelated response with no tool call to be treated
+        # as if conversation_state had already answered, silently overriding
+        # the interactive_question heuristic and ending the session early.
+        self._saw_follow_up_call = False
         self._triggered_new_response = False
 
     def on_input_speech_started(self):
@@ -250,13 +260,26 @@ class SessionState:
                             or self._last_committed_post_barge_in_loud_audio_chunks >= 2
                         )
                     )
+                    # A short interruption can finish being spoken before, or
+                    # right around, the moment confirmation lands, leaving
+                    # little or no "post-barge-in" window to validate against
+                    # even though it is the very speech that triggered
+                    # confirmation. Local confirmation already required
+                    # independent (non-echo) evidence at least once for this
+                    # turn, so don't discard it purely for lacking a
+                    # post-confirmation tail when the turn overall still
+                    # shows real loud/voiced content.
+                    or (loud_chunks >= 2 and peak_rms >= local_speech_floor)
                 )
             )
             if client_managed_vad and self._last_committed_confirmed_barge_in:
-                # Once playback was cancelled, only speech that continued into
-                # the clean post-playback window may validate this candidate.
-                # Pre-cancel speaker leakage must not get a second chance via
-                # the generic absolute-volume heuristic.
+                # Once playback was cancelled, sustained continuation into the
+                # clean post-playback window is the strongest signal, but a
+                # short utterance that was mostly captured before playback
+                # actually stopped can still be validated by the confirmation
+                # itself plus overall loud/voiced content (see above). Pre-cancel
+                # speaker leakage alone (no confirmation, no loud content) still
+                # gets no second chance via the generic absolute-volume heuristic.
                 has_local_speech_evidence = confirmed_barge_in_is_valid
             else:
                 has_local_speech_evidence = (

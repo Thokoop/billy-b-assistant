@@ -88,8 +88,17 @@ class FunctionHandler:
         except Exception as e:
             logger.error(f"Function {function_name} failed: {e}")
 
-    def _parse_json_args(self, raw_args: str | None, tool_name: str) -> dict:
-        """Parse JSON arguments with fallback for malformed JSON."""
+    def _parse_json_args(
+        self, raw_args: str | None, tool_name: str, *, strict: bool = False
+    ) -> dict | None:
+        """Parse JSON arguments with fallback for malformed JSON.
+
+        strict=True returns None (instead of {}) when both the direct parse
+        and the repair attempt fail, so a caller can distinguish "genuinely
+        no arguments" from "arguments were truncated/corrupted" (e.g. a
+        barge-in cancelling the response mid-way through streaming the
+        tool call) and avoid treating the latter as an authoritative answer.
+        """
         raw_args = raw_args or "{}"
         try:
             return json.loads(raw_args)
@@ -112,7 +121,7 @@ class FunctionHandler:
                 logger.warning(
                     f"{tool_name}: failed to parse arguments: {e} | raw={raw_args!r} | fix also failed: {fix_e}"
                 )
-                return {}
+                return None if strict else {}
 
     @staticmethod
     def _coerce_bool(value: Any, default: bool = False) -> bool:
@@ -134,7 +143,20 @@ class FunctionHandler:
         self, raw_args: str | None, call_id: str | None = None
     ):
         """Handle conversation state (internal)."""
-        args = self._parse_json_args(raw_args, "conversation_state")
+        args = self._parse_json_args(raw_args, "conversation_state", strict=True)
+        if args is None:
+            # Arguments were truncated/corrupted, most likely because a
+            # barge-in cancelled the response mid-way through streaming this
+            # call's JSON. There is no trustworthy expects_follow_up value
+            # here, so don't record a call at all — leave _saw_follow_up_call
+            # unset for this turn so the text-based heuristic (e.g. a
+            # trailing "?") decides instead of silently locking in False.
+            logger.warning(
+                "conversation_state: arguments truncated (likely interrupted "
+                "mid-call); leaving follow-up decision to heuristic fallback.",
+                "🧭",
+            )
+            return
         self.session.state.follow_up_expected = self._coerce_bool(
             args.get("expects_follow_up", False), default=False
         )

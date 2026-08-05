@@ -16,6 +16,8 @@ from .config import (
     AEC_BARGE_IN_SNR_DB,
     FOLLOW_UP_RETRY_LIMIT,
     MIC_TIMEOUT_SECONDS,
+    MOOD_INSTRUCTIONS_ENABLED,
+    MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS,
     REALTIME_AI_PROVIDER,
     RUN_MODE,
     SERVER_VAD_PARAMS,
@@ -24,6 +26,13 @@ from .config import (
     TURN_EAGERNESS,
     is_conversation_state_enabled,
 )
+
+
+MANUAL_HANDOFF_ECHO_SETTLE_SECONDS = 1.5
+# Safety net only: normal spoken turns finish draining well under this. If the
+# playback queue ever stalls (e.g. a stuck worker), this stops assistant_speaking
+# / playback_done_event from being wedged forever with no other way to clear them.
+PLAYBACK_DRAIN_TIMEOUT_SECONDS = 25.0
 from .logger import logger
 from .mood import mood_manager
 from .movements import stop_all_motors
@@ -196,9 +205,12 @@ class BillySession:
         self._pending_barge_in_mood_event = False
         self._next_response_follows_interruption = False
         self._last_mood_instruction_signature = mood_manager.get_response_signature()
+        self._last_mood_instruction_pushed_at = 0.0
         self._active_server_speech_item_id: str | None = None
         self._assistant_overlap_speech_item_ids: set[str] = set()
         self._locally_confirmed_barge_in_item_ids: set[str] = set()
+        self._manual_handoff_discard_item_ids: set[str] = set()
+        self._manual_handoff_accept_after = 0.0
         self._next_response_is_tool_continuation = False
         self._current_response_is_tool_continuation = False
 
@@ -277,23 +289,48 @@ class BillySession:
 
     async def refresh_mood_instructions(self, *, force: bool = False) -> bool:
         """Refresh realtime instructions when mood delivery has changed."""
+        if not MOOD_INSTRUCTIONS_ENABLED:
+            return False
         current_mood = mood_manager.snapshot()
         signature = mood_manager.get_response_signature(current_mood)
         previous = getattr(self, "_last_mood_instruction_signature", None)
         if not force and signature == previous:
             return False
+        if not force:
+            elapsed = time.monotonic() - self._last_mood_instruction_pushed_at
+            if elapsed < MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS:
+                # Mood state itself already updated (MQTT, get_mood/set_mood);
+                # this only throttles how often that gets folded into a fresh,
+                # billable session.update, so a burst of barge-ins/mood events
+                # collapses into one push instead of resending the full
+                # persona prompt on every single one. Leave the signature
+                # stale so the next allowed push still picks this change up.
+                return False
         if not self.ws:
             self._last_mood_instruction_signature = signature
             return False
-        provider_name = self.realtime_ai_provider.get_provider_name()
+        # Append the mood delta as a conversation item instead of resending
+        # the full persona instructions via session.update. Per OpenAI's
+        # realtime caching docs, instructions sit at the start of the
+        # conversation, so changing them mid-session busts the cache from
+        # that point forward; appending a new item at the end does not, and
+        # this delta is a fraction of the size of the full persona prompt.
+        mood_note = (
+            "[Internal mood update — background context only, not a message "
+            "from the user. Do not acknowledge, mention, or respond to this "
+            "note directly; just let it inform delivery starting now.]\n"
+            f"{mood_manager.get_prompt_section()}"
+        )
         await self._ws_send_json({
-            "type": "session.update",
-            "session": {
-                "type": "realtime",
-                "instructions": get_instructions_with_user_context(provider_name),
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": mood_note}],
             },
         })
         self._last_mood_instruction_signature = signature
+        self._last_mood_instruction_pushed_at = time.monotonic()
         logger.info(
             f"Updated realtime mood delivery: {current_mood['label']} "
             f"({current_mood['intensity']})",
@@ -425,6 +462,16 @@ class BillySession:
             or audio.is_billy_speaking()
         )
         self._active_server_speech_item_id = (data or {}).get("item_id")
+        if (
+            self._manual_handoff_accept_after
+            and time.monotonic() < self._manual_handoff_accept_after
+            and self._active_server_speech_item_id
+        ):
+            # Echo from Billy's tail often starts a fresh provider item right
+            # after a manual button handoff because assistant state was cleared.
+            self._manual_handoff_discard_item_ids.add(
+                self._active_server_speech_item_id
+            )
         if assistant_was_active and self._active_server_speech_item_id:
             # Remember how this provider turn began. It may only be committed
             # after response.done/playback completion, when a point-in-time
@@ -447,6 +494,10 @@ class BillySession:
                     if playback_similarity is None
                     else f"{playback_similarity:.2f}"
                 )
+                trend_limit = details.get("trend_limit")
+                trend_limit_text = (
+                    "n/a" if trend_limit is None else f"{trend_limit:.2f}"
+                )
                 logger.verbose(
                     (
                         "Provider VAD barge-in candidate awaiting local evidence "
@@ -460,6 +511,10 @@ class BillySession:
                         f"{details.get('independent_evidence', 0)}/"
                         f"{details.get('independent_required', 0)}, "
                         f"playback_similarity={similarity_text}, "
+                        "trend_voice="
+                        f"{details.get('trend_evidence', 0)}/"
+                        f"{details.get('independent_required', 0)} "
+                        f"(limit={trend_limit_text}), "
                         f"residual_floor={details['residual_floor']:.1f})."
                     ),
                     "🎚️",
@@ -659,7 +714,20 @@ class BillySession:
         logger.success("Assistant response complete.", "✿")
 
         if not TEXT_ONLY_MODE:
-            await self.audio_handler.wait_for_playback_complete()
+            try:
+                await asyncio.wait_for(
+                    self.audio_handler.wait_for_playback_complete(),
+                    timeout=PLAYBACK_DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Playback queue did not drain within "
+                    f"{PLAYBACK_DRAIN_TIMEOUT_SECONDS:.0f}s of response "
+                    "completion; continuing without waiting further so "
+                    "assistant_speaking/playback_done_event cannot stay "
+                    "wedged.",
+                    "⚠️",
+                )
             # A local barge-in may have stopped queued playback while this
             # handler was awaiting completion. That path already owns the mic
             # handoff, so do not save an emptied buffer or transition twice.
@@ -1047,6 +1115,8 @@ class BillySession:
         self._active_server_speech_item_id = None
         self._assistant_overlap_speech_item_ids.clear()
         self._locally_confirmed_barge_in_item_ids.clear()
+        self._manual_handoff_discard_item_ids.clear()
+        self._manual_handoff_accept_after = 0.0
         vad_params = dict(SERVER_VAD_PARAMS[TURN_EAGERNESS])
         if aec_active:
             vad_params["threshold"] = _aec_vad_threshold(AEC_BARGE_IN_SNR_DB)
@@ -1412,6 +1482,7 @@ class BillySession:
                 if playback_similarity_min is None
                 else f"{float(playback_similarity_min):.2f}"
             )
+            confirmed_via_trend = bool(details.get("trend_confirmed"))
             logger.info(
                 "Post-AEC independent voice and provider VAD agreed "
                 f"(energy={details['evidence']}/{details['required']}, "
@@ -1420,9 +1491,13 @@ class BillySession:
                 "independent_voice="
                 f"{details.get('independent_evidence', 0)}/"
                 f"{details.get('independent_required', 0)}, "
+                "trend_voice="
+                f"{details.get('trend_evidence', 0)}/"
+                f"{details.get('independent_required', 0)}, "
                 "playback_similarity_min="
-                f"{playback_similarity_min_text}); "
-                "confirming interruption without pausing playback.",
+                f"{playback_similarity_min_text}"
+                + (", via declining-trend fast-confirm" if confirmed_via_trend else "")
+                + "); confirming interruption without pausing playback.",
                 "🗣️",
             )
             await self._handle_server_barge_in(
@@ -1456,6 +1531,13 @@ class BillySession:
             self._assistant_overlap_speech_item_ids.discard(item_id)
             self._locally_confirmed_barge_in_item_ids.discard(item_id)
 
+        rejected_manual_handoff_echo = bool(
+            item_id and item_id in self._manual_handoff_discard_item_ids
+        )
+        if rejected_manual_handoff_echo:
+            self._manual_handoff_discard_item_ids.discard(item_id)
+            meaningful = False
+
         rejected_assistant_overlap = overlapped_assistant and not (
             locally_confirmed and meaningful
         )
@@ -1486,7 +1568,12 @@ class BillySession:
                         "type": "conversation.item.delete",
                         "item_id": item_id,
                     })
-            if rejected_assistant_overlap:
+            if rejected_manual_handoff_echo:
+                logger.info(
+                    "Discarded echo turn from manual button handoff.",
+                    "🔇",
+                )
+            elif rejected_assistant_overlap:
                 logger.info(
                     "Discarded assistant-overlap audio turn because the "
                     "post-AEC voice evidence did not remain valid.",
@@ -1611,9 +1698,23 @@ class BillySession:
             f"Interrupting assistant turn from {source} and reopening mic...",
             "🛑",
         )
-        await self.apply_mood_event("barge_in")
+        if source != "button":
+            await self.apply_mood_event("barge_in")
         self._next_response_follows_interruption = True
         self.interrupt_event.clear()
+
+        handoff_at = time.monotonic()
+        # Reject provider items that begin while speaker tail/room echo settles.
+        self._manual_handoff_accept_after = (
+            handoff_at + MANUAL_HANDOFF_ECHO_SETTLE_SECONDS
+        )
+        if self._active_server_speech_item_id:
+            self._manual_handoff_discard_item_ids.add(
+                self._active_server_speech_item_id
+            )
+        self._manual_handoff_discard_item_ids.update(
+            self._assistant_overlap_speech_item_ids
+        )
 
         provider_response_active = self.state.response_active
         provider_name = self.realtime_ai_provider.get_provider_name()
@@ -1638,6 +1739,7 @@ class BillySession:
         self._pending_client_response_create = False
         self._pending_barge_in_mood_event = False
         self._locally_confirmed_barge_in_item_ids.clear()
+        self.mic_manager.reset_barge_in_evidence()
         self.state._server_input_speaking = False
         self.state._server_input_speech_started_at = 0.0
 

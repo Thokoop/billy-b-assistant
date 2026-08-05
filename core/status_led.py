@@ -199,13 +199,11 @@ class StatusLed:
             timeout_started_at = self._timeout_started_at
 
         if state == "listening" and timeout_progress is not None:
-            # Keep a calm 500 ms on / 500 ms off cadence. Only the color conveys
-            # remaining time, so the feedback stays readable near expiry.
+            # Stay solid while listening; the color blend alone (green through
+            # amber to red) conveys remaining time, so blinking isn't needed.
             return {
-                "mode": "blink",
+                "mode": "solid",
                 "color": self._timeout_color(timeout_progress),
-                "period": 1.0,
-                "phase_origin": timeout_started_at,
             }
         return self._STATE_CONFIG.get(state, self._STATE_CONFIG["off"])
 
