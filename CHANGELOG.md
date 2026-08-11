@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.4.0] — 2026-08-07
+## [2.4.0] — 2026-08-11
 
 ### Added
 - **Profile-based Mood System**: Added a persistent per-profile mood system with continuous mood axes, derived mood presets, natural mood events, time-based decay, short-term mood memory and momentum, manual mood setting tools, and profile-page mood visibility.
