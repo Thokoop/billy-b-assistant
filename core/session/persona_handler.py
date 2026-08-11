@@ -212,6 +212,7 @@ class PersonaHandler:
                 }
 
             await self.session._ws_send_json(session_update)
+            self.session.mark_mood_instructions_current()
             logger.info("Updated session with persona context", "🎭")
         except Exception as e:
             logger.warning(f"Failed to update session: {e}")

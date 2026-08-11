@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import base64
 import glob
@@ -17,12 +19,14 @@ from scipy.signal import resample, resample_poly
 
 from . import movements
 from .config import (
+    AEC_ENABLED,
     CHUNK_MS,
     MIC_PREFERENCE,
     PLAYBACK_VOLUME,
     SPEAKER_PREFERENCE,
     TEXT_ONLY_MODE,
 )
+from .echo_canceller import EchoCanceller
 from .logger import logger
 from .movements import (
     flap_from_pcm_chunk,
@@ -49,6 +53,7 @@ playback_queue = Queue()
 head_move_queue = Queue()
 playback_done_event = threading.Event()
 _playback_thread = None
+_playback_output_latency_seconds = 0.0
 last_played_time = time.time()
 song_mode = False
 beat_length = 0.5
@@ -58,6 +63,52 @@ song_tail_threshold = 1500
 
 PROVIDER_MIC_RATE = 24000
 PROVIDER_OUTPUT_RATE = 24000
+
+echo_canceller = EchoCanceller(AEC_ENABLED)
+
+
+def echo_cancellation_active() -> bool:
+    """Return whether AEC initialized successfully and barge-in is safe."""
+    return echo_canceller.initialize()
+
+
+def process_mic_with_aec(samples, *, render_active=True):
+    return echo_canceller.process_capture(
+        samples,
+        MIC_RATE or PROVIDER_MIC_RATE,
+        render_active=render_active,
+    )
+
+
+def aec_voice_detected() -> bool | None:
+    """Return WebRTC VAD's latest decision on the echo-cancelled mic frame."""
+    return echo_canceller.voice_detected
+
+
+def aec_playback_similarity() -> float | None:
+    """Return gain-independent similarity of cleaned mic to Billy's playback."""
+    return echo_canceller.playback_similarity
+
+
+def set_aec_capture_latency(seconds):
+    echo_canceller.set_capture_latency(seconds)
+
+
+def set_aec_render_latency(seconds):
+    echo_canceller.set_render_latency(seconds)
+
+
+def begin_aec_playback_generation() -> int:
+    """Start a new isolated speaker-reference generation."""
+    return echo_canceller.begin_render_generation()
+
+
+def is_current_aec_playback_generation(generation: int) -> bool:
+    return echo_canceller.is_current_render_generation(generation)
+
+
+def aec_heard_audio_ms(generation=None) -> int:
+    return echo_canceller.heard_audio_ms(generation)
 
 
 def mic_input_samples_for_meter(indata):
@@ -176,6 +227,7 @@ def detect_devices(debug=False):
 def playback_worker(chunk_ms):
     global last_played_time
     global song_start_time
+    global _playback_output_latency_seconds
 
     interlude_counter = 0
     interlude_target = random.randint(150000, 300000)
@@ -190,6 +242,13 @@ def playback_worker(chunk_ms):
         with sd.OutputStream(
             samplerate=48000, channels=2, dtype='int16', device=OUTPUT_DEVICE_INDEX
         ) as stream:
+            try:
+                _playback_output_latency_seconds = max(
+                    0.0, float(getattr(stream, "latency", 0.0) or 0.0)
+                )
+            except (TypeError, ValueError):
+                _playback_output_latency_seconds = 0.0
+            set_aec_render_latency(_playback_output_latency_seconds)
             logger.info("Output stream opened", "🔈")
             while True:
                 item = playback_queue.get()
@@ -253,14 +312,31 @@ def playback_worker(chunk_ms):
 
                     elif mode == "tts":
                         chunk = item[1]
+                        generation = item[2] if len(item) > 2 else None
                         mono = np.frombuffer(chunk, dtype=np.int16)
                         chunk_len = int(PROVIDER_OUTPUT_RATE * chunk_ms / 1000)
                         for i in range(0, len(mono), chunk_len):
+                            if (
+                                generation is not None
+                                and not is_current_aec_playback_generation(generation)
+                            ):
+                                break
                             sub = mono[i : i + chunk_len]
                             if len(sub) == 0:
                                 continue
+                            speaker_pcm = _resample_24k_mono_to_48k_stereo(sub)
+                            echo_canceller.feed_render(
+                                speaker_pcm[:, 0], 48000, generation
+                            )
                             flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
-                            stream.write(_resample_24k_mono_to_48k_stereo(sub))
+                            write_started_at = time.monotonic()
+                            stream.write(speaker_pcm)
+                            echo_canceller.mark_render_written(
+                                len(speaker_pcm),
+                                48000,
+                                generation,
+                                write_started_at,
+                            )
 
                             interlude_counter += len(sub)
                             interlude_counter, interlude_target = (
@@ -277,8 +353,16 @@ def playback_worker(chunk_ms):
                         sub = mono[i : i + chunk_len]
                         if len(sub) == 0:
                             continue
+                        speaker_pcm = _resample_24k_mono_to_48k_stereo(sub)
+                        echo_canceller.feed_render(speaker_pcm[:, 0], 48000)
                         flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
-                        stream.write(_resample_24k_mono_to_48k_stereo(sub))
+                        write_started_at = time.monotonic()
+                        stream.write(speaker_pcm)
+                        echo_canceller.mark_render_written(
+                            len(speaker_pcm),
+                            48000,
+                            write_started_at=write_started_at,
+                        )
 
                         interlude_counter += len(sub)
                         interlude_counter, interlude_target = _maybe_trigger_interlude(
@@ -337,11 +421,11 @@ def send_mic_audio(ws, samples, loop):
     try:
         # Session teardown races can call this with invalid websocket/loop.
         if ws is None or loop is None:
-            return
+            return None
         if getattr(ws, "closed", False):
-            return
+            return None
         if getattr(loop, "is_closed", lambda: False)():
-            return
+            return None
 
         # Ensure samples is a proper numpy array
         if not isinstance(samples, np.ndarray):
@@ -353,7 +437,7 @@ def send_mic_audio(ws, samples, loop):
 
         # Check if samples is empty
         if len(samples) == 0:
-            return
+            return None
 
         if np.issubdtype(samples.dtype, np.floating):
             max_abs = float(np.max(np.abs(samples))) if samples.size else 0.0
@@ -371,7 +455,7 @@ def send_mic_audio(ws, samples, loop):
             samples = resample(samples.astype(np.float32), target_len).astype(np.int16)
         pcm = samples.tobytes()
 
-        asyncio.run_coroutine_threadsafe(
+        return asyncio.run_coroutine_threadsafe(
             ws.send(
                 json.dumps({
                     "type": "input_audio_buffer.append",
@@ -381,8 +465,7 @@ def send_mic_audio(ws, samples, loop):
             loop,
         )
 
-        # Don't block on websocket send - let it complete asynchronously
-        # This significantly improves audio response latency
+        # Keep capture non-blocking; callers may inspect the future if needed.
     except RuntimeError as e:
         # Typical during shutdown (event loop closed / scheduling after stop).
         logger.verbose(f"Skipping mic chunk during shutdown: {e}", "ℹ️")
@@ -426,14 +509,20 @@ def play_random_wake_up_clip():
             # For non-default personas, check persona-specific directory
             persona_wakeup_dir = os.path.join("personas", current_persona, "wakeup")
             if os.path.exists(persona_wakeup_dir):
-                clips = glob.glob(os.path.join(persona_wakeup_dir, "*.wav"))
+                clips = _filter_wake_up_clips_for_mood(
+                    glob.glob(os.path.join(persona_wakeup_dir, "*.wav")),
+                    current_persona,
+                )
                 if clips:
                     logger.info(
                         f"Using wake-up clips from persona: {current_persona}", "🎭"
                     )
         elif current_persona == "default":
             # For default persona, use the custom folder
-            clips = glob.glob(os.path.join(WAKE_UP_DIR, "*.wav"))
+            clips = _filter_wake_up_clips_for_mood(
+                glob.glob(os.path.join(WAKE_UP_DIR, "*.wav")),
+                current_persona,
+            )
             if clips:
                 logger.info("Using custom wake-up clips for default persona", "🔧")
     except Exception as e:
@@ -491,8 +580,55 @@ def play_random_wake_up_clip():
     return clip
 
 
+def _filter_wake_up_clips_for_mood(clips: list[str], persona_name: str) -> list[str]:
+    """Return clips matching the current mood, falling back to untagged/all clips."""
+    if not clips:
+        return clips
+
+    try:
+        import configparser
+
+        from .mood import mood_manager
+
+        mood_label = str(mood_manager.snapshot().get("label") or "neutral").strip()
+        config = configparser.ConfigParser()
+        persona_file = (
+            "persona.ini"
+            if persona_name == "default"
+            else os.path.join("personas", persona_name, "persona.ini")
+        )
+        config.read(persona_file)
+        wakeup_moods = (
+            dict(config["WAKEUP_MOODS"]) if config.has_section("WAKEUP_MOODS") else {}
+        )
+        if not wakeup_moods:
+            return clips
+
+        tagged_matches = []
+        untagged = []
+        for clip in clips:
+            index = os.path.splitext(os.path.basename(clip))[0]
+            moods = {
+                mood.strip().lower()
+                for mood in wakeup_moods.get(index, "").split(",")
+                if mood.strip()
+            }
+            if not moods:
+                untagged.append(clip)
+            elif mood_label in moods:
+                tagged_matches.append(clip)
+
+        return tagged_matches or untagged or clips
+    except Exception as e:
+        logger.verbose(f"Could not filter wake-up clips by mood: {e}", "🎭")
+        return clips
+
+
 def stop_playback():
     """Immediately stop playback and flush queue."""
+    # Invalidate first so a chunk already owned by the playback worker cannot
+    # add cancelled response audio to the next response's AEC reference.
+    echo_canceller.invalidate_render_generation()
     while not playback_queue.empty():
         try:
             playback_queue.get_nowait()

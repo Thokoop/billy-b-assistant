@@ -276,6 +276,9 @@
 // ===================== RELEASE NOTES =====================
 const ReleaseNotes = (() => {
     let currentNote = null;
+    let retryTimer = null;
+    let retryAttempts = 0;
+    const MAX_BACKGROUND_RETRIES = 6;
 
     const getTitle = () => document.getElementById("release-title");
     const getBody = () => document.getElementById("release-body");
@@ -285,6 +288,23 @@ const ReleaseNotes = (() => {
         const res = await fetch("/release-note");
         if (!res.ok) throw new Error("Failed to fetch /release-note");
         return res.json();
+    }
+
+    async function fetchAndRender() {
+        retryTimer = null;
+        try {
+            const note = await fetchNote();
+            render(note);
+            if (
+                !note.body
+                && retryAttempts < MAX_BACKGROUND_RETRIES
+            ) {
+                retryAttempts += 1;
+                retryTimer = setTimeout(fetchAndRender, 750);
+            }
+        } catch (e) {
+            console.warn("Release notes unavailable:", e);
+        }
     }
 
     function render(note) {
@@ -320,12 +340,7 @@ const ReleaseNotes = (() => {
                 render(currentNote);
             }
         });
-        try {
-            const note = await fetchNote();
-            render(note);
-        } catch (e) {
-            console.warn("Release notes unavailable:", e);
-        }
+        await fetchAndRender();
     }
 
     return {
@@ -333,6 +348,9 @@ const ReleaseNotes = (() => {
         refresh: () => {
             if (currentNote) {
                 render(currentNote);
+            }
+            if (!currentNote?.body && !retryTimer) {
+                fetchAndRender();
             }
             window.BillyVersionUI?.refresh();
         },

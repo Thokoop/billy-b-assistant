@@ -121,6 +121,17 @@ class UserProfile:
                 'interaction_count': '0',
                 'bond_level': 'new',
             },
+            'MOOD': {
+                'positivity': '50',
+                'energy': '50',
+                'irritability': '30',
+                'engagement': '50',
+                'composure': '50',
+                'label': 'neutral',
+                'last_updated': '',
+                'last_event': 'startup',
+                'memory': '[]',
+            },
             'core_memories': [],
         }
 
@@ -138,9 +149,10 @@ class UserProfile:
     def _set_guest_as_default_if_first_time(self):
         """Set guest as default user if this is the first time creating guest.ini."""
         try:
-            from dotenv import get_key, set_key
+            from dotenv import get_key
 
             from .config import ENV_PATH
+            from .env_utils import set_env_key
 
             # Check if DEFAULT_USER is already set to something other than guest
             current_default = get_key(ENV_PATH, "DEFAULT_USER")
@@ -153,7 +165,7 @@ class UserProfile:
                 return
 
             # Set DEFAULT_USER to guest (lowercase to match folder name)
-            set_key(ENV_PATH, "DEFAULT_USER", "guest", quote_mode='never')
+            set_env_key(ENV_PATH, "DEFAULT_USER", "guest")
             logger.info("Set guest as default user in .env file", "👤")
 
         except Exception as e:
@@ -164,12 +176,41 @@ class UserProfile:
         if data is None:
             data = self.data
 
+        existing_config = configparser.ConfigParser()
+        existing_config.read(self.profile_path)
+        existing_mood = (
+            dict(existing_config["MOOD"])
+            if existing_config.has_section("MOOD")
+            else None
+        )
+        mood_defaults = {
+            'positivity': '50',
+            'energy': '50',
+            'irritability': '30',
+            'engagement': '50',
+            'composure': '50',
+            'label': 'neutral',
+            'last_updated': '',
+            'last_event': 'startup',
+            'memory': '[]',
+        }
+        mood_keys = set(mood_defaults)
+
         config = configparser.ConfigParser()
 
         # Convert dict to INI sections
         for section_name, section_data in data.items():
             if section_name == 'core_memories':
                 continue  # Handle separately
+            if section_name == 'MOOD':
+                section_data = {
+                    **mood_defaults,
+                    **{
+                        key: value
+                        for key, value in section_data.items()
+                        if key in mood_keys
+                    },
+                }
 
             if not config.has_section(section_name):
                 config.add_section(section_name)
@@ -186,6 +227,24 @@ class UserProfile:
         config.set(
             'CORE_MEMORIES', 'memories', json.dumps(data.get('core_memories', []))
         )
+
+        # Mood can be updated independently by MoodManager during a session.
+        # Preserve the freshest on-disk mood section so later profile saves
+        # (interaction count, display name, persona changes) do not overwrite it
+        # with stale data from an older UserProfile instance.
+        if existing_mood and any(key in existing_mood for key in mood_defaults):
+            if not config.has_section('MOOD'):
+                config.add_section('MOOD')
+            fresh_mood = {
+                **mood_defaults,
+                **{
+                    key: value
+                    for key, value in existing_mood.items()
+                    if key in mood_keys
+                },
+            }
+            for key, value in fresh_mood.items():
+                config.set('MOOD', key, str(value))
 
         # Ensure directory exists
         self.profile_path.parent.mkdir(exist_ok=True)

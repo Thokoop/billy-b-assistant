@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.4.0] — 2026-08-11
+
+### Added
+- **Profile-based Mood System**: Added a persistent per-profile mood system with continuous mood axes, derived mood presets, natural mood events, time-based decay, short-term mood memory and momentum, manual mood setting tools, and profile-page mood visibility.
+- **Mood-aware Wake-up Sounds**: Added mood tags for persona wake-up sounds so Billy can choose activation clips that match the current mood.
+- **Mood Intensity Levels**: Added three mood-intensity tiers (subtle, noticeable, strong) derived from how far the current mood has drifted from neutral, so how strongly mood colors delivery now scales with the mood itself instead of being uniform.
+- **Live Mood Token Cost Toggle**: Added a "Live mood in responses" setting in API Settings so mood can still be tracked and published (MQTT, `get_mood`/`set_mood`) without spending realtime API tokens folding it into the model's instructions when disabled.
+- **Wake-up Sound Idea Generation**: Added AI-assisted wake-up sound idea generation from persona context, including short phrases, phonetic sounds, mixed sound-plus-phrase cues, automatic persona saving, duplicate filtering, and mood tag assignment.
+- **Mood-influenced Wake-up Voice Generation**: Wake-up clip generation now passes selected moods into the voice generation instructions so generated audio delivery can match the assigned mood.
+- **Conversation Mood Events**: Conversation state can now report mood events, allowing ordinary turns to nudge Billy's temporary mood without requiring explicit `set_mood` calls.
+- **Natural Voice Interruption**: Added full-duplex voice interruption using WebRTC AEC3 with noise suppression, automatic gain control, hardware-latency reporting and Billy's exact speaker PCM as the echo reference. Provider VAD, adaptive post-AEC energy and a standalone WebRTC voice detector jointly confirm speech without pausing or stuttering playback.
+- **Interruption LED Feedback**: Added a short orange status LED blink when voice or button input interrupts Billy. Listening-state updates are retained underneath the animation, so the LED changes to green immediately after the interruption indication finishes.
+- **ARM64 AEC Wheel Builds**: Added a release workflow that builds and verifies native `aec-audio-processing` wheels for Python 3.11 through 3.13. Normal installs and Web UI upgrades on 64-bit Raspberry Pi OS now select those published wheels automatically instead of compiling WebRTC locally.
+- **Optional Timeout Tail Flap**: Added an Audio setting for tail movement during the microphone silence countdown. It defaults to enabled, can be disabled by the user, and its movement is excluded from microphone activity detection.
+
+### Changed
+- **Timeout Entry**: Billy now retracts his head and ignores the resulting motor noise before starting the microphone timeout.
+- **Wake-word Log Noise**: Suppressed ONNX Runtime's harmless Raspberry Pi DRM/GPU device-discovery warning during CPU-based openWakeWord initialization while preserving other native and Python errors.
+- **Timeout LED Countdown**: The listening timeout now blinks at a steady 500 ms on / 500 ms off cadence, transitioning from green through amber to red as the configured timeout approaches. Its phase begins with the countdown, identical LED frames are no longer rewritten between transitions, and full red is held briefly before expiry so the endpoint remains visible.
+- **Interrupted Conversation Context**: OpenAI WebSocket sessions now truncate the unheard tail of interrupted assistant audio so subsequent turns do not resume content the user never heard.
+- **Realtime Session Startup**: User/profile/persona context now preloads before opening the realtime session, avoiding an unnecessary default-persona session update on cold start.
+- **Realtime Prompt Size**: Trimmed duplicated tool-routing instructions from the realtime prompt while keeping detailed behavior in tool schemas.
+- **Python Version Guidance**: Updated project setup guidance to use the system Python on Raspberry Pi OS, including an explicit `openwakeword 0.6.0` manual-install workaround when `pip` resolves `openwakeword` down to `0.4.x` on Python `3.13`.
+- **Raspberry Pi Camera Compatibility**: Updated camera detection and capture to use the current `rpicam-still` command with automatic fallback to the legacy `libcamera-still` command, while preserving USB webcam support through FFmpeg and V4L2.
+
+### Fixed
+- **Settings Dropdown Persistence**: Fixed boolean Enabled/Disabled dropdowns falling back to Disabled when settings were saved.
+- **Duplicate Tool Responses**: Reduced repeated acknowledgement of tool results during silent/no-input periods.
+- **Software Update Dependency Drift**: Web UI software updates and simulated reinstalls now automatically reapply the `openwakeword 0.6.0` workaround after reinstalling `requirements.txt`, preventing Raspberry Pi systems from regressing back to `openwakeword 0.4.x`.
+- **Microphone Timeout Motor Feedback**: Prevented Billy's own timeout tail movement from repeatedly resetting the microphone silence countdown.
+- **Duplicate `.env` Settings**: Saving a setting that already exists as a commented-out `.env` line now replaces it in place instead of appending a second, active duplicate line below it.
+- **Physical Button Interrupt Handoff**: Reworked the button-press handoff to reject provider speech that begins while speaker tail/room echo is still settling, so post-button speech reliably starts a fresh, trusted user turn instead of being merged with leftover echo or silently dropped.
+- **Barge-in Turn Validation**: A user turn that lands in the same provider item as a released stale speech segment, or a short interruption that ends before a post-confirmation tail can be captured, is no longer discarded outright — it is now judged on its own audio evidence instead of inheriting an earlier moment's echo tag.
+- **Assistant State Could Wedge on a Stalled Playback Queue**: Bounded the wait for queued audio to finish draining after a response completes, so a stalled queue can no longer leave the assistant permanently "speaking" with no other way to clear it.
+- **Follow-up Decision Leaking Between Turns**: A response that never called the follow-up tool (for example because a barge-in cut it off mid-call) could inherit an earlier turn's answer and end the session immediately instead of falling back to the normal follow-up heuristic.
+- **Truncated Tool Call Corrupting Follow-up Decision**: A `conversation_state` call cut off mid-stream by a barge-in produced malformed arguments that were silently treated as "no follow-up expected" instead of falling back to the heuristic.
+
+---
+
 ## [2.3.2] — 2026-07-14
 
 ### Added

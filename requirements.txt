@@ -23,3 +23,11 @@ onnxruntime
 pypdf
 openpyxl
 Pillow
+# Use Billy's prebuilt AEC wheels on 64-bit Raspberry Pi OS so installs and
+# upgrades do not compile WebRTC locally. Other platforms keep the upstream
+# package fallback.
+aec-audio-processing @ https://github.com/Thokoop/billy-b-assistant/releases/download/aec-wheels-v1.0.1-billy1/aec_audio_processing-1.0.1-cp311-cp311-linux_aarch64.whl ; platform_system == "Linux" and platform_machine == "aarch64" and implementation_name == "cpython" and python_version == "3.11"
+aec-audio-processing @ https://github.com/Thokoop/billy-b-assistant/releases/download/aec-wheels-v1.0.1-billy1/aec_audio_processing-1.0.1-cp312-cp312-linux_aarch64.whl ; platform_system == "Linux" and platform_machine == "aarch64" and implementation_name == "cpython" and python_version == "3.12"
+aec-audio-processing @ https://github.com/Thokoop/billy-b-assistant/releases/download/aec-wheels-v1.0.1-billy1/aec_audio_processing-1.0.1-cp313-cp313-linux_aarch64.whl ; platform_system == "Linux" and platform_machine == "aarch64" and implementation_name == "cpython" and python_version == "3.13"
+aec-audio-processing==1.0.1 ; platform_system != "Linux" or platform_machine != "aarch64" or implementation_name != "cpython" or python_version < "3.11" or python_version >= "3.14"
+webrtcvad-wheels==2.0.14

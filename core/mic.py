@@ -55,6 +55,7 @@ class MicManager:
                 callback=callback,
             )
             self.stream.start()
+            audio.set_aec_capture_latency(getattr(self.stream, "latency", 0.0))
         except Exception as e:
             err = str(e)
             device_unavailable = (
@@ -81,6 +82,7 @@ class MicManager:
                         callback=callback,
                     )
                     self.stream.start()
+                    audio.set_aec_capture_latency(getattr(self.stream, "latency", 0.0))
                     logger.success("Mic opened with default device")
                 except Exception as fallback_error:
                     logger.error(f"Fallback mic open also failed: {fallback_error}")

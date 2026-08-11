@@ -202,53 +202,107 @@ def _capture_rpi_camera_image(
     capture_height: int,
     libcamera_still_bin: str,
 ) -> str | None:
-    camera_cmd = [
-        libcamera_still_bin,
-        "--nopreview",
-        "--immediate",
-        "--timeout",
-        "1",
-        "--camera",
-        str(camera_device_index),
-        "--width",
-        str(capture_width),
-        "--height",
-        str(capture_height),
-        "--encoding",
-        "jpg",
-        "--quality",
-        "90",
-        "-o",
-        image_path,
-    ]
-    try:
-        completed = subprocess.run(
-            camera_cmd,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-    except FileNotFoundError:
-        return (
-            f"'{libcamera_still_bin}' was not found. "
-            "Install libcamera apps and verify camera access."
-        )
-    except subprocess.TimeoutExpired:
-        return "Camera capture timed out."
-    except Exception as exc:
-        return f"Camera capture failed: {exc}"
+    attempt_errors: list[str] = []
+    for camera_bin in _rpi_camera_binary_candidates(libcamera_still_bin):
+        camera_cmd = [
+            camera_bin,
+            "--nopreview",
+            "--immediate",
+            "--timeout",
+            "1",
+            "--camera",
+            str(camera_device_index),
+            "--width",
+            str(capture_width),
+            "--height",
+            str(capture_height),
+            "--encoding",
+            "jpg",
+            "--quality",
+            "90",
+            "-o",
+            image_path,
+        ]
+        try:
+            completed = subprocess.run(
+                camera_cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except FileNotFoundError:
+            attempt_errors.append(f"'{camera_bin}' was not found")
+            continue
+        except subprocess.TimeoutExpired:
+            attempt_errors.append(f"'{camera_bin}' timed out")
+            continue
+        except Exception as exc:
+            attempt_errors.append(f"'{camera_bin}' failed: {exc}")
+            continue
 
-    if completed.returncode != 0:
-        stderr = (completed.stderr or "").strip()
-        stdout = (completed.stdout or "").strip()
-        details = stderr or stdout or f"exit code {completed.returncode}"
-        return f"Camera capture command failed: {details}"
+        if completed.returncode != 0:
+            stderr = (completed.stderr or "").strip()
+            stdout = (completed.stdout or "").strip()
+            details = stderr or stdout or f"exit code {completed.returncode}"
+            attempt_errors.append(f"'{camera_bin}': {details}")
+            continue
 
-    if not os.path.exists(image_path) or os.path.getsize(image_path) == 0:
-        return "Camera returned no image data."
+        if not os.path.exists(image_path) or os.path.getsize(image_path) == 0:
+            attempt_errors.append(f"'{camera_bin}' returned no image data")
+            continue
 
-    return None
+        return None
+
+    details = "; ".join(attempt_errors)
+    return (
+        "Raspberry Pi camera capture failed. "
+        f"Tried the configured and compatible camera commands: {details}. "
+        "Install rpicam-apps (or libcamera-apps on older Raspberry Pi OS releases) "
+        "and verify camera access."
+    )
+
+
+def _rpi_camera_binary_candidates(configured_bin: str) -> list[str]:
+    """Return the configured capture command plus old and new Raspberry Pi names."""
+    candidates: list[str] = []
+    for candidate in (configured_bin.strip(), "rpicam-still", "libcamera-still"):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def detect_rpi_camera_available(
+    configured_bin: str, *, timeout_seconds: float = 3.0
+) -> bool:
+    """Detect a CSI camera using either current or legacy Raspberry Pi tools."""
+    for camera_bin in _rpi_camera_binary_candidates(configured_bin):
+        try:
+            result = subprocess.run(
+                [camera_bin, "--list-cameras"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+        except Exception:
+            continue
+
+        combined = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        if "no cameras available" in combined:
+            continue
+        # A detected camera entry starts with a numeric index, e.g. "0 : imx708".
+        if "available cameras" in combined and any(
+            line.strip().partition(":")[0].strip().isdigit()
+            for line in combined.splitlines()
+        ):
+            return True
+        # Compatibility with builds that omit the "Available cameras" header.
+        if "/base/" in combined or "platform:" in combined:
+            return True
+    return False
 
 
 def _capture_usb_webcam_image(

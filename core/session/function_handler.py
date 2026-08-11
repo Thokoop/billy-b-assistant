@@ -1,5 +1,7 @@
 """Function call handler for routing AI function calls to implementations."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import time
@@ -9,6 +11,7 @@ from ..config import PERSONALITY, TEXT_ONLY_MODE
 from ..ha import send_conversation_prompt
 from ..knowledge_manager import knowledge_manager
 from ..logger import logger
+from ..mood import MODEL_REPORTED_MOOD_EVENTS, mood_manager
 from ..news_digest import get_news_digest
 from ..persona import update_persona_ini
 from ..persona_manager import persona_manager
@@ -33,6 +36,11 @@ class FunctionHandler:
                     "expects_follow_up": {"type": "boolean"},
                     "suggested_prompt": {"type": "string"},
                     "reason": {"type": "string"},
+                    "mood_event": {
+                        "type": "string",
+                        "enum": list(MODEL_REPORTED_MOOD_EVENTS),
+                    },
+                    "mood_event_reason": {"type": "string"},
                 },
                 "required": ["expects_follow_up"],
             },
@@ -47,6 +55,8 @@ class FunctionHandler:
             "update_personality": self._handle_update_personality,
             "play_song": self._handle_play_song,
             "smart_home_command": self._handle_smart_home_command,
+            "get_mood": self._handle_get_mood,
+            "set_mood": self._handle_set_mood,
             "identify_user": self._handle_identify_user,
             "store_memory": self._handle_store_memory,
             "manage_profile": self._handle_manage_profile,
@@ -78,8 +88,17 @@ class FunctionHandler:
         except Exception as e:
             logger.error(f"Function {function_name} failed: {e}")
 
-    def _parse_json_args(self, raw_args: str | None, tool_name: str) -> dict:
-        """Parse JSON arguments with fallback for malformed JSON."""
+    def _parse_json_args(
+        self, raw_args: str | None, tool_name: str, *, strict: bool = False
+    ) -> dict | None:
+        """Parse JSON arguments with fallback for malformed JSON.
+
+        strict=True returns None (instead of {}) when both the direct parse
+        and the repair attempt fail, so a caller can distinguish "genuinely
+        no arguments" from "arguments were truncated/corrupted" (e.g. a
+        barge-in cancelling the response mid-way through streaming the
+        tool call) and avoid treating the latter as an authoritative answer.
+        """
         raw_args = raw_args or "{}"
         try:
             return json.loads(raw_args)
@@ -102,7 +121,7 @@ class FunctionHandler:
                 logger.warning(
                     f"{tool_name}: failed to parse arguments: {e} | raw={raw_args!r} | fix also failed: {fix_e}"
                 )
-                return {}
+                return None if strict else {}
 
     @staticmethod
     def _coerce_bool(value: Any, default: bool = False) -> bool:
@@ -124,18 +143,46 @@ class FunctionHandler:
         self, raw_args: str | None, call_id: str | None = None
     ):
         """Handle conversation state (internal)."""
-        args = self._parse_json_args(raw_args, "conversation_state")
+        args = self._parse_json_args(raw_args, "conversation_state", strict=True)
+        if args is None:
+            # Arguments were truncated/corrupted, most likely because a
+            # barge-in cancelled the response mid-way through streaming this
+            # call's JSON. There is no trustworthy expects_follow_up value
+            # here, so don't record a call at all — leave _saw_follow_up_call
+            # unset for this turn so the text-based heuristic (e.g. a
+            # trailing "?") decides instead of silently locking in False.
+            logger.warning(
+                "conversation_state: arguments truncated (likely interrupted "
+                "mid-call); leaving follow-up decision to heuristic fallback.",
+                "🧭",
+            )
+            return
         self.session.state.follow_up_expected = self._coerce_bool(
             args.get("expects_follow_up", False), default=False
         )
         self.session.state.follow_up_prompt = args.get("suggested_prompt") or None
         self.session.state._saw_follow_up_call = True
+        mood_event = str(args.get("mood_event") or "none").strip()
+        if mood_event != "none":
+            result = mood_manager.apply_model_event(mood_event)
+            if result.get("ok"):
+                await self.session.refresh_mood_instructions()
+                logger.verbose(
+                    f"conversation_state mood_event={mood_event} reason={args.get('mood_event_reason')!r}",
+                    "🎭",
+                )
+            else:
+                logger.warning(
+                    f"Ignoring unsupported conversation_state mood_event={mood_event!r}",
+                    "🎭",
+                )
 
         if logger.get_level().name == "VERBOSE":
             logger.verbose(
                 f"conversation_state | expects_follow_up={self.session.state.follow_up_expected}"
                 f" | suggested_prompt={self.session.state.follow_up_prompt!r}"
-                f" | reason={args.get('reason')!r}",
+                f" | reason={args.get('reason')!r}"
+                f" | mood_event={mood_event!r}",
                 "🧭",
             )
 
@@ -223,6 +270,7 @@ class FunctionHandler:
         """Handle song playback."""
         from .. import audio
 
+        mood_manager.apply_event("song_requested")
         args = self._parse_json_args(raw_args, "play_song")
         song_name = args.get("song")
         if song_name:
@@ -232,6 +280,87 @@ class FunctionHandler:
             await audio.play_song(
                 song_name, interrupt_event=self.session.interrupt_event
             )
+
+    async def _handle_get_mood(self, raw_args: str | None, call_id: str | None = None):
+        """Handle current mood lookup."""
+        _ = self._parse_json_args(raw_args, "get_mood")
+        result = {"ok": True, "mood": mood_manager.snapshot()}
+        if call_id:
+            await self.session._ws_send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result),
+                },
+            })
+            await asyncio.sleep(0.1)
+
+        prompt = (
+            "Tell the user Billy's current mood in one short spoken sentence. "
+            f"Use this mood state: {json.dumps(result)}. "
+            "Do not list raw numbers unless the user asked for details. "
+            "Do not force a follow-up question, but keep the interactive "
+            "conversation open. After speaking, call conversation_state with "
+            "expects_follow_up=true."
+        )
+        await self.session._ws_send_json({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            },
+        })
+        self.session.state._triggered_new_response = True
+        self.session._next_response_is_tool_continuation = True
+        await self.session._ws_send_json({"type": "response.create"})
+
+    async def _handle_set_mood(self, raw_args: str | None, call_id: str | None = None):
+        """Handle temporary mood changes."""
+        args = self._parse_json_args(raw_args, "set_mood")
+        mood = str(args.get("mood") or "").strip().lower()
+        result = mood_manager.set_mood(mood, event="user_set_mood")
+
+        if call_id:
+            await self.session._ws_send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result),
+                },
+            })
+            await asyncio.sleep(0.1)
+
+        if result.get("ok"):
+            prompt = (
+                "Confirm in one short spoken sentence that Billy's temporary mood "
+                f"is now {result['mood']['label']}. Do not imply the persona changed. "
+                "Do not force a follow-up question, but keep the interactive "
+                "conversation open. After speaking, call conversation_state with "
+                "expects_follow_up=true."
+            )
+        else:
+            prompt = (
+                f"The requested mood change failed: {json.dumps(result)}. "
+                "Briefly say which moods are available. "
+                "Do not force a follow-up question, but keep the interactive "
+                "conversation open. After speaking, call conversation_state with "
+                "expects_follow_up=true."
+            )
+
+        await self.session._ws_send_json({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            },
+        })
+        self.session.state._triggered_new_response = True
+        self.session._next_response_is_tool_continuation = True
+        await self.session._ws_send_json({"type": "response.create"})
 
     async def _handle_smart_home_command(
         self, raw_args: str | None, call_id: str | None = None
@@ -388,6 +517,9 @@ class FunctionHandler:
             },
         })
         self.session.state._triggered_new_response = True
+        # This response is a synthetic continuation of the news tool result.
+        # A user barge-in must supersede it instead of letting it resume later.
+        self.session._next_response_is_tool_continuation = True
         await self.session._ws_send_json({"type": "response.create"})
 
     async def _handle_describe_scene(
@@ -605,6 +737,7 @@ class FunctionHandler:
                 }
 
             await self.session._ws_send_json(session_update)
+            self.session.mark_mood_instructions_current()
             logger.info(
                 f"Updated session with user context (persona={persona_manager.current_persona}, voice={session_voice})",
                 "👤",

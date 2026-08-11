@@ -47,7 +47,45 @@ class WakeupClipGenerator:
             except Exception:
                 self.voice = "ballad"  # Default voice
 
-    async def generate(self, prompt: str, index: int) -> str:
+    def _mood_delivery_hint(self, moods) -> str:
+        normalized = [
+            str(mood).strip().lower() for mood in (moods or []) if str(mood).strip()
+        ]
+        if not normalized:
+            return ""
+
+        style_hints = {
+            "neutral": "even, natural, and brief",
+            "calm": "relaxed, steady, and gentle",
+            "cheerful": "brighter and warmer, without becoming sing-song",
+            "warm": "friendly, affectionate, and supportive",
+            "curious": "alert, questioning, and slightly lifted",
+            "focused": "clear, direct, and ready",
+            "playful": "light, cheeky, and amused",
+            "mischievous": "sly, teasing, and amused",
+            "excited": "higher energy and eager, without rushing the words",
+            "surprised": "briefly caught off guard, with a quick lift in energy",
+            "sleepy": "lower energy, softer, and a little slower",
+            "bored": "flat, low-effort, and unimpressed",
+            "sad": "subdued, softer, and a little heavy",
+            "anxious": "tense, uncertain, and slightly quicker",
+            "flustered": "slightly hurried and thrown off",
+            "annoyed": "dry, clipped, and mildly irritated",
+            "grumpy": "rougher, muttered, and reluctantly engaged",
+            "dramatic": "more theatrical and expressive, but still short",
+        }
+        hints = [style_hints[mood] for mood in normalized if mood in style_hints]
+        if not hints:
+            return ""
+        return (
+            "Mood tags for this activation cue: "
+            + ", ".join(normalized)
+            + ". Delivery should feel "
+            + "; ".join(hints[:3])
+            + "."
+        )
+
+    async def generate(self, prompt: str, index: int, moods=None) -> str:
         # Use appropriate directory based on persona
         if self.persona_name == "default":
             # For default persona, use the custom directory
@@ -71,8 +109,13 @@ class WakeupClipGenerator:
         except Exception:
             persona_instructions = CUSTOM_INSTRUCTIONS
 
+        mood_hint = self._mood_delivery_hint(moods)
         instructions = (
-            "IMPORTANT: Always respond by speaking the exact user text out loud. Do not add, change or rephrase anything!\n\n"
+            "Keep the persona's voice, accent, pace, and attitude, but do not change "
+            "the wake-up line's words. This is a short recorded activation sound, "
+            "not a conversation."
+            + (f" {mood_hint}" if mood_hint else "")
+            + "\n\n"
             + persona_instructions
         )
 
@@ -80,6 +123,7 @@ class WakeupClipGenerator:
             prompt=prompt,
             voice=self.voice,
             instructions=instructions,
+            strict_literal=True,
         )
 
         with wave.open(path, "wb") as wf:
@@ -92,9 +136,9 @@ class WakeupClipGenerator:
         return path
 
 
-def generate_wake_clip_async(prompt, index, persona_name="default"):
+def generate_wake_clip_async(prompt, index, persona_name="default", moods=None):
     async def _run():
         gen = WakeupClipGenerator(persona_name=persona_name)
-        return await gen.generate(prompt, index)
+        return await gen.generate(prompt, index, moods=moods)
 
     return asyncio.run(_run())

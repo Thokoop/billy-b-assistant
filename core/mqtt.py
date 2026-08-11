@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import json
@@ -29,6 +31,10 @@ def on_connect(client, userdata, flags, rc):
         mqtt_connected = True
         logger.success("MQTT connected successfully!", "🔌")
         mqtt_send_discovery()
+        with contextlib.suppress(Exception):
+            from .mood import mood_manager
+
+            mood_manager.publish()
         client.subscribe("billy/command")
         client.subscribe("billy/say")  # single endpoint
         client.subscribe("billy/song")
@@ -54,6 +60,10 @@ def start_mqtt():
                 mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
                 mqtt_client.loop_start()
                 mqtt_publish("billy/state", "idle", retain=True)
+                with contextlib.suppress(Exception):
+                    from .mood import mood_manager
+
+                    mood_manager.publish()
                 return
             except Exception as e:
                 logger.error(f"MQTT connection error: {e}")
@@ -122,6 +132,20 @@ def mqtt_send_discovery():
     mqtt_client.publish(
         "homeassistant/sensor/billy/state/config",
         json.dumps(payload_sensor),
+        retain=True,
+    )
+
+    payload_mood_sensor = {
+        "name": "Billy Mood",
+        "unique_id": "billy_mood",
+        "state_topic": "billy/mood",
+        "json_attributes_topic": "billy/mood/state",
+        "icon": "mdi:emoticon-outline",
+        "device": device,
+    }
+    mqtt_client.publish(
+        "homeassistant/sensor/billy/mood/config",
+        json.dumps(payload_mood_sensor),
         retain=True,
     )
 

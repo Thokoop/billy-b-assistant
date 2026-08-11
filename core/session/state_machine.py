@@ -1,11 +1,14 @@
 """State machine for Billy session turn management."""
 
+from __future__ import annotations
+
 import threading
 import time
 from typing import Any
 
 from ..config import HEAD_RETRACT_DELAY_SECONDS, SILENCE_THRESHOLD
 from ..logger import logger
+from ..mood import mood_manager
 from ..movements import move_head
 from ..mqtt import mqtt_publish
 
@@ -50,6 +53,18 @@ class SessionState:
         self._current_input_had_server_speech = False
         self._last_committed_had_server_speech = False
         self._server_input_speaking = False
+        self._server_input_speech_started_at = 0.0
+        self._confirmed_barge_in_pending = False
+        self._last_committed_confirmed_barge_in = False
+        self._confirmed_barge_in_threshold = 0.0
+        self._post_barge_in_audio_chunks = 0
+        self._post_barge_in_loud_audio_chunks = 0
+        self._post_barge_in_evidence_chunks = 0
+        self._post_barge_in_peak_rms = 0.0
+        self._last_committed_post_barge_in_audio_chunks = 0
+        self._last_committed_post_barge_in_loud_audio_chunks = 0
+        self._last_committed_post_barge_in_evidence_chunks = 0
+        self._last_committed_post_barge_in_peak_rms = 0.0
         self._head_retract_timer: threading.Timer | None = None
 
     def reset_for_new_session(self):
@@ -83,6 +98,18 @@ class SessionState:
         self._current_input_had_server_speech = False
         self._last_committed_had_server_speech = False
         self._server_input_speaking = False
+        self._server_input_speech_started_at = 0.0
+        self._confirmed_barge_in_pending = False
+        self._last_committed_confirmed_barge_in = False
+        self._confirmed_barge_in_threshold = 0.0
+        self._post_barge_in_audio_chunks = 0
+        self._post_barge_in_loud_audio_chunks = 0
+        self._post_barge_in_evidence_chunks = 0
+        self._post_barge_in_peak_rms = 0.0
+        self._last_committed_post_barge_in_audio_chunks = 0
+        self._last_committed_post_barge_in_loud_audio_chunks = 0
+        self._last_committed_post_barge_in_evidence_chunks = 0
+        self._last_committed_post_barge_in_peak_rms = 0.0
         self._cancel_head_retract_timer()
 
     def on_response_created(self):
@@ -99,27 +126,68 @@ class SessionState:
         self._added_done_text = False
         self._last_heuristic_signature = None
         self._post_response_listen_opened = False
-        # Don't reset _saw_follow_up_call here - it will be reset after decision is made
+        # _saw_follow_up_call/follow_up_expected reflect whether *this specific*
+        # response called conversation_state. Reset both at response start (like
+        # follow_up_expected already was) so a stale True from an earlier
+        # response can't leak into this turn's follow-up decision. Previously
+        # only follow_up_expected was reset here; _saw_follow_up_call stayed
+        # True whenever the prior response's own _post_response_handling was
+        # skipped (e.g. "late playback interruption"), which never reset it —
+        # causing a later, unrelated response with no tool call to be treated
+        # as if conversation_state had already answered, silently overriding
+        # the interactive_question heuristic and ending the session early.
+        self._saw_follow_up_call = False
         self._triggered_new_response = False
 
     def on_input_speech_started(self):
         """Handle input_audio_buffer.speech_started event."""
         self._current_input_had_server_speech = True
         self._server_input_speaking = True
+        self._server_input_speech_started_at = time.time()
         # Server VAD detected actual speech; keep session alive for quiet users.
         self.update_activity()
+
+    def begin_confirmed_barge_in(self, evidence_threshold: float = 0.0):
+        """Track whether speech continues after assistant playback stops."""
+        self._confirmed_barge_in_pending = True
+        self._confirmed_barge_in_threshold = max(0.0, float(evidence_threshold))
+        self._post_barge_in_audio_chunks = 0
+        self._post_barge_in_loud_audio_chunks = 0
+        self._post_barge_in_evidence_chunks = 0
+        self._post_barge_in_peak_rms = 0.0
 
     def on_input_speech_stopped(self):
         """Handle input_audio_buffer.speech_stopped event."""
         self._server_input_speaking = False
+        self._server_input_speech_started_at = 0.0
         self.update_activity()
 
     def on_audio_committed(self, chunks: int):
         """Handle input_audio_buffer.committed event."""
+        # Each commit starts a new user-turn decision. Do not let evidence from
+        # an earlier real turn make a later echo/noise item meaningful.
+        self._last_user_turn_meaningful = False
         self._last_committed_audio_chunks = self._pending_input_audio_chunks
         self._last_committed_loud_audio_chunks = self._pending_loud_audio_chunks
         self._last_committed_peak_rms = self._pending_peak_rms
         self._last_committed_had_server_speech = self._current_input_had_server_speech
+        self._last_committed_confirmed_barge_in = self._confirmed_barge_in_pending
+        self._last_committed_post_barge_in_audio_chunks = (
+            self._post_barge_in_audio_chunks
+        )
+        self._last_committed_post_barge_in_loud_audio_chunks = (
+            self._post_barge_in_loud_audio_chunks
+        )
+        self._last_committed_post_barge_in_evidence_chunks = (
+            self._post_barge_in_evidence_chunks
+        )
+        self._last_committed_post_barge_in_peak_rms = self._post_barge_in_peak_rms
+        self._confirmed_barge_in_pending = False
+        self._confirmed_barge_in_threshold = 0.0
+        self._post_barge_in_audio_chunks = 0
+        self._post_barge_in_loud_audio_chunks = 0
+        self._post_barge_in_evidence_chunks = 0
+        self._post_barge_in_peak_rms = 0.0
         self._pending_input_audio_chunks = 0
         self._pending_loud_audio_chunks = 0
         self._pending_peak_rms = 0.0
@@ -130,19 +198,21 @@ class SessionState:
             f"Committed audio turn with {self._last_committed_audio_chunks} chunks "
             f"({self._last_committed_loud_audio_chunks} above threshold, "
             f"peak_rms={self._last_committed_peak_rms:.1f}, "
-            f"server_speech={self._last_committed_had_server_speech}).",
+            f"server_speech={self._last_committed_had_server_speech}, "
+            f"post_barge_in={self._last_committed_post_barge_in_evidence_chunks}/"
+            f"{self._last_committed_post_barge_in_audio_chunks}).",
             "🎚️",
         )
 
-    def on_conversation_item_done(self, data: dict[str, Any]):
+    def on_conversation_item_done(self, data: dict[str, Any]) -> bool | None:
         """Handle conversation.item.done event."""
         item = data.get("item") or {}
         if item.get("role") != "user":
-            return
+            return None
 
         content = item.get("content") or []
         if not content:
-            return
+            return False
 
         has_meaningful_user_content = False
         transcript_parts: list[str] = []
@@ -175,15 +245,48 @@ class SessionState:
             loud_ratio = (loud_chunks / total_chunks) if total_chunks else 0.0
             local_speech_floor = max(300.0, SILENCE_THRESHOLD * 0.5)
             min_chunks_for_real_turn = 6  # ~240ms with 40ms chunks
-            has_soft_local_speech = (
-                total_chunks >= min_chunks_for_real_turn
-                and peak_rms >= local_speech_floor
+            client_managed_vad = bool(
+                getattr(self.session, "_client_managed_vad", False)
             )
-            has_local_speech_evidence = (
-                (loud_chunks >= 2 and peak_rms >= local_speech_floor)
-                or loud_chunks >= 4
-                or (self._last_committed_had_server_speech and has_soft_local_speech)
+            confirmed_barge_in_is_valid = bool(
+                self._last_committed_confirmed_barge_in
+                and (
+                    not client_managed_vad
+                    or has_transcript
+                    or (
+                        self._last_committed_post_barge_in_audio_chunks >= 3
+                        and (
+                            self._last_committed_post_barge_in_evidence_chunks >= 2
+                            or self._last_committed_post_barge_in_loud_audio_chunks >= 2
+                        )
+                    )
+                    # A short interruption can finish being spoken before, or
+                    # right around, the moment confirmation lands, leaving
+                    # little or no "post-barge-in" window to validate against
+                    # even though it is the very speech that triggered
+                    # confirmation. Local confirmation already required
+                    # independent (non-echo) evidence at least once for this
+                    # turn, so don't discard it purely for lacking a
+                    # post-confirmation tail when the turn overall still
+                    # shows real loud/voiced content.
+                    or (loud_chunks >= 2 and peak_rms >= local_speech_floor)
+                )
             )
+            if client_managed_vad and self._last_committed_confirmed_barge_in:
+                # Once playback was cancelled, sustained continuation into the
+                # clean post-playback window is the strongest signal, but a
+                # short utterance that was mostly captured before playback
+                # actually stopped can still be validated by the confirmation
+                # itself plus overall loud/voiced content (see above). Pre-cancel
+                # speaker leakage alone (no confirmation, no loud content) still
+                # gets no second chance via the generic absolute-volume heuristic.
+                has_local_speech_evidence = confirmed_barge_in_is_valid
+            else:
+                has_local_speech_evidence = (
+                    confirmed_barge_in_is_valid
+                    or (loud_chunks >= 3 and peak_rms >= local_speech_floor)
+                    or loud_chunks >= 4
+                )
 
             # Heuristic noise gate:
             # - very short turns are usually accidental
@@ -198,9 +301,6 @@ class SessionState:
                 not has_transcript
                 and total_chunks >= min_chunks_for_real_turn
                 and loud_chunks == 0
-                and not (
-                    self._last_committed_had_server_speech and has_soft_local_speech
-                )
             )
             very_low_conf_server_speech = (
                 self._last_committed_had_server_speech
@@ -213,6 +313,8 @@ class SessionState:
             should_ignore = total_chunks < min_chunks_for_real_turn or low_signal_noise
             if static_only_turn or very_low_conf_server_speech:
                 should_ignore = True
+            if confirmed_barge_in_is_valid:
+                should_ignore = False
             # If local RMS indicates soft but real speech, don't classify it as static.
             if should_ignore and has_local_speech_evidence:
                 should_ignore = False
@@ -229,6 +331,10 @@ class SessionState:
             ):
                 should_ignore = False
             if should_ignore:
+                # In client-managed AEC mode these rejected turns are normally
+                # residual speaker audio, not confusing input from the user.
+                if not client_managed_vad:
+                    mood_manager.apply_event("unclear_audio")
                 self._ignore_next_short_audio_response = True
                 logger.info(
                     f"Ignoring non-speech audio turn "
@@ -242,6 +348,7 @@ class SessionState:
                     f"low_signal_noise={low_signal_noise}, "
                     f"static_only_turn={static_only_turn}, "
                     f"very_low_conf_server_speech={very_low_conf_server_speech}, "
+                    f"confirmed_barge_in_valid={confirmed_barge_in_is_valid}, "
                     f"has_local_speech_evidence={has_local_speech_evidence}).",
                     "🔇",
                 )
@@ -249,7 +356,8 @@ class SessionState:
                 # Audio-only turns can still be meaningful even without transcript
                 # (e.g. provider transcription missing, but local/server VAD shows speech).
                 audio_turn_meaningful = bool(
-                    has_transcript
+                    confirmed_barge_in_is_valid
+                    or has_transcript
                     or has_local_speech_evidence
                     or (
                         self._last_committed_had_server_speech
@@ -268,6 +376,7 @@ class SessionState:
         if confirmed_meaningful_input:
             self.follow_up_retry_count = 0
         self._last_user_turn_meaningful = confirmed_meaningful_input
+        return confirmed_meaningful_input
 
     def on_transcript_delta(self, stream_type: str, delta: str):
         """Handle transcript delta events."""
@@ -389,15 +498,24 @@ class SessionState:
     def increment_mic_chunks(self):
         """Increment pending input audio chunks counter."""
         self._pending_input_audio_chunks += 1
+        if self._confirmed_barge_in_pending:
+            self._post_barge_in_audio_chunks += 1
 
     def increment_loud_mic_chunks(self):
         """Increment pending audio chunks that are above local silence threshold."""
         self._pending_loud_audio_chunks += 1
+        if self._confirmed_barge_in_pending:
+            self._post_barge_in_loud_audio_chunks += 1
 
     def observe_rms(self, rms: float):
         """Track peak RMS for the current pending input turn."""
         if rms > self._pending_peak_rms:
             self._pending_peak_rms = float(rms)
+        if self._confirmed_barge_in_pending:
+            if rms > self._post_barge_in_peak_rms:
+                self._post_barge_in_peak_rms = float(rms)
+            if rms >= self._confirmed_barge_in_threshold:
+                self._post_barge_in_evidence_chunks += 1
 
     def update_activity(self):
         """Update last activity timestamp."""

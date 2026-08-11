@@ -4,12 +4,14 @@ import os
 import subprocess
 import threading
 import time
+import uuid
 
 from flask import Blueprint, jsonify, request
 
 
 bp = Blueprint("misc", __name__)
 _service_restart_lock = threading.Lock()
+WEBCONFIG_INSTANCE_ID = uuid.uuid4().hex
 
 
 def _restart_billy_service_gracefully():
@@ -34,9 +36,8 @@ def _restart_billy_services_in_background():
         return
     try:
         # Let the HTTP response flush before restarting either service.
-        time.sleep(0.5)
+        time.sleep(0.25)
         _restart_billy_service_gracefully()
-        time.sleep(0.5)
         subprocess.run(["sudo", "systemctl", "restart", "billy-webconfig.service"])
     finally:
         _service_restart_lock.release()
@@ -136,7 +137,11 @@ def restart_billy_services():
             target=_restart_billy_services_in_background,
             daemon=True,
         ).start()
-        return jsonify({"status": "ok", "message": "Restarting..."})
+        return jsonify({
+            "status": "ok",
+            "message": "Restarting...",
+            "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+        })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -187,6 +192,7 @@ def service_status():
 
         from dotenv import load_dotenv
 
+        from core.mood import mood_manager
         from core.persona_manager import persona_manager
         from core.profile_manager import user_manager
 
@@ -279,8 +285,16 @@ def service_status():
         except Exception as e:
             print(f"Failed to get current personality: {e}")
 
+        current_mood = None
+        try:
+            current_mood = mood_manager.snapshot()
+        except Exception as e:
+            print(f"Failed to get current mood: {e}")
+
         return jsonify({
             "status": service_status,
+            "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+            "mood": current_mood,
             "current_user": current_user_name,
             "current_user_loaded": current_user.name if current_user else None,
             "current_persona": persona_manager.current_persona,
@@ -298,8 +312,18 @@ def service_status():
         # Fallback to basic service status if profile loading fails
         return jsonify({
             "status": service_status,
+            "webconfig_instance": WEBCONFIG_INSTANCE_ID,
             "error": f"Failed to load profile status: {str(e)}",
         })
+
+
+@bp.route("/health")
+def health():
+    """Lightweight process identity used while the web UI reconnects."""
+    return jsonify({
+        "status": "ok",
+        "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+    })
 
 
 @bp.route("/reboot", methods=["POST"])

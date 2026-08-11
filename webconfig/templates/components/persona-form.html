@@ -188,11 +188,18 @@
 
                     </div>
 
-                    <button type="button" onclick="addWakeupSound()"
-                            class="secondary-action secondary-action--hover--emerald text-sm mt-2 px-3 py-2">
-                        <span class="material-icons align-middle">add</span>
-                        Add Wake-up Sound
-                    </button>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <button type="button" onclick="addWakeupSound()"
+                                class="secondary-action secondary-action--hover--emerald text-sm px-3 py-2">
+                            <span class="material-icons align-middle">add</span>
+                            Add Wake-up Sound
+                        </button>
+                        <button type="button" id="generate-wakeup-ideas-btn"
+                                class="secondary-action secondary-action--hover--cyan text-sm px-3 py-2">
+                            <span class="material-icons align-middle">auto_awesome</span>
+                            Generate Wake-up Sounds
+                        </button>
+                    </div>
                 </div>
                 <div class="relative pt-0 md:py-4">
                     <div class="flex justify-end">

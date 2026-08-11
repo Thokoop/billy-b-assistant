@@ -1,5 +1,6 @@
 import configparser
 import contextlib
+import difflib
 import glob
 import json
 import os
@@ -14,10 +15,11 @@ from collections import deque
 import numpy as np
 import paho.mqtt.client as mqtt
 import sounddevice as sd
-from dotenv import find_dotenv, set_key
+from dotenv import find_dotenv
 from flask import Blueprint, Response, jsonify, request, send_from_directory
 
 from core.audio import calculate_input_rms
+from core.env_utils import set_env_key
 from core.wakeup import generate_wake_clip_async
 
 from ..core_imports import core_config
@@ -45,6 +47,173 @@ mic_recording_stop_event: threading.Event | None = None
 mic_recording_thread: threading.Thread | None = None
 mic_recording_started_at = 0.0
 mic_recording_error: str | None = None
+MOOD_PRESETS = (
+    "neutral",
+    "calm",
+    "cheerful",
+    "warm",
+    "curious",
+    "focused",
+    "playful",
+    "mischievous",
+    "excited",
+    "surprised",
+    "sleepy",
+    "bored",
+    "sad",
+    "anxious",
+    "flustered",
+    "annoyed",
+    "grumpy",
+    "dramatic",
+)
+
+MOOD_COMPANIONS = {
+    "neutral": "calm",
+    "calm": "focused",
+    "cheerful": "playful",
+    "warm": "calm",
+    "curious": "focused",
+    "focused": "curious",
+    "playful": "cheerful",
+    "mischievous": "playful",
+    "excited": "playful",
+    "surprised": "curious",
+    "sleepy": "calm",
+    "bored": "sleepy",
+    "sad": "calm",
+    "anxious": "flustered",
+    "flustered": "dramatic",
+    "annoyed": "grumpy",
+    "grumpy": "annoyed",
+    "dramatic": "flustered",
+}
+
+
+def _normalize_wakeup_moods(value) -> list[str]:
+    if isinstance(value, str):
+        raw_values = value.split(",")
+    elif isinstance(value, list):
+        raw_values = value
+    else:
+        raw_values = []
+    moods = []
+    for mood in raw_values:
+        normalized = str(mood).strip().lower()
+        if normalized in MOOD_PRESETS and normalized not in moods:
+            moods.append(normalized)
+    return moods
+
+
+def _expand_wakeup_moods(value) -> list[str]:
+    moods = _normalize_wakeup_moods(value)
+    if len(moods) == 1:
+        companion = MOOD_COMPANIONS.get(moods[0])
+        if companion and companion not in moods:
+            moods.append(companion)
+    return moods[:3]
+
+
+VOCAL_FILLER_TOKENS = {
+    "ah",
+    "ahh",
+    "eh",
+    "heh",
+    "hmmpf",
+    "hmm",
+    "hrmph",
+    "huh",
+    "mmm",
+    "oof",
+    "oi",
+    "pfft",
+    "ugh",
+}
+
+PHRASE_STOP_TOKENS = {
+    "a",
+    "am",
+    "and",
+    "i",
+    "im",
+    "i'm",
+    "it",
+    "it's",
+    "the",
+    "then",
+}
+
+
+def _phrase_tokens(phrase: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", str(phrase).lower())
+
+
+def _phrase_signature(phrase: str) -> str:
+    return " ".join(_phrase_tokens(phrase))
+
+
+def _phrase_core_tokens(phrase: str) -> set[str]:
+    return {
+        token
+        for token in _phrase_tokens(phrase)
+        if token not in VOCAL_FILLER_TOKENS and token not in PHRASE_STOP_TOKENS
+    }
+
+
+def _phrases_too_similar(left: str, right: str) -> bool:
+    left_signature = _phrase_signature(left)
+    right_signature = _phrase_signature(right)
+    if not left_signature or not right_signature:
+        return False
+    if left_signature == right_signature:
+        return True
+
+    ratio = difflib.SequenceMatcher(None, left_signature, right_signature).ratio()
+    if ratio >= 0.72:
+        return True
+
+    left_core = _phrase_core_tokens(left)
+    right_core = _phrase_core_tokens(right)
+    shared = left_core & right_core
+    return (
+        len(shared) >= 2
+        and len(shared) / max(1, min(len(left_core), len(right_core))) >= 0.67
+    )
+
+
+def _filter_unique_wakeup_ideas(
+    candidates: list[dict], existing_phrases: list[str], count: int
+) -> list[dict]:
+    accepted = []
+    comparison_phrases = list(existing_phrases)
+    for candidate in candidates:
+        phrase = str(candidate.get("phrase", "")).strip()
+        if not phrase:
+            continue
+        if any(
+            _phrases_too_similar(phrase, existing) for existing in comparison_phrases
+        ):
+            continue
+        accepted.append(candidate)
+        comparison_phrases.append(phrase)
+        if len(accepted) >= count:
+            break
+    return accepted
+
+
+def _persona_file_for_name(persona_name: str):
+    if persona_name == "default":
+        return PERSONA_PATH
+    return os.path.join("personas", persona_name, "persona.ini")
+
+
+def _current_persona_name() -> str:
+    try:
+        from core.persona_manager import persona_manager
+
+        return persona_manager.current_persona or "default"
+    except Exception:
+        return "default"
 
 
 def _env_path() -> str:
@@ -420,7 +589,7 @@ def save_configured_mic_gain(value: int) -> None:
     env_path = _env_path()
     if not os.path.exists(env_path):
         open(env_path, "a", encoding="utf-8").close()
-    set_key(env_path, "MIC_GAIN", str(value), quote_mode="never")
+    set_env_key(env_path, "MIC_GAIN", str(value))
     os.environ["MIC_GAIN"] = str(value)
     core_config.MIC_GAIN = str(value)
 
@@ -718,29 +887,20 @@ def mic_record_play():
 @bp.route("/wakeup", methods=["GET"])
 def list_wakeup_clips():
     # Get current persona to check for persona-specific clips
-    current_persona = "default"
-    try:
-        from core.persona_manager import persona_manager
-
-        current_persona = persona_manager.current_persona
-    except Exception:
-        pass
+    current_persona = (
+        str(request.args.get("persona") or _current_persona_name()).strip() or "default"
+    )
 
     # Load wake-up data from the current persona's configuration
     config = configparser.ConfigParser()
-    if current_persona == "default":
-        # For default persona, use the main persona file
-        config.read(PERSONA_PATH)
+    persona_file = _persona_file_for_name(current_persona)
+    if os.path.exists(persona_file):
+        config.read(persona_file)
     else:
-        # For other personas, use their specific persona file
-        persona_file = os.path.join("personas", current_persona, "persona.ini")
-        if os.path.exists(persona_file):
-            config.read(persona_file)
-        else:
-            # Fallback to main persona file if persona file doesn't exist
-            config.read(PERSONA_PATH)
+        config.read(PERSONA_PATH)
 
     wakeup_data = dict(config["WAKEUP"]) if "WAKEUP" in config else {}
+    wakeup_moods = dict(config["WAKEUP_MOODS"]) if "WAKEUP_MOODS" in config else {}
 
     # Check for appropriate wake-up files based on persona
     files = []
@@ -763,8 +923,13 @@ def list_wakeup_clips():
         phrase = wakeup_data[k]
         slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", phrase).strip("_").lower()
         has_audio = slug in available or k in available
-        clips.append({"index": int(k), "phrase": phrase, "has_audio": has_audio})
-    return jsonify({"clips": clips})
+        clips.append({
+            "index": int(k),
+            "phrase": phrase,
+            "moods": _normalize_wakeup_moods(wakeup_moods.get(k, "")),
+            "has_audio": has_audio,
+        })
+    return jsonify({"clips": clips, "moods": list(MOOD_PRESETS)})
 
 
 @bp.route("/wakeup/play", methods=["POST"])
@@ -853,6 +1018,7 @@ def generate_wakeup_clip():
     prompt = data.get("text", "").strip()
     index = data.get("index")
     persona_name = data.get("persona")  # Get persona from request
+    moods = _normalize_wakeup_moods(data.get("moods", []))
 
     if not prompt or index is None:
         return jsonify({"error": "Missing 'text' or 'index'"}), 400
@@ -867,10 +1033,135 @@ def generate_wakeup_clip():
             persona_name = "default"
 
     try:
-        path = generate_wake_clip_async(prompt, index, persona_name)
+        path = generate_wake_clip_async(prompt, index, persona_name, moods=moods)
         return jsonify({"status": "ok", "path": path})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/wakeup/ideas", methods=["POST"])
+def generate_wakeup_ideas():
+    data = request.get_json() or {}
+    count = int(data.get("count") or 5)
+    count = max(1, min(8, count))
+    persona_name = (
+        str(data.get("persona") or _current_persona_name()).strip() or "default"
+    )
+
+    config = configparser.ConfigParser()
+    persona_file = _persona_file_for_name(persona_name)
+    if os.path.exists(persona_file):
+        config.read(persona_file)
+    else:
+        config.read(PERSONA_PATH)
+
+    meta = dict(config["META"]) if config.has_section("META") else {}
+    backstory = dict(config["BACKSTORY"]) if config.has_section("BACKSTORY") else {}
+    description = meta.get("description") or persona_name
+    instructions = meta.get("instructions") or ""
+    backstory_text = "; ".join(f"{key}: {value}" for key, value in backstory.items())
+    existing_phrases = (
+        list(dict(config["WAKEUP"]).values()) if config.has_section("WAKEUP") else []
+    )
+    existing_text = "\n".join(f"- {phrase}" for phrase in existing_phrases[-30:])
+
+    fallback_candidates = [
+        {"phrase": "Hrmph.", "moods": ["grumpy", "annoyed"]},
+        {"phrase": "Huh?", "moods": ["curious", "focused"]},
+        {"phrase": "Mmm?", "moods": ["sleepy", "calm"]},
+        {"phrase": "Heh.", "moods": ["playful", "cheerful"]},
+        {"phrase": "Ah.", "moods": ["curious", "calm"]},
+        {"phrase": "Ugh.", "moods": ["annoyed", "bored"]},
+        {"phrase": "Hmm.", "moods": ["focused", "curious"]},
+        {"phrase": "Pfft.", "moods": ["bored", "grumpy"]},
+        {"phrase": "Eh?", "moods": ["curious", "flustered"]},
+        {"phrase": "Right.", "moods": ["focused", "neutral"]},
+        {"phrase": "Well?", "moods": ["annoyed", "curious"]},
+        {"phrase": "Alright.", "moods": ["calm", "focused"]},
+        {"phrase": "Say it.", "moods": ["focused", "grumpy"]},
+        {"phrase": "I'm here.", "moods": ["neutral", "calm"]},
+        {"phrase": "You rang?", "moods": ["curious", "playful"]},
+        {"phrase": "Make it quick.", "moods": ["annoyed", "focused"]},
+        {"phrase": "Let's hear it.", "moods": ["curious", "focused"]},
+        {"phrase": "Right then, what are we doing?", "moods": ["focused"]},
+        {"phrase": "Blimey, go on then.", "moods": ["sleepy", "flustered"]},
+        {"phrase": "Alright, alright, I'm listening.", "moods": ["grumpy", "annoyed"]},
+        {"phrase": "Let's have it then.", "moods": ["excited", "playful"]},
+        {"phrase": "I'm listening.", "moods": ["calm", "focused"]},
+        {"phrase": "Bit quiet without you.", "moods": ["sad", "calm"]},
+    ]
+    fallback_phrases = _filter_unique_wakeup_ideas(
+        fallback_candidates, existing_phrases, count
+    )
+    if not fallback_phrases:
+        fallback_phrases = fallback_candidates[:count]
+
+    if not core_config.OPENAI_API_KEY:
+        return jsonify({"ideas": fallback_phrases, "source": "fallback"})
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=core_config.OPENAI_API_KEY)
+        prompt = (
+            "Generate short activation cues for a Big Mouth Billy Bass assistant persona. "
+            "These are NOT alarm-clock sounds and NOT literal waking-from-sleep lines. "
+            "They play immediately after the user activates Billy and before the conversation starts, "
+            "as a quick acknowledgement that Billy is now listening. "
+            "Generate a varied mix across these three formats: pure sound only "
+            "(\"hmmpf\", \"huh?\", \"mmm?\", \"heh\", \"ugh\", \"ah\", \"oof\", "
+            "\"eh?\", \"pfft\"), sound plus a very short phrase (\"Huh? Go on.\", "
+            "\"Mmm? What now?\"), and short phrase only (\"I'm listening.\", \"Go on then.\"). "
+            "For 5 ideas, include at least one of each format. Do not make every cue a sound "
+            "followed by a phrase. Avoid alarm language, clock/ringing references, "
+            "getting-out-of-bed jokes, and phrases like \"I'm awake\" or \"I'm up\". "
+            "Keep each item very short: either 1 phonetic sound or 2 to 6 words. "
+            "Avoid repeating the same structure; do not generate multiple variants of "
+            "\"for fuck's sake\", \"what now\", \"spit it out\", \"go on then\", "
+            "\"I'm listening\", or \"Oi\". "
+            "Do not reuse or closely imitate any existing activation cue listed below. "
+            "Use different sentence shapes, not just different opening noises. "
+            "Return strict JSON only: {\"ideas\":[{\"phrase\":\"...\",\"moods\":[\"focused\",\"curious\"]}]}. "
+            f"Use one to three moods per phrase from: {', '.join(MOOD_PRESETS)}. "
+            "Prefer two moods when the cue naturally fits multiple states.\n\n"
+            f"Persona name/description: {description}\n"
+            f"Persona instructions: {instructions[:1200]}\n"
+            f"Backstory: {backstory_text[:600]}\n"
+            f"Existing activation cues to avoid:\n{existing_text or '- none yet'}\n"
+            f"Generate {max(count * 3, count + 6)} candidates."
+        )
+        response = client.chat.completions.create(
+            model=os.getenv("WAKEUP_IDEAS_MODEL", "gpt-4o-mini"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You write concise voice UI microcopy and return strict JSON.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.8,
+            max_tokens=900,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content or "{}"
+        parsed = json.loads(content)
+        candidates = []
+        for item in parsed.get("ideas", []):
+            phrase = str(item.get("phrase", "")).strip()
+            moods = _expand_wakeup_moods(item.get("moods", []))
+            if phrase:
+                candidates.append({"phrase": phrase, "moods": moods})
+        ideas = _filter_unique_wakeup_ideas(candidates, existing_phrases, count)
+        return jsonify({
+            "ideas": ideas or fallback_phrases,
+            "source": "openai" if ideas else "fallback",
+        })
+    except Exception as e:
+        return jsonify({
+            "ideas": fallback_phrases,
+            "source": "fallback",
+            "warning": str(e),
+        })
 
 
 @bp.route("/wakeup/remove", methods=["POST"])
@@ -879,52 +1170,59 @@ def remove_wakeup_clip():
     index_to_remove = str(data.get("index"))
 
     # Get current persona to determine which file to modify
-    current_persona = "default"
-    try:
-        from core.persona_manager import persona_manager
-
-        current_persona = persona_manager.current_persona
-    except Exception:
-        pass
+    current_persona = (
+        str(data.get("persona") or _current_persona_name()).strip() or "default"
+    )
 
     # Determine the file path based on current persona
-    if current_persona == "default":
-        persona_file = PERSONA_PATH
-    else:
-        from pathlib import Path
-
-        personas_dir = Path("personas")
-        persona_file = personas_dir / current_persona / "persona.ini"
+    persona_file = _persona_file_for_name(current_persona)
 
     config = configparser.ConfigParser()
     config.read(persona_file)
     if "WAKEUP" not in config:
         return jsonify({"error": "No wakeup section found"}), 400
     wakeup = dict(config["WAKEUP"])
+    wakeup_moods = (
+        dict(config["WAKEUP_MOODS"]) if config.has_section("WAKEUP_MOODS") else {}
+    )
     if index_to_remove not in wakeup:
         return jsonify({"error": f"Clip {index_to_remove} not found"}), 404
     removed_phrase = wakeup.pop(index_to_remove)
+    wakeup_moods.pop(index_to_remove, None)
     new_wakeup = {}
+    new_wakeup_moods = {}
     old_to_new_index = {}
     for i, (old_k, phrase) in enumerate(wakeup.items(), start=1):
-        new_wakeup[str(i)] = phrase
-        old_to_new_index[old_k] = str(i)
+        new_index = str(i)
+        new_wakeup[new_index] = phrase
+        if wakeup_moods.get(old_k):
+            new_wakeup_moods[new_index] = wakeup_moods[old_k]
+        old_to_new_index[old_k] = new_index
     config["WAKEUP"] = new_wakeup
+    if config.has_section("WAKEUP_MOODS"):
+        config.remove_section("WAKEUP_MOODS")
+    if new_wakeup_moods:
+        config["WAKEUP_MOODS"] = new_wakeup_moods
     with open(persona_file, "w") as f:
         config.write(f)
-    audio_path_num = WAKE_UP_DIR / f"{index_to_remove}.wav"
-    audio_path_slug = (
-        WAKE_UP_DIR
-        / f"{re.sub(r'[^a-zA-Z0-9_-]+', '_', removed_phrase).strip('_').lower()}.wav"
+    audio_dir = (
+        os.path.join(PROJECT_ROOT, "sounds", "wake-up", "custom")
+        if current_persona == "default"
+        else os.path.join(PROJECT_ROOT, "personas", current_persona, "wakeup")
+    )
+    audio_path_num = os.path.join(audio_dir, f"{index_to_remove}.wav")
+    audio_path_slug = os.path.join(
+        audio_dir,
+        f"{re.sub(r'[^a-zA-Z0-9_-]+', '_', removed_phrase).strip('_').lower()}.wav",
     )
     for p in (audio_path_num, audio_path_slug):
-        if p.exists():
-            p.unlink()
+        if os.path.exists(p):
+            os.unlink(p)
     for old_k, new_k in old_to_new_index.items():
-        old_path = WAKE_UP_DIR / f"{old_k}.wav"
-        new_path = WAKE_UP_DIR / f"{new_k}.wav"
-        if old_path.exists() and old_path != new_path:
-            old_path.rename(new_path)
+        old_path = os.path.join(audio_dir, f"{old_k}.wav")
+        new_path = os.path.join(audio_dir, f"{new_k}.wav")
+        if os.path.exists(old_path) and old_path != new_path:
+            os.rename(old_path, new_path)
     return jsonify({"status": "removed and reindexed"})
 
 

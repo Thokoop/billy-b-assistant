@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import contextlib
+import os
+import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +11,39 @@ import numpy as np
 from ..logger import logger
 from ..wakeword_provider import WakeWordBackend
 from .porcupine_wakeword_provider import _resolve_keyword_path
+
+
+@contextlib.contextmanager
+def _filter_onnx_device_discovery_warning():
+    """Hide only ONNX Runtime's harmless DRM/GPU discovery warning."""
+    try:
+        stderr_fd = sys.stderr.fileno()
+        saved_stderr_fd = os.dup(stderr_fd)
+    except (AttributeError, OSError):
+        yield
+        return
+
+    try:
+        with tempfile.TemporaryFile() as captured:
+            os.dup2(captured.fileno(), stderr_fd)
+            try:
+                yield
+            finally:
+                with contextlib.suppress(Exception):
+                    sys.stderr.flush()
+                os.dup2(saved_stderr_fd, stderr_fd)
+                captured.seek(0)
+                for line in captured.read().splitlines(keepends=True):
+                    is_harmless_device_probe = (
+                        b"onnxruntime:Default" in line
+                        and b"device_discovery.cc" in line
+                        and b"Failed to detect devices under" in line
+                        and b"/sys/class/drm/card" in line
+                    )
+                    if not is_harmless_device_probe:
+                        os.write(stderr_fd, line)
+    finally:
+        os.close(saved_stderr_fd)
 
 
 class OpenWakeWordBackend(WakeWordBackend):
@@ -121,8 +157,13 @@ class OpenWakeWordBackend(WakeWordBackend):
         self._keyword_label = model_path.stem
 
         try:
-            import openwakeword
-            from openwakeword.model import Model
+            # ONNX Runtime probes Linux DRM GPU entries while importing, even
+            # though this CPU wake-word path does not use a GPU. Some Raspberry
+            # Pi images expose card entries without vendor files, producing a
+            # harmless native warning that bypasses Python's logging controls.
+            with _filter_onnx_device_discovery_warning():
+                import openwakeword
+                from openwakeword.model import Model
         except ImportError:
             logger.warning(
                 "openwakeword is not installed. Install requirements to enable wake-word.",
@@ -170,7 +211,8 @@ class OpenWakeWordBackend(WakeWordBackend):
             )
 
         try:
-            self._model = Model(**model_kwargs)
+            with _filter_onnx_device_discovery_warning():
+                self._model = Model(**model_kwargs)
             return True
         except Exception as e:
             error_text = str(e)

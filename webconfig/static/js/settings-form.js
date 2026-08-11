@@ -12,6 +12,35 @@ const SettingsForm = (() => {
         return MODEL_ALIASES[v] || v;
     };
 
+    const BOOLEAN_SELECT_IDS = new Set([
+        'AEC_ENABLED',
+        'STATUS_LED_ENABLED',
+        'WAKE_WORD_ENABLED',
+        'MIC_TIMEOUT_TAIL_FLAP',
+        'MOOD_INSTRUCTIONS_ENABLED',
+    ]);
+
+    const normalizeSelectValue = (id, value) => {
+        if (value === undefined || value === null) return value;
+        if (BOOLEAN_SELECT_IDS.has(id)) {
+            const normalized = String(value).trim().toLowerCase();
+            if (['true', '1', 'yes', 'y', 'on', 'enabled'].includes(normalized)) {
+                return 'true';
+            }
+            if (['false', '0', 'no', 'n', 'off', 'disabled'].includes(normalized)) {
+                return 'false';
+            }
+        }
+        if (id === 'OPENAI_MODEL' || id === 'XAI_MODEL') {
+            return normalizeModelValue(value);
+        }
+        if (id === 'AEC_BARGE_IN_SNR_DB') {
+            const numericValue = Number(value);
+            if (Number.isFinite(numericValue)) return String(numericValue);
+        }
+        return String(value).trim();
+    };
+
     const setSelectValueSafely = (element, value) => {
         if (!element || !value) return false;
         const exists = Array.from(element.options).some(opt => opt.value === value);
@@ -43,22 +72,41 @@ const SettingsForm = (() => {
         const select = document.getElementById("CAMERA_HARDWARE");
         if (!select) return;
 
+        const fallbackOptions = [
+            { value: "none", label: "None" },
+            { value: "rpi_camera", label: "Raspberry Pi Camera Module" },
+            { value: "usb_webcam", label: "USB Webcam" }
+        ];
+        const renderOptions = (entries) => {
+            const usableEntries = Array.isArray(entries)
+                ? entries.filter(entry => entry && entry.value)
+                : [];
+            const options = usableEntries.length > 0 ? usableEntries : fallbackOptions;
+            select.replaceChildren(...options.map((entry) => {
+                const opt = document.createElement("option");
+                opt.value = String(entry.value);
+                opt.textContent = String(entry.label || entry.value);
+                return opt;
+            }));
+        };
+
         try {
             const response = await fetch("/camera/devices");
+            if (!response.ok) {
+                console.error(`Camera discovery returned HTTP ${response.status}`);
+                return;
+            }
             const data = await response.json();
-            const options = Array.isArray(data.options) ? data.options : [];
-
-            select.innerHTML = "";
-            options.forEach((entry) => {
-                const opt = document.createElement("option");
-                opt.value = String(entry.value || "");
-                opt.textContent = String(entry.label || entry.value || "");
-                select.appendChild(opt);
-            });
+            renderOptions(data.options);
 
             const savedSelection = localStorage.getItem("dropdown_CAMERA_HARDWARE");
             const configSelection = getCameraSelectionFromConfig(cfg || {});
-            const target = preferredValue || savedSelection || configSelection || "none";
+            const hasConfiguredSelection = Boolean(
+                cfg && Object.prototype.hasOwnProperty.call(cfg, "CAMERA_HARDWARE")
+            );
+            const target = preferredValue
+                || (hasConfiguredSelection ? configSelection : savedSelection)
+                || "none";
             if (!setSelectValueSafely(select, target)) {
                 if (!setSelectValueSafely(select, configSelection)) {
                     setSelectValueSafely(select, "none");
@@ -67,7 +115,15 @@ const SettingsForm = (() => {
             localStorage.setItem("dropdown_CAMERA_HARDWARE", select.value);
         } catch (error) {
             console.error("Failed to load detected camera devices:", error);
-            // Keep existing fallback options if fetch fails.
+            if (select.options.length === 0) {
+                renderOptions(fallbackOptions);
+            }
+            const configSelection = getCameraSelectionFromConfig(cfg || {});
+            ensureSelectHasValue(
+                select,
+                preferredValue || configSelection,
+                "none"
+            );
         }
     };
 
@@ -172,6 +228,10 @@ const SettingsForm = (() => {
             { id: 'HA_LANG', key: 'HA_LANG' },
             { id: 'STATUS_LED_ENABLED', key: 'STATUS_LED_ENABLED' },
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
+            { id: 'AEC_ENABLED', key: 'AEC_ENABLED' },
+            { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
+            { id: 'MIC_TIMEOUT_TAIL_FLAP', key: 'MIC_TIMEOUT_TAIL_FLAP' },
+            { id: 'MOOD_INSTRUCTIONS_ENABLED', key: 'MOOD_INSTRUCTIONS_ENABLED' },
             { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
             { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
@@ -189,14 +249,19 @@ const SettingsForm = (() => {
                 const configValue = id === "REALTIME_AI_PROVIDER"
                     ? (cfg[key] || "openai")
                     : cfg[key];
-                // For backend/model selectors, prefer .env/config over localStorage.
-                const preferConfigValue = id === 'OPENAI_MODEL' || id === 'XAI_MODEL' || id === 'WAKE_WORD_BACKEND' || id === 'REALTIME_AI_PROVIDER';
+                // System-controlled selectors prefer .env/config over localStorage.
+                const preferConfigValue = id === 'OPENAI_MODEL'
+                    || id === 'XAI_MODEL'
+                    || id === 'WAKE_WORD_BACKEND'
+                    || id === 'REALTIME_AI_PROVIDER'
+                    || id === 'AEC_BARGE_IN_SNR_DB'
+                    || BOOLEAN_SELECT_IDS.has(id);
                 const preferredValue = preferConfigValue ? configValue : (savedValue || configValue);
                 const fallbackValue = preferConfigValue ? savedValue : null;
 
                 if (preferConfigValue) {
-                    const normalizedPreferred = normalizeModelValue(preferredValue);
-                    const normalizedFallback = normalizeModelValue(fallbackValue);
+                    const normalizedPreferred = normalizeSelectValue(id, preferredValue);
+                    const normalizedFallback = normalizeSelectValue(id, fallbackValue);
 
                     if (ensureSelectHasValue(element, normalizedPreferred, normalizedFallback)) {
                         localStorage.setItem(`dropdown_${id}`, element.value);
@@ -207,7 +272,7 @@ const SettingsForm = (() => {
                 } else if (preferredValue) {
                     ensureSelectHasValue(
                         element,
-                        preferredValue,
+                        normalizeSelectValue(id, preferredValue),
                         id === "WIFI_COUNTRY" ? "NL" : null
                     );
                 } else if (id === "WIFI_COUNTRY") {
@@ -233,7 +298,8 @@ const SettingsForm = (() => {
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY'
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY', 'AEC_ENABLED',
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
         ];
 
         dropdowns.forEach(id => {
@@ -254,6 +320,18 @@ const SettingsForm = (() => {
         form.dataset.bound = "true";
         form.addEventListener("submit", async function (e) {
             e.preventDefault();
+
+            const saveButton = document.getElementById("save-btn");
+            const saveDropdownButton = document.getElementById("dropdown-btn");
+            const originalSaveMarkup = saveButton?.innerHTML;
+            if (saveButton) {
+                saveButton.disabled = true;
+                saveButton.classList.add("opacity-70", "cursor-not-allowed");
+                saveButton.innerHTML = '<span class="material-icons align-middle animate-spin">sync</span>Saving…';
+            }
+            if (saveDropdownButton) saveDropdownButton.disabled = true;
+
+            try {
 
             const formData = new FormData(this);
             const payload = Object.fromEntries(formData.entries());
@@ -319,7 +397,23 @@ const SettingsForm = (() => {
                 body: JSON.stringify(payload),
             });
             const saveResult = await saveResponse.json();
+            if (!saveResponse.ok || saveResult.status !== "ok") {
+                throw new Error(saveResult.error || "The settings could not be saved");
+            }
             const portChanged = saveResult.port_changed || (oldPort !== newPort);
+
+            // Re-read the saved .env through webconfig so controls stay aligned
+            // with normalized server values without restarting the web UI.
+            try {
+                const refreshedConfig = await ConfigService.fetchConfig(true);
+                if (refreshedConfig) {
+                    refreshFromConfig(refreshedConfig);
+                }
+            } catch (refreshError) {
+                // Saving succeeded; a control-refresh failure must not be
+                // reported as if writing .env failed.
+                console.error("Settings saved, but form refresh failed:", refreshError);
+            }
 
             if (newHostname && newHostname !== oldHostname) {
                 const hostResponse = await fetch("/hostname", {
@@ -359,6 +453,17 @@ const SettingsForm = (() => {
                     console.error("Failed to restart Billy after save:", error);
                     showNotification("Settings saved, but the Billy restart failed", "warning", 5000);
                 }
+            }
+            } catch (error) {
+                console.error("Failed to save settings:", error);
+                showNotification(`Settings were not saved: ${error.message}`, "error", 6000);
+            } finally {
+                if (saveButton) {
+                    saveButton.disabled = false;
+                    saveButton.classList.remove("opacity-70", "cursor-not-allowed");
+                    saveButton.innerHTML = originalSaveMarkup;
+                }
+                if (saveDropdownButton) saveDropdownButton.disabled = false;
             }
         });
     };
@@ -525,9 +630,13 @@ const SettingsForm = (() => {
             envEditorBtnWrapper.classList.toggle("hidden", !isHidden);
         });
 
-        openEnvEditorBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-        });
+        if (openEnvEditorBtn.dataset.envEditorOpenBound !== "true") {
+            openEnvEditorBtn.dataset.envEditorOpenBound = "true";
+            openEnvEditorBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                window.LogPanel?.openEnvEditorModal?.();
+            });
+        }
     };
 
     const initHostFields = async () => {
@@ -623,15 +732,28 @@ const SettingsForm = (() => {
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED',
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
         ];
         dropdowns.forEach(id => {
             const element = document.getElementById(id);
-            if (element && config[id]) {
-                element.value = config[id];
-                localStorage.setItem(`dropdown_${id}`, config[id]);
+            if (element && config[id] !== undefined && config[id] !== null) {
+                const normalizedValue = normalizeSelectValue(id, config[id]);
+                if (ensureSelectHasValue(element, normalizedValue)) {
+                    localStorage.setItem(`dropdown_${id}`, element.value);
+                } else {
+                    localStorage.removeItem(`dropdown_${id}`);
+                }
             }
         });
+        const followUpRetryInput = document.getElementById("FOLLOW_UP_RETRY_LIMIT");
+        if (
+            followUpRetryInput
+            && config.FOLLOW_UP_RETRY_LIMIT !== undefined
+            && config.FOLLOW_UP_RETRY_LIMIT !== null
+        ) {
+            followUpRetryInput.value = String(config.FOLLOW_UP_RETRY_LIMIT);
+        }
         populateCameraHardwareDropdown(config);
         const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
         const cameraRotationLabel = document.getElementById("camera-rotation-label");

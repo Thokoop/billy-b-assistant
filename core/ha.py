@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import aiohttp
 
 from core.config import HA_HOST, HA_LANG, HA_TOKEN

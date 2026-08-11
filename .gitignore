@@ -14,7 +14,6 @@ sounds/response-history/
 .DS_Store
 .AppleDouble
 .LSOverride
-Icon[]
 
 ## Thumbnails
 ._*
@@ -87,3 +86,5 @@ custom_songs/
 models/
 wakewords/*.ppn
 !wakewords/hey-billy.ppn
+knowledge/
+test/

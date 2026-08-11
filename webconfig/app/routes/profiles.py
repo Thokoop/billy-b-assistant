@@ -7,8 +7,10 @@ import json
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 from flask import Blueprint, jsonify, request, send_file
+
+from core.env_utils import set_env_key
 
 
 def get_profiles_dir():
@@ -225,9 +227,7 @@ def set_current_user():
         if profile:
             # Persist CURRENT_USER for other processes (main Billy service).
             env_path = _get_env_path()
-            set_key(
-                str(env_path), "CURRENT_USER", profile.name.lower(), quote_mode="never"
-            )
+            set_env_key(str(env_path), "CURRENT_USER", profile.name.lower())
 
             # Switch persona manager to this profile's preferred persona.
             preferred_persona = profile.data.get("USER_INFO", {}).get(
@@ -254,7 +254,7 @@ def clear_current_user():
 
         user_manager.clear_current_user()
         env_path = _get_env_path()
-        set_key(str(env_path), "CURRENT_USER", "guest", quote_mode="never")
+        set_env_key(str(env_path), "CURRENT_USER", "guest")
         return jsonify({"message": "Current user cleared, switched to guest mode"})
 
     except Exception as e:

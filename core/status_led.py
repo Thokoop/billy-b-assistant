@@ -1,5 +1,7 @@
 """Single-pixel WS2812B status LED controller."""
 
+from __future__ import annotations
+
 import contextlib
 import math
 import threading
@@ -52,6 +54,7 @@ class StatusLed:
         "idle": {"mode": "pulse", "color": (0, 32, 12), "period": 2.8},
         "listening": {"mode": "solid", "color": (0, 180, 24)},
         "speaking": {"mode": "pulse", "color": (255, 110, 0), "period": 0.9},
+        "interrupted": {"mode": "blink", "color": (255, 28, 0), "period": 0.12},
         "playing_song": {"mode": "rainbow", "period": 1.2},
         "error": {"mode": "blink", "color": (255, 0, 0), "period": 0.45},
         "stopping": {"mode": "blink", "color": (255, 48, 0), "period": 0.8},
@@ -65,9 +68,14 @@ class StatusLed:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._state = "off"
+        self._transient_state: str | None = None
+        self._transient_until = 0.0
+        self._timeout_progress: float | None = None
+        self._timeout_started_at = 0.0
         self._initialized = False
         self._brightness = max(0.0, min(config.STATUS_LED_BRIGHTNESS, 1.0))
         self._backend: str | None = None
+        self._last_output_color: ColorTuple | None = None
 
     def initialize(self):
         """Initialize the hardware strip and start the animation worker."""
@@ -128,11 +136,90 @@ class StatusLed:
             return
         with self._lock:
             self._state = state
+            # A real state transition ends any previous listening countdown.
+            # The timeout checker will explicitly start a new one when needed.
+            self._timeout_progress = None
+            self._timeout_started_at = 0.0
 
     def get_state(self) -> str:
         """Return the current logical LED state."""
         with self._lock:
             return self._state
+
+    def flash_state(self, state: str, duration_seconds: float = 0.45):
+        """Temporarily show a state, then reveal the latest logical state."""
+        if state not in self._STATE_CONFIG:
+            logger.warning(f"Unknown status LED state '{state}', ignoring.", "💡")
+            return
+        duration = max(0.0, float(duration_seconds))
+        if duration <= 0.0:
+            return
+        with self._lock:
+            self._transient_state = state
+            self._transient_until = time.monotonic() + duration
+
+    def show_interruption(self, duration_seconds: float = 0.75):
+        """Atomically queue listening green beneath an interruption flash."""
+        duration = max(0.0, float(duration_seconds))
+        with self._lock:
+            self._state = "listening"
+            self._timeout_progress = None
+            self._timeout_started_at = 0.0
+            if duration > 0.0:
+                self._transient_state = "interrupted"
+                self._transient_until = time.monotonic() + duration
+
+    def set_timeout_progress(self, progress: float):
+        """Show listening timeout progress from green (0) to red (1)."""
+        with self._lock:
+            if self._timeout_progress is None:
+                self._timeout_started_at = time.monotonic()
+            self._timeout_progress = max(0.0, min(1.0, float(progress)))
+
+    def clear_timeout_progress(self):
+        """Return to the normal animation for the current logical state."""
+        with self._lock:
+            self._timeout_progress = None
+            self._timeout_started_at = 0.0
+
+    def _animation_state(self, now: float) -> str:
+        """Return a transient animation state without replacing logical state."""
+        with self._lock:
+            if self._transient_state and now < self._transient_until:
+                return self._transient_state
+            self._transient_state = None
+            self._transient_until = 0.0
+            return self._state
+
+    def _animation_config(self, now: float) -> dict[str, object]:
+        """Resolve transient and timeout overlays for the animation worker."""
+        state = self._animation_state(now)
+        with self._lock:
+            timeout_progress = self._timeout_progress
+            timeout_started_at = self._timeout_started_at
+
+        if state == "listening" and timeout_progress is not None:
+            # Stay solid while listening; the color blend alone (green through
+            # amber to red) conveys remaining time, so blinking isn't needed.
+            return {
+                "mode": "solid",
+                "color": self._timeout_color(timeout_progress),
+            }
+        return self._STATE_CONFIG.get(state, self._STATE_CONFIG["off"])
+
+    @staticmethod
+    def _timeout_color(progress: float) -> ColorTuple:
+        """Blend timeout progress from green through amber to red."""
+        progress = max(0.0, min(1.0, float(progress)))
+        if progress <= 0.5:
+            blend = progress / 0.5
+            return (
+                round(255 * blend),
+                round(180 + (20 * blend)),
+                round(24 * (1.0 - blend)),
+            )
+        blend = (progress - 0.5) / 0.5
+        return (255, round(200 * (1.0 - blend)), 0)
 
     def cleanup(self):
         """Stop animations and turn the LED off."""
@@ -146,7 +233,13 @@ class StatusLed:
         self._initialized = False
         self._backend = None
         self._animation_thread = None
+        self._last_output_color = None
         self._stop_event = threading.Event()
+        with self._lock:
+            self._transient_state = None
+            self._transient_until = 0.0
+            self._timeout_progress = None
+            self._timeout_started_at = 0.0
         if strip and hasattr(strip, "deinit"):
             with contextlib.suppress(Exception):
                 strip.deinit()
@@ -193,20 +286,18 @@ class StatusLed:
 
     def _run_animation_loop(self):
         while not self._stop_event.is_set():
-            with self._lock:
-                state = self._state
-
-            config_for_state = self._STATE_CONFIG.get(state, self._STATE_CONFIG["off"])
+            now = time.monotonic()
+            config_for_state = self._animation_config(now)
             mode = str(config_for_state["mode"])
             color = config_for_state.get("color", (0, 0, 0))
             period = float(config_for_state.get("period", 1.0))
-            now = time.monotonic()
-
             if mode == "solid":
                 self._set_pixels(color)
                 self._stop_event.wait(0.1)
             elif mode == "blink":
-                phase_on = (now % period) < (period / 2.0)
+                phase_origin = float(config_for_state.get("phase_origin", 0.0))
+                phase_time = now - phase_origin if phase_origin > 0.0 else now
+                phase_on = (phase_time % period) < (period / 2.0)
                 self._set_pixels(color if phase_on else (0, 0, 0))
                 self._stop_event.wait(0.08)
             elif mode == "pulse":
@@ -227,16 +318,20 @@ class StatusLed:
             return
 
         scaled = self._scale_color(color, self._brightness)
+        if scaled == self._last_output_color:
+            return
         if self._backend == "pwm":
             packed = Color(*scaled)
             for index in range(config.STATUS_LED_COUNT):
                 self._strip.setPixelColor(index, packed)
             self._strip.show()
+            self._last_output_color = scaled
             return
 
         for index in range(config.STATUS_LED_COUNT):
             self._strip[index] = scaled
         self._strip.show()
+        self._last_output_color = scaled
 
     @staticmethod
     def _scale_color(color: ColorTuple, scale: float) -> ColorTuple:
@@ -270,6 +365,28 @@ def set_status_led_state(state: str):
 def get_status_led_state() -> str:
     """Return the shared status LED state."""
     return status_led.get_state()
+
+
+def flash_status_led_state(state: str, duration_seconds: float = 0.75):
+    """Show a temporary LED animation without delaying later state updates."""
+    status_led.flash_state(state, duration_seconds)
+
+
+def show_status_led_interruption(duration_seconds: float = 0.75):
+    """Flash a distinct interruption signal, then settle on listening green."""
+    # Session/MQTT state can still replace the queued fallback if Billy
+    # legitimately enters another state meanwhile.
+    status_led.show_interruption(duration_seconds)
+
+
+def set_status_led_timeout_progress(progress: float):
+    """Show normalized microphone timeout progress on the shared LED."""
+    status_led.set_timeout_progress(progress)
+
+
+def clear_status_led_timeout_progress():
+    """Clear microphone timeout progress from the shared LED."""
+    status_led.clear_timeout_progress()
 
 
 def cleanup_status_led():

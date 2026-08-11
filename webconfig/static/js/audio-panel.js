@@ -11,6 +11,7 @@ const AudioPanel = (() => {
     let currentMicMaxRms = 0;
     let currentMicRmsWindow = [];
     let serviceStoppedForMicTest = false;
+    let speakerVolumeDebounceTimeout = null;
 
     function bindUI() {
         const bindButton = (id, handler) => {
@@ -25,6 +26,82 @@ const AudioPanel = (() => {
         bindButton("speaker-check-btn", handleSpeakerCheck);
         bindMicGainSlider();
         bindMicThresholdControls();
+        bindSpeakerVolumeSlider();
+    }
+
+    function updateSpeakerVolumeUi(value) {
+        const speakerSlider = document.getElementById("speaker-volume");
+        const fill = document.getElementById("speaker-volume-fill");
+        if (!speakerSlider || !fill) return;
+
+        const volume = Math.max(0, Math.min(100, Number(value) || 0));
+        speakerSlider.value = String(volume);
+        fill.style.width = `${volume}%`;
+        fill.dataset.value = String(volume);
+    }
+
+    function bindSpeakerVolumeSlider() {
+        const speakerSlider = document.getElementById("speaker-volume");
+        const speakerBar = document.getElementById("speaker-volume-bar");
+        if (!speakerSlider || !speakerBar) return;
+        if (
+            speakerSlider.dataset.audioBound === "true"
+            && speakerBar.dataset.audioBound === "true"
+        ) return;
+
+        if (speakerBar.dataset.audioBound !== "true") {
+            speakerBar.dataset.audioBound = "true";
+            let dragging = false;
+
+            const updateFromPointer = (event) => {
+                const rect = speakerBar.getBoundingClientRect();
+                if (!rect.width) return;
+                const ratio = Math.min(
+                    Math.max((event.clientX - rect.left) / rect.width, 0),
+                    1,
+                );
+                speakerSlider.value = String(Math.round(ratio * 100));
+                speakerSlider.dispatchEvent(new Event("input", {bubbles: true}));
+            };
+
+            speakerBar.addEventListener("pointerdown", (event) => {
+                dragging = true;
+                speakerBar.setPointerCapture?.(event.pointerId);
+                updateFromPointer(event);
+            });
+            speakerBar.addEventListener("pointermove", (event) => {
+                if (dragging) updateFromPointer(event);
+            });
+            const stopDragging = () => { dragging = false; };
+            speakerBar.addEventListener("pointerup", stopDragging);
+            speakerBar.addEventListener("pointercancel", stopDragging);
+        }
+
+        if (speakerSlider.dataset.audioBound !== "true") {
+            speakerSlider.dataset.audioBound = "true";
+            speakerSlider.addEventListener("input", () => {
+                updateSpeakerVolumeUi(speakerSlider.value);
+                clearTimeout(speakerVolumeDebounceTimeout);
+                speakerVolumeDebounceTimeout = setTimeout(() => {
+                    fetch("/volume", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({volume: parseInt(speakerSlider.value, 10)}),
+                    }).catch(error => console.error("Failed to set speaker volume:", error));
+                }, 500);
+            });
+        }
+
+        clearTimeout(speakerVolumeDebounceTimeout);
+        fetch("/volume")
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                if (data.volume !== undefined) updateSpeakerVolumeUi(data.volume);
+            })
+            .catch(error => console.error("Failed to load speaker volume:", error));
     }
 
     async function handleSpeakerCheck() {
@@ -655,34 +732,6 @@ const AudioPanel = (() => {
     }
 
     refreshMicRecordingStatus();
-
-    const speakerSlider = document.getElementById("speaker-volume");
-    if (speakerSlider) {
-        fetch("/volume")
-            .then(res => res.json())
-            .then(data => {
-                if (data.volume !== undefined) {
-                    speakerSlider.value = data.volume;
-                    const fill = document.getElementById("speaker-volume-fill");
-                    if (fill) {
-                        const percent = (data.volume / 100) * 100;
-                        fill.style.width = `${percent}%`;
-                        fill.dataset.value = data.volume;
-                    }
-                }
-            });
-        let volumeDebounceTimeout;
-        speakerSlider.addEventListener("input", () => {
-        clearTimeout(volumeDebounceTimeout);
-        volumeDebounceTimeout = setTimeout(() => {
-            fetch("/volume", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({volume: parseInt(speakerSlider.value)})
-            }).catch(err => console.error("Failed to set speaker volume:", err));
-        }, 500);
-        });
-    }
 
     async function updateDeviceLabels(retries = 0) {
         const micLabel = document.getElementById("mic-label");

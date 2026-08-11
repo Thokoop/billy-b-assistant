@@ -11,13 +11,14 @@ from base64 import b64decode
 from glob import glob
 from pathlib import Path
 
-from dotenv import dotenv_values, find_dotenv, set_key
+from dotenv import dotenv_values, find_dotenv
 from flask import Blueprint, jsonify, redirect, render_template, request
 from packaging.version import parse as parse_version
 from werkzeug.utils import secure_filename
 
+from core.env_utils import set_env_key
 from core.news_manager import load_news_sources, save_news_sources
-from core.vision import describe_scene
+from core.vision import describe_scene, detect_rpi_camera_available
 
 from ..core_imports import core_config, voice_provider_registry
 from ..state import (
@@ -50,6 +51,7 @@ CONFIG_KEYS = [
     "BILLY_MODEL",
     "BILLY_PINS",
     "MIC_TIMEOUT_SECONDS",
+    "MIC_TIMEOUT_TAIL_FLAP",
     "SILENCE_THRESHOLD",
     "MIC_GAIN",
     "MQTT_HOST",
@@ -61,6 +63,9 @@ CONFIG_KEYS = [
     "HA_LANG",
     "MIC_PREFERENCE",
     "SPEAKER_PREFERENCE",
+    "AEC_ENABLED",
+    "AEC_BARGE_IN_SNR_DB",
+    "MOOD_INSTRUCTIONS_ENABLED",
     "FLASK_PORT",
     "RUN_MODE",
     "SHOW_SUPPORT",
@@ -90,6 +95,14 @@ CONFIG_KEYS = [
     "WIFI_COUNTRY",
     "WIFI_ONBOARDING_MODE",
 ]
+BOOLEAN_CONFIG_KEYS = {
+    "AEC_ENABLED",
+    "WAKE_WORD_ENABLED",
+    "STATUS_LED_ENABLED",
+    "FLAP_ON_BOOT",
+    "MIC_TIMEOUT_TAIL_FLAP",
+    "MOOD_INSTRUCTIONS_ENABLED",
+}
 WAKEWORD_REL_ROOT = Path("wakewords")
 WIFI_ONBOARDING_FLAG = Path(PROJECT_ROOT) / "setup" / ".wifi_onboarding_active"
 WIFI_TEST_PREFIX = "billy-test-"
@@ -115,30 +128,55 @@ WIFI_COUNTRIES = [
     ("NL", "Netherlands"),
     ("US", "United States"),
 ]
+OPENWAKEWORD_WORKAROUND_VERSION = "0.6.0"
+
+
+def _reinstall_openwakeword_workaround(venv_pip: str) -> str:
+    """Force a working openwakeword install on Pi systems where pip resolves 0.4.x."""
+    logger.info(
+        f"[openwakeword] Applying install workaround for openwakeword {OPENWAKEWORD_WORKAROUND_VERSION}"
+    )
+    commands = [
+        [
+            venv_pip,
+            "uninstall",
+            "-y",
+            "openwakeword",
+        ],
+        [
+            venv_pip,
+            "install",
+            "--upgrade",
+            "onnxruntime",
+            "requests",
+            "scikit-learn",
+            "scipy",
+            "tqdm",
+            "ai-edge-litert",
+        ],
+        [
+            venv_pip,
+            "install",
+            "--no-deps",
+            "--upgrade",
+            f"openwakeword=={OPENWAKEWORD_WORKAROUND_VERSION}",
+        ],
+    ]
+    output_parts: list[str] = []
+    for cmd in commands:
+        output = subprocess.check_output(
+            cmd,
+            cwd=PROJECT_ROOT,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        output_parts.append(output)
+    return "\n".join(part for part in output_parts if part)
 
 
 def _detect_rpi_camera_available() -> bool:
-    camera_bin = str(getattr(core_config, "LIBCAMERA_STILL_BIN", "libcamera-still"))
-    try:
-        result = subprocess.run(
-            [camera_bin, "--list-cameras"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=3.0,
-        )
-    except FileNotFoundError:
-        return False
-    except Exception:
-        return False
-
-    combined = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
-    if "no cameras available" in combined:
-        return False
-    if "available cameras" in combined:
-        return True
-    # Fallback: some builds may still expose camera lines without the header.
-    return "camera" in combined and "/base/" in combined
+    camera_bin = str(getattr(core_config, "LIBCAMERA_STILL_BIN", "rpicam-still"))
+    return detect_rpi_camera_available(camera_bin)
 
 
 def _is_v4l2_capture_capable(sys_video_dir: Path) -> bool:
@@ -490,7 +528,7 @@ def _set_wifi_country(country: str) -> None:
     if not normalized:
         return
     _run_wifi_command(["sudo", "iw", "reg", "set", normalized], check=False)
-    set_key(ENV_PATH, "WIFI_COUNTRY", normalized, quote_mode="never")
+    set_env_key(ENV_PATH, "WIFI_COUNTRY", normalized)
 
 
 def _get_wlan0_ip_address() -> str:
@@ -960,10 +998,24 @@ def delayed_system_reboot():
     subprocess.Popen(["sudo", "shutdown", "-r", "now"])
 
 
+def _config_value_for_ui(key: str, config_module=None) -> str:
+    config_module = config_module or core_config
+    value = getattr(config_module, key, "")
+    if key == "AEC_BARGE_IN_SNR_DB":
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            pass
+        else:
+            if numeric_value.is_integer():
+                return str(int(numeric_value))
+    return str(value)
+
+
 def _page_context(current_page: str) -> dict:
     return {
         "current_page": current_page,
-        "config": {k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
+        "config": {k: _config_value_for_ui(k) for k in CONFIG_KEYS}
         | {
             "VOICE_OPTIONS": [
                 "alloy",
@@ -1108,6 +1160,7 @@ def perform_update():
             stderr=subprocess.STDOUT,
             text=True,
         )
+        output += "\n" + _reinstall_openwakeword_workaround(venv_pip)
         logger.info(f"📦 Pip install output:\n{output}")
         # Refresh current version from git after checkout to ensure accuracy
         actual_current = get_current_version()
@@ -1156,6 +1209,7 @@ def simulate_update():
             stderr=subprocess.STDOUT,
             text=True,
         )
+        output += "\n" + _reinstall_openwakeword_workaround(venv_pip)
         logger.info(f"📦 Reinstall current version pip output:\n{output}")
 
         actual_current = get_current_version()
@@ -1206,8 +1260,11 @@ def save():
         "MIC_PREFERENCE",
         "SPEAKER_PREFERENCE",
         "MIC_TIMEOUT_SECONDS",
+        "MIC_TIMEOUT_TAIL_FLAP",
         "SILENCE_THRESHOLD",
         "MIC_GAIN",
+        "AEC_ENABLED",
+        "AEC_BARGE_IN_SNR_DB",
     }
     for key, value in data.items():
         if key in CONFIG_KEYS:
@@ -1225,6 +1282,21 @@ def save():
                 value = str(max(0.0, min(32768.0, parsed)))
                 if value.endswith(".0"):
                     value = value[:-2]
+            elif key in BOOLEAN_CONFIG_KEYS:
+                value = (
+                    "true"
+                    if str(value).strip().lower()
+                    in {"true", "1", "yes", "y", "on", "enabled"}
+                    else "false"
+                )
+            elif key == "AEC_BARGE_IN_SNR_DB":
+                try:
+                    parsed = float(str(value).strip())
+                except (TypeError, ValueError):
+                    parsed = 9.0
+                value = str(max(3.0, min(20.0, parsed)))
+                if value.endswith(".0"):
+                    value = value[:-2]
             elif key == "MIC_GAIN":
                 raw_value = str(value).strip().lower()
                 if raw_value not in {"", "max", "maximum", "default"}:
@@ -1235,6 +1307,12 @@ def save():
                     else:
                         raw_value = str(max(0, parsed))
                 value = raw_value or "max"
+            elif key == "MQTT_PORT":
+                try:
+                    parsed = int(str(value).strip())
+                except (TypeError, ValueError):
+                    parsed = 1883
+                value = str(max(1, min(65535, parsed)))
             elif key == "STATUS_LED_BRIGHTNESS":
                 try:
                     parsed = float(str(value).strip())
@@ -1243,12 +1321,21 @@ def save():
                 value = str(max(0.0, min(1.0, parsed)))
             old_value = str(existing_env.get(key, ""))
             new_value = str(value)
-            set_key(ENV_PATH, key, value, quote_mode='never')
+            set_env_key(ENV_PATH, key, value)
             if key == "FLASK_PORT" and str(value) != str(old_port):
                 changed_port = True
             if key in audio_restart_keys and new_value != old_value:
                 audio_restart_required = True
     response = {"status": "ok"}
+    # Keep the web UI's in-memory configuration synchronized without restarting
+    # billy-webconfig.service. This also makes subsequent server-rendered pages
+    # preselect newly saved dropdown values correctly.
+    from dotenv import load_dotenv
+
+    load_dotenv(ENV_PATH, override=True)
+    import importlib
+
+    importlib.reload(core_config)
     if audio_restart_required:
         response["audio_restart_required"] = True
     if changed_port:
@@ -1535,23 +1622,21 @@ def upload_wakeword_file():
     try:
         wakeword_file.save(target_path)
         if suffix == ".ppn":
-            set_key(
+            set_env_key(
                 ENV_PATH,
                 "WAKE_WORD_PORCUPINE_KEYWORD_PATH",
                 filename,
-                quote_mode='never',
             )
-            set_key(ENV_PATH, "WAKE_WORD_BACKEND", "porcupine", quote_mode='never')
+            set_env_key(ENV_PATH, "WAKE_WORD_BACKEND", "porcupine")
             backend = "porcupine"
             file_type = "keyword"
         else:
-            set_key(
+            set_env_key(
                 ENV_PATH,
                 "WAKE_WORD_OPENWAKEWORD_MODEL_PATH",
                 filename,
-                quote_mode='never',
             )
-            set_key(ENV_PATH, "WAKE_WORD_BACKEND", "openwakeword", quote_mode='never')
+            set_env_key(ENV_PATH, "WAKE_WORD_BACKEND", "openwakeword")
             backend = "openwakeword"
             file_type = "model"
         return jsonify({
@@ -1579,12 +1664,17 @@ def list_camera_devices():
     rpi_available = _detect_rpi_camera_available()
     usb_nodes = _detect_usb_video_nodes()
 
-    options: list[dict[str, str]] = [{"value": "none", "label": "None"}]
-    if rpi_available:
-        options.append({
+    options: list[dict[str, str]] = [
+        {"value": "none", "label": "None"},
+        {
             "value": "rpi_camera",
-            "label": "Raspberry Pi Camera Module",
-        })
+            "label": (
+                "Raspberry Pi Camera Module"
+                if rpi_available
+                else "Raspberry Pi Camera Module (not detected)"
+            ),
+        },
+    ]
     for node in usb_nodes:
         options.append({
             "value": f"usb_webcam:{node['index']}",
@@ -1664,7 +1754,7 @@ def get_config():
     from ..core_imports import core_config
 
     # Get basic configuration
-    config_data = {k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
+    config_data = {k: _config_value_for_ui(k, core_config) for k in CONFIG_KEYS}
 
     # Add voice options for the freshly loaded provider setting. The registry's
     # default reflects process startup and may be stale until webconfig restarts.

@@ -146,6 +146,7 @@ const ServiceStatus = (() => {
     const handleServiceAction = async (action, buttonEl = null) => {
         const statusEl = document.getElementById("service-status");
         const logoEl = document.getElementById("status-logo");
+        let previousWebconfigInstance = null;
 
         if (action === "restart") {
             markRestartInProgress();
@@ -155,7 +156,7 @@ const ServiceStatus = (() => {
             }
             setRestartButtonLoading(true);
             if (window.LoadingOverlay && window.LoadingOverlay.show) {
-                window.LoadingOverlay.show("Restarting Billy... waiting for reconnect.");
+                window.LoadingOverlay.show("Restarting Billy and web interface... waiting for reconnect.");
             }
         }
 
@@ -178,7 +179,9 @@ const ServiceStatus = (() => {
 
         try {
             if (action === "restart") {
-                await fetch("/restart", {method: "POST"});
+                const response = await fetch("/restart", {method: "POST"});
+                const data = await response.json().catch(() => ({}));
+                previousWebconfigInstance = data.webconfig_instance || null;
             } else {
                 await fetch(`/service/${action}`);
             }
@@ -191,7 +194,7 @@ const ServiceStatus = (() => {
 
         if (action === "restart") {
             if (window.LoadingOverlay?.waitForReload) {
-                window.LoadingOverlay.waitForReload();
+                window.LoadingOverlay.waitForReload(previousWebconfigInstance);
             }
             return;
         }

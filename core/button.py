@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import threading
@@ -69,9 +71,13 @@ interrupt_event = threading.Event()
 session_instance: BillySession | None = None
 wakeword_listener = None
 last_button_time = 0
-last_active_button_press_time = 0
+_button_was_pressed = False
+_button_interrupt_armed = False
 button_debounce_delay = 0.12  # seconds debounce against switch bounce
-button_double_press_window = 0.6  # second press in this window counts as double press
+button_release_settle_delay = 0.20
+_button_rearm_required = False
+_button_released_since = 0.0
+_button_state_lock = threading.Lock()
 _session_start_lock = threading.Lock()  # Lock to prevent concurrent session starts
 
 # Setup hardware button
@@ -100,6 +106,34 @@ def _ensure_button_hold_thread():
             logger.warning("Repaired gpiozero button hold thread", "🛠️")
     except Exception as e:
         logger.warning(f"Failed to repair button hold thread: {e}", "⚠️")
+
+
+def _require_button_release():
+    """Prevent a session-ending press from becoming a standby start press."""
+    global _button_was_pressed, _button_rearm_required, _button_released_since
+    with _button_state_lock:
+        _button_was_pressed = True
+        _button_rearm_required = True
+        _button_released_since = 0.0
+
+
+def _observe_button_level(pressed: bool, now: float | None = None):
+    """Re-arm only after the physical switch has remained released."""
+    global _button_was_pressed, _button_rearm_required, _button_released_since
+    now = time.monotonic() if now is None else float(now)
+    with _button_state_lock:
+        if pressed:
+            _button_released_since = 0.0
+            return
+        _button_was_pressed = False
+        if not _button_rearm_required:
+            return
+        if _button_released_since <= 0.0:
+            _button_released_since = now
+            return
+        if now - _button_released_since >= button_release_settle_delay:
+            _button_rearm_required = False
+            _button_released_since = 0.0
 
 
 def is_billy_speaking():
@@ -161,8 +195,9 @@ def _resume_wakeword_listener():
 
 
 def _stop_active_session():
-    global is_active, session_thread, session_instance
+    global is_active, session_thread, session_instance, _button_interrupt_armed
 
+    _button_interrupt_armed = False
     interrupt_event.set()
     audio.stop_playback()
 
@@ -211,34 +246,70 @@ def _stop_active_session():
 
 
 def _handle_active_session_button_press(force_stop: bool = False):
+    global _button_interrupt_armed
+
     logger.info("Button pressed during active session.", "🔁")
 
-    if not force_stop and (
+    # Once a button press has interrupted Billy, the next press is an explicit
+    # request to leave the session. Keep this state for the whole session so the
+    # result does not depend on how quickly the second press happens or whether
+    # the provider has finished updating its turn flags yet.
+    if force_stop or _button_interrupt_armed:
+        logger.info("Second button press. Ending session.", "🛑")
+        _require_button_release()
+        _stop_active_session()
+        return
+
+    if (
         session_instance
         and session_instance.loop
         and session_instance.is_assistant_turn()
     ):
         try:
+            _button_interrupt_armed = True
             logger.info("Assistant is speaking. Handing turn back to user...", "🎙️")
+            # Stop audible output synchronously in the GPIO callback. The
+            # websocket cancellation and mic handoff can finish asynchronously,
+            # but the physical button must always feel immediate.
+            audio.stop_playback()
             future = asyncio.run_coroutine_threadsafe(
-                session_instance.interrupt_to_user_turn(), session_instance.loop
+                session_instance.interrupt_to_user_turn(source="button"),
+                session_instance.loop,
             )
-            future.result(timeout=3.0)
-            logger.success("Turn handed back to user (mic open).")
+
+            def handoff_done(completed_future):
+                try:
+                    completed_future.result()
+                    logger.success("Turn handed back to user (mic open).")
+                except Exception as e:
+                    logger.warning(
+                        f"Turn handoff failed, stopping session instead: {e}"
+                    )
+                    # A Future callback can run on the session event-loop thread;
+                    # stop from a separate thread so waiting for that loop cannot
+                    # deadlock it.
+                    threading.Thread(
+                        target=_stop_active_session,
+                        daemon=True,
+                    ).start()
+
+            future.add_done_callback(handoff_done)
             return
         except Exception as e:
             logger.warning(f"Turn handoff failed, stopping session instead: {e}")
 
-    if force_stop:
-        logger.info("Double press detected. Ending session immediately.", "🛑")
-    else:
-        logger.info("Stopping active session...", "🛑")
-
+    logger.info("Billy is listening. Ending session.", "🛑")
+    _require_button_release()
     _stop_active_session()
 
 
 def trigger_session_start(source: str = "button"):
-    global is_active, session_thread, interrupt_event, session_instance
+    global \
+        is_active, \
+        session_thread, \
+        interrupt_event, \
+        session_instance, \
+        _button_interrupt_armed
 
     if is_active:
         if source == "button":
@@ -341,12 +412,13 @@ def trigger_session_start(source: str = "button"):
         logger.info("🔧 playback_done_event cleared (waiting for wake-up sound)", "🔧")
         set_status_led_state("starting")
         threading.Thread(target=audio.play_random_wake_up_clip, daemon=True).start()
+        _button_interrupt_armed = False
         is_active = True
         interrupt_event = threading.Event()  # Fresh event for each session
         logger.info(f"{source} trigger received. Listening...", "🎤")
 
         def run_session():
-            global session_instance, is_active
+            global session_instance, is_active, _button_interrupt_armed
             try:
                 session_instance = BillySession(interrupt_event=interrupt_event)
                 session_instance.last_activity[0] = time.time()
@@ -356,6 +428,7 @@ def trigger_session_start(source: str = "button"):
             finally:
                 move_head("off")
                 is_active = False
+                _button_interrupt_armed = False
                 session_instance = None  # Clear reference
                 if get_status_led_state() not in {"error", "stopping", "off"}:
                     set_status_led_state("idle")
@@ -383,27 +456,29 @@ def on_wake_word():
     trigger_session_start(source="wake-word")
 
 
-def on_button():
-    global last_button_time, last_active_button_press_time
+def on_button(source: str = "gpio-edge"):
+    global last_button_time, _button_was_pressed, _button_released_since
 
     now = time.time()
-    if now - last_button_time < button_debounce_delay:
-        return  # Ignore very quick repeat presses (debounce)
-    last_button_time = now
+    with _button_state_lock:
+        if _button_rearm_required:
+            # A release/rebound from the press that ended the previous session
+            # must not be interpreted as a new standby trigger.
+            _button_was_pressed = True
+            _button_released_since = 0.0
+            return
+        if _button_was_pressed:
+            return
+        if now - last_button_time < button_debounce_delay:
+            return  # Ignore very quick repeat presses (debounce)
+        last_button_time = now
+        _button_was_pressed = True
 
-    if not button.is_pressed:
-        return
-
-    if is_active:
-        double_press = (
-            last_active_button_press_time > 0
-            and now - last_active_button_press_time < button_double_press_window
+    if source == "poll":
+        logger.warning(
+            "Button press recovered by GPIO polling fallback.",
+            "🛠️",
         )
-        last_active_button_press_time = 0 if double_press else now
-        trigger_session_start(source="button-double" if double_press else "button")
-        return
-
-    last_active_button_press_time = 0
 
     trigger_session_start(source="button")
 
@@ -416,7 +491,7 @@ def stop_background_services():
 
 
 def start_loop():
-    global wakeword_listener
+    global wakeword_listener, _button_was_pressed
 
     audio.detect_devices(debug=True)
     _ensure_button_hold_thread()
@@ -471,9 +546,23 @@ def start_loop():
                 input("Press Enter to simulate button press: ")
                 button.is_pressed = True
                 on_button()
+                button.is_pressed = False
+                _observe_button_level(False)
         except KeyboardInterrupt:
             pass
     else:
         while True:
             _ensure_button_hold_thread()
-            time.sleep(0.1)
+            # gpiozero normally supplies the falling-edge callback. Polling the
+            # level as well makes the physical control recover if its callback
+            # worker misses an edge or stops after a long-running handler.
+            try:
+                pressed = bool(button.is_pressed)
+                if pressed:
+                    on_button(source="poll")
+                    _observe_button_level(True)
+                else:
+                    _observe_button_level(False)
+            except Exception as e:
+                logger.verbose(f"Button polling skipped: {e}", "ℹ️")
+            time.sleep(0.02)

@@ -195,6 +195,7 @@ class UserProfilePanel {
                 this.loadDisplayName(),
                 this.loadUserPersona(), // This sets persona selectors
                 this.loadStats(),
+                this.loadMood(),
                 this.loadMemories()
             ]);
         } catch (error) {
@@ -628,6 +629,7 @@ class UserProfilePanel {
         const displayNameSection = document.querySelector('#display-name-input-main') && document.querySelector('#display-name-input-main').closest('div').parentElement;
         const personaSection = document.querySelector('#persona-select-main') && document.querySelector('#persona-select-main').closest('div').parentElement;
         const statsSection = document.querySelector('#section-stats-main');
+        const moodSection = document.querySelector('#section-mood-main');
         const memoriesSection = document.querySelector('#section-memories-main');
         const profileSettingsSection = document.querySelector('#section-profile-settings-main');
 
@@ -636,13 +638,15 @@ class UserProfilePanel {
             if (displayNameSection) displayNameSection.style.display = 'block';
             if (personaSection) personaSection.style.display = 'block';
             if (statsSection) statsSection.style.display = 'block';
+            if (moodSection) moodSection.style.display = 'block';
             if (memoriesSection) memoriesSection.style.display = 'block';
             if (profileSettingsSection) profileSettingsSection.style.display = 'block';
         } else {
-            // Guest mode: hide display name, stats, and memories, but KEEP persona selector visible
+            // Guest mode: hide display name, stats, and memories, but keep persona and general mood visible
             if (displayNameSection) displayNameSection.style.display = 'none';
             if (personaSection) personaSection.style.display = 'block'; // Keep visible for guest
             if (statsSection) statsSection.style.display = 'none';
+            if (moodSection) moodSection.style.display = 'block';
             if (memoriesSection) memoriesSection.style.display = 'none';
             if (profileSettingsSection) profileSettingsSection.style.display = 'block'; // Keep parent section visible
         }
@@ -715,6 +719,10 @@ class UserProfilePanel {
                 statsContent.innerHTML = '<p class="text-sm text-zinc-400 italic">Error loading stats</p>';
             }
         }
+    }
+
+    async loadMood(status = null) {
+        await window.MoodPanel?.load(status);
     }
 
     async loadMemories() {
@@ -1554,6 +1562,10 @@ class UserProfilePanel {
         try {
             if (!status) status = await ServiceStatus.fetchStatus();
             if (!status) return;
+
+            if (status.mood) {
+                window.MoodPanel?.render(status.mood);
+            }
 
             if (this.lastStatus) {
                 let hasChanges = false;

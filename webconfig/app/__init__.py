@@ -1,5 +1,7 @@
 import os
 import sys
+import threading
+import time
 
 from flask import Flask
 
@@ -36,17 +38,6 @@ def create_app() -> Flask:
     from .routes.system import bp as system_bp
     from .state import bootstrap_versions_and_release_note
 
-    # Bootstrap cached data
-    bootstrap_versions_and_release_note()
-    mic_gain_result = apply_configured_mic_gain()
-    if mic_gain_result.get("status") == "updated":
-        app.logger.info(
-            "Applied configured mic gain: %(old)s -> %(gain)s",
-            mic_gain_result,
-        )
-    elif mic_gain_result.get("status") not in {"kept"}:
-        app.logger.info("Configured mic gain skipped: %s", mic_gain_result)
-
     # Register blueprints
     app.register_blueprint(system_bp)
     app.register_blueprint(persona_bp)
@@ -62,5 +53,44 @@ def create_app() -> Flask:
         app.register_blueprint(websocket.bp)
     else:
         app.logger.warning("flask_sock is unavailable; WebSocket updates are disabled.")
+
+    def refresh_version_metadata():
+        # Let Flask bind its port before doing any external network work.
+        time.sleep(0.25)
+        started = time.monotonic()
+        bootstrap_versions_and_release_note()
+        app.logger.info(
+            "Background version metadata refresh completed in %.2fs",
+            time.monotonic() - started,
+        )
+
+    def apply_mic_gain_after_startup():
+        # ALSA probing is local but can still pause while devices settle. It must
+        # not keep the web interface from accepting connections.
+        time.sleep(0.25)
+        started = time.monotonic()
+        mic_gain_result = apply_configured_mic_gain()
+        if mic_gain_result.get("status") == "updated":
+            app.logger.info(
+                "Applied configured mic gain: %(old)s -> %(gain)s",
+                mic_gain_result,
+            )
+        elif mic_gain_result.get("status") not in {"kept"}:
+            app.logger.info("Configured mic gain skipped: %s", mic_gain_result)
+        app.logger.info(
+            "Background microphone gain check completed in %.2fs",
+            time.monotonic() - started,
+        )
+
+    threading.Thread(
+        target=refresh_version_metadata,
+        name="webconfig-version-refresh",
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=apply_mic_gain_after_startup,
+        name="webconfig-mic-gain",
+        daemon=True,
+    ).start()
 
     return app
