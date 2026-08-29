@@ -312,7 +312,12 @@ def _articulation_multiplier():
 
 # === Mouth Sync ===
 def flap_from_pcm_chunk(
-    audio, threshold=1500, min_flap_gap=0.15, chunk_ms=40, sample_rate=24000
+    audio,
+    threshold=1500,
+    min_flap_gap=0.15,
+    chunk_ms=40,
+    sample_rate=24000,
+    articulation_override=None,
 ):
     global _last_flap, _mouth_open_until, _last_rms
     now = time.time()
@@ -348,7 +353,11 @@ def flap_from_pcm_chunk(
     duration_ms = np.clip(duration_ms, 15, chunk_ms)
     duration = duration_ms / 1000.0
 
-    duration *= _articulation_multiplier()
+    duration *= (
+        articulation_override
+        if articulation_override is not None
+        else _articulation_multiplier()
+    )
 
     _last_flap = now
     _mouth_open_until = now + duration

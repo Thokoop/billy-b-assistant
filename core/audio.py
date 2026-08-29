@@ -51,6 +51,11 @@ os.makedirs(RESPONSE_HISTORY_DIR, exist_ok=True)
 
 playback_queue = Queue()
 head_move_queue = Queue()
+tail_move_queue = Queue()
+# List of (start_seconds, duration_seconds) windows during which mouth-flap
+# driving is suppressed. Unlike head/tail moves this isn't a one-shot fire -
+# checked by song-position on every chunk, so it's a plain list, not a Queue.
+mouth_mute_windows = []
 playback_done_event = threading.Event()
 _playback_thread = None
 _playback_output_latency_seconds = 0.0
@@ -60,6 +65,7 @@ beat_length = 0.5
 compensate_tail_beats = 0.0
 song_mouth_threshold = 1500
 song_tail_threshold = 1500
+song_mouth_articulation = None  # None = fall back to the current persona's setting
 
 PROVIDER_MIC_RATE = 24000
 PROVIDER_OUTPUT_RATE = 24000
@@ -270,6 +276,19 @@ def playback_worker(chunk_ms):
                         head_move_end_time = now + move_duration
                         print(f"🐟 Head move started for {move_duration:.2f} seconds")
 
+                if not tail_move_queue.empty() and not movements.head_out:
+                    # Modern (2-motor) hardware shares one bridge between head and
+                    # tail, so a tail flap while the head is out would yank the
+                    # head back down. Defer - the move stays queued and fires as
+                    # soon as head_out clears, same as the automatic drums path.
+                    move_time, move_duration = tail_move_queue.queue[0]  # peek
+                    if now - song_start_time >= move_time:
+                        tail_move_queue.get()
+                        move_tail_async(duration=move_duration)
+                        print(
+                            f"🐟 Manual tail move started for {move_duration:.2f} seconds"
+                        )
+
                 if item is None:
                     logger.info("Received stop signal, cleaning up.", "🧵")
                     playback_queue.task_done()
@@ -280,10 +299,23 @@ def playback_worker(chunk_ms):
                     if mode == "song":
                         audio_chunk, flap_chunk, rms_drums = item[1], item[2], item[3]
 
+                        flap_samples = np.frombuffer(flap_chunk, dtype=np.int16)
+                        song_position = now - song_start_time
+                        if mouth_mute_windows and any(
+                            start <= song_position < start + duration
+                            for start, duration in mouth_mute_windows
+                        ):
+                            # Feed silence rather than skip the call entirely, so
+                            # flap_from_pcm_chunk's own "too quiet, stop motor"
+                            # path actively closes the mouth instead of leaving it
+                            # stuck wherever it was when the mute window began.
+                            flap_samples = np.zeros_like(flap_samples)
+
                         flap_from_pcm_chunk(
-                            np.frombuffer(flap_chunk, dtype=np.int16),
+                            flap_samples,
                             threshold=song_mouth_threshold,
                             chunk_ms=chunk_ms,
+                            articulation_override=song_mouth_articulation,
                         )
 
                         if rms_drums > drums_peak:
@@ -654,6 +686,8 @@ def reset_for_new_song():
         drums_peak_time
     playback_queue.queue.clear()
     head_move_queue.queue.clear()
+    tail_move_queue.queue.clear()
+    mouth_mute_windows.clear()
     playback_done_event.clear()
     last_played_time = time.time()
     song_start_time = time.time()
@@ -706,10 +740,21 @@ async def play_song(song_name, interrupt_event=None):
         print(f"💡 Tip: Use the web UI to copy example songs or create new ones")
         return
 
+    has_full = bool(song_metadata.get('has_full'))
+    has_vocals = bool(song_metadata.get('has_vocals'))
+    has_drums = bool(song_metadata.get('has_drums'))
+
+    # Vocals is the only required stem, so a bare quote/line (no separate
+    # full mix) can just be a vocals.wav. If full.wav exists, it always wins
+    # as the main audio - vocals stays purely a mouth-flap driver in that case.
+    if not has_vocals:
+        print(f"❌ Song '{song_name}' has no vocals stem (required to play)")
+        return
+
     song_manager.set_last_song(actual_song_name)
 
-    MAIN_AUDIO = os.path.join(SONG_DIR, "full.wav")
     VOCALS_AUDIO = os.path.join(SONG_DIR, "vocals.wav")
+    MAIN_AUDIO = os.path.join(SONG_DIR, "full.wav") if has_full else VOCALS_AUDIO
     DRUMS_AUDIO = os.path.join(SONG_DIR, "drums.wav")
 
     def load_metadata(song_dir):
@@ -719,11 +764,14 @@ async def play_song(song_name, interrupt_event=None):
         metadata = {
             "bpm": None,
             "head_moves": [],
+            "tail_moves": [],
+            "mouth_mutes": [],
             "mouth_threshold": 1500,
             "tail_threshold": 1500,
             "gain": 1.0,
             "compensate_tail": 0.0,
             "half_tempo_tail_flap": False,
+            "mouth_articulation": None,
         }
 
         # Try new metadata.ini format first
@@ -748,11 +796,35 @@ async def play_song(song_name, interrupt_event=None):
                     'SONG', 'half_tempo_tail_flap', fallback=False
                 )
 
+                articulation_str = config.get(
+                    'SONG', 'mouth_articulation', fallback=''
+                ).strip()
+                if articulation_str:
+                    metadata['mouth_articulation'] = max(
+                        0.0, min(10.0, float(articulation_str))
+                    )
+
                 head_moves_str = config.get('SONG', 'head_moves', fallback='')
                 if head_moves_str:
                     metadata['head_moves'] = [
                         (float(v.split(':')[0]), float(v.split(':')[1]))
                         for v in head_moves_str.split(',')
+                        if ':' in v
+                    ]
+
+                tail_moves_str = config.get('SONG', 'tail_moves', fallback='')
+                if tail_moves_str:
+                    metadata['tail_moves'] = [
+                        (float(v.split(':')[0]), float(v.split(':')[1]))
+                        for v in tail_moves_str.split(',')
+                        if ':' in v
+                    ]
+
+                mouth_mutes_str = config.get('SONG', 'mouth_mutes', fallback='')
+                if mouth_mutes_str:
+                    metadata['mouth_mutes'] = [
+                        (float(v.split(':')[0]), float(v.split(':')[1]))
+                        for v in mouth_mutes_str.split(',')
                         if ':' in v
                     ]
             return metadata
@@ -792,12 +864,17 @@ async def play_song(song_name, interrupt_event=None):
     tail_threshold = metadata.get("tail_threshold", 1500)
     global compensate_tail_beats
     compensate_tail_beats = metadata.get("compensate_tail", 0.0)
-    global song_mouth_threshold, song_tail_threshold
+    global song_mouth_threshold, song_tail_threshold, song_mouth_articulation
     song_mouth_threshold = mouth_threshold
     song_tail_threshold = tail_threshold
+    song_mouth_articulation = metadata.get("mouth_articulation")
     head_move_schedule = metadata.get("head_moves", [])
     for move in head_move_schedule:
         audio.head_move_queue.put(move)
+    tail_move_schedule = metadata.get("tail_moves", [])
+    for move in tail_move_schedule:
+        audio.tail_move_queue.put(move)
+    audio.mouth_mute_windows.extend(metadata.get("mouth_mutes", []))
     half_tempo_tail_flap = metadata.get("half_tempo_tail_flap", False)
 
     audio.beat_length = 60.0 / BPM
@@ -809,21 +886,29 @@ async def play_song(song_name, interrupt_event=None):
     ensure_playback_worker_started(CHUNK_MS)
 
     mqtt_publish("billy/state", "playing_song")
-    print(f"\n🎧 Playing {song_name} with mouth (vocals) and tail (drums) flaps")
+    print(
+        f"\n🎧 Playing {song_name}"
+        + (" (vocals-only)" if not has_full else "")
+        + " with mouth (vocals) flaps"
+        + (" and tail (drums) flaps" if has_drums else " (no drums stem, tail idle)")
+    )
 
     try:
         with contextlib.ExitStack() as stack:
             wf_main = stack.enter_context(wave.open(MAIN_AUDIO, 'rb'))
             wf_vocals = stack.enter_context(wave.open(VOCALS_AUDIO, 'rb'))
-            wf_drums = stack.enter_context(wave.open(DRUMS_AUDIO, 'rb'))
+            wf_drums = (
+                stack.enter_context(wave.open(DRUMS_AUDIO, 'rb')) if has_drums else None
+            )
 
             rate_main = wf_main.getframerate()
             rate_vocals = wf_vocals.getframerate()
-            rate_drums = wf_drums.getframerate()
 
             chunk_size_main = int(rate_main * CHUNK_MS / 1000)
             chunk_size_vocals = int(rate_vocals * CHUNK_MS / 1000)
-            chunk_size_drums = int(rate_drums * CHUNK_MS / 1000)
+            chunk_size_drums = (
+                int(wf_drums.getframerate() * CHUNK_MS / 1000) if wf_drums else 0
+            )
 
             while True:
                 # Check for interruption
@@ -833,7 +918,9 @@ async def play_song(song_name, interrupt_event=None):
 
                 frames_main = wf_main.readframes(chunk_size_main)
                 frames_vocals = wf_vocals.readframes(chunk_size_vocals)
-                frames_drums = wf_drums.readframes(chunk_size_drums)
+                frames_drums = (
+                    wf_drums.readframes(chunk_size_drums) if wf_drums else b""
+                )
 
                 if not frames_main:
                     break
@@ -860,17 +947,20 @@ async def play_song(song_name, interrupt_event=None):
                     np.int16
                 )
 
-                # --- Drums (for tail flap)
-                samples_drums = np.frombuffer(frames_drums, dtype=np.int16)
-                samples_drums = samples_drums.reshape((-1, 2)).mean(axis=1)
-                if rate_drums == 48000:
-                    samples_drums = resample(
-                        samples_drums, len(samples_drums) // 2
-                    ).astype(np.int16)
-                samples_drums = np.clip(samples_drums * GAIN, -32768, 32767).astype(
-                    np.int16
-                )
-                rms_drums = np.sqrt(np.mean(samples_drums.astype(np.float32) ** 2))
+                # --- Drums (for automatic tail flap; optional stem)
+                if wf_drums and frames_drums:
+                    samples_drums = np.frombuffer(frames_drums, dtype=np.int16)
+                    samples_drums = samples_drums.reshape((-1, 2)).mean(axis=1)
+                    if wf_drums.getframerate() == 48000:
+                        samples_drums = resample(
+                            samples_drums, len(samples_drums) // 2
+                        ).astype(np.int16)
+                    samples_drums = np.clip(samples_drums * GAIN, -32768, 32767).astype(
+                        np.int16
+                    )
+                    rms_drums = np.sqrt(np.mean(samples_drums.astype(np.float32) ** 2))
+                else:
+                    rms_drums = 0.0
 
                 # --- Enqueue combined chunk
                 audio.playback_queue.put((

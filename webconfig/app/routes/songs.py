@@ -124,14 +124,16 @@ def upload_audio_file(song_name, file_type):
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
 
-        if not file.filename.lower().endswith('.wav'):
-            return jsonify({"error": "File must be a WAV file"}), 400
+        if not file.filename.lower().endswith(('.wav', '.mp3', '.m4a')):
+            return jsonify({"error": "File must be a WAV, MP3, or M4A file"}), 400
 
         # Read file data
         file_data = file.read()
 
-        # Save audio file
-        success = song_manager.save_audio_file(song_name, file_type, file_data)
+        # Save audio file (MP3/M4A are transcoded to WAV automatically)
+        success = song_manager.save_audio_file(
+            song_name, file_type, file_data, original_filename=file.filename
+        )
 
         if not success:
             return jsonify({"error": f"Failed to save {file_type}.wav"}), 500

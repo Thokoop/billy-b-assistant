@@ -122,13 +122,14 @@ const SongsManager = (() => {
         emptyState.classList.add('hidden');
 
         grid.innerHTML = songs.map(song => {
-            const hasAllFiles = song.has_full && song.has_vocals && song.has_drums;
+            // Vocals is the only required stem - Full Mix and Drums are optional.
+            const hasRequiredFiles = !!song.has_vocals;
             const isExample = song.is_example || false;
             const isSelected = currentSong === song.name;
-            
-            const statusIcon = hasAllFiles ? 
-                '<span class="material-icons text-emerald-400 text-sm">check_circle</span>' :
-                '<span class="material-icons text-amber-400 text-sm">warning</span>';
+
+            const statusIcon = hasRequiredFiles ?
+                '<span class="material-icons text-emerald-400 text-sm" title="Ready to play">check_circle</span>' :
+                '<span class="material-icons text-amber-400 text-sm" title="Missing required Vocals stem">warning</span>';
             
             // Example songs have a different style and action
             if (isExample) {
@@ -174,8 +175,7 @@ const SongsManager = (() => {
                         <p class="text-sm text-zinc-400 mb-2">${song.keywords}</p>
                     ` : ''}
                     <div class="flex gap-2 text-xs text-zinc-500">
-                        <span>${song.bpm} BPM</span>
-                        <span>•</span>
+                        ${song.has_drums ? `<span>${song.bpm} BPM</span><span>•</span>` : ''}
                         <span>Gain: ${song.gain}</span>
                     </div>
                 </div>
@@ -194,10 +194,13 @@ const SongsManager = (() => {
             document.getElementById('song-title').value = song.title || '';
             document.getElementById('song-keywords').value = song.keywords || '';
             document.getElementById('song-bpm').value = song.bpm || 120;
-            document.getElementById('song-gain').value = song.gain || 1.0;
+            gainSlider?.setValue(song.gain || 1.0);
             document.getElementById('song-tail-threshold').value = song.tail_threshold || 1500;
             document.getElementById('song-compensate-tail').value = song.compensate_tail || 0;
             document.getElementById('song-head-moves').value = song.head_moves || '';
+            document.getElementById('song-tail-moves').value = song.tail_moves || '';
+            document.getElementById('song-mouth-mutes').value = song.mouth_mutes || '';
+            await setSongMouthArticulation(song.mouth_articulation);
             document.getElementById('song-half-tempo').checked = song.half_tempo_tail_flap || false;
 
             // Update file status indicators and show play buttons for existing files
@@ -239,11 +242,89 @@ const SongsManager = (() => {
     const updateFileStatus = (fileType, exists) => {
         const statusEl = document.getElementById(`${fileType}-status`);
         if (statusEl) {
-            if (exists) {
-                statusEl.innerHTML = '<span class="text-xs text-emerald-400">✓ Uploaded</span>';
-            } else {
-                statusEl.innerHTML = '<span class="text-xs text-zinc-500">Not uploaded</span>';
-            }
+            statusEl.innerHTML = exists
+                ? '<span class="material-icons text-emerald-400 text-base align-middle">check_circle</span>'
+                : '';
+        }
+        const card = document.getElementById(`${fileType}-card`);
+        if (card) {
+            card.classList.toggle('border-emerald-500', exists);
+            card.classList.toggle('border-zinc-700', !exists);
+        }
+    };
+
+    // Reusable draggable-bar slider (same UX as the persona form's Mouth
+    // Articulation control). Returns { setValue } or null if the DOM isn't there.
+    const createRangeSlider = ({ barId, fillId, valueId, inputId, min, max, decimals = 0 }) => {
+        const bar = document.getElementById(barId);
+        const fill = document.getElementById(fillId);
+        const input = document.getElementById(inputId);
+        const valueDisplay = document.getElementById(valueId);
+        if (!bar || !fill || !input || !valueDisplay) return null;
+
+        const round = (v) => {
+            const factor = 10 ** decimals;
+            return Math.round(v * factor) / factor;
+        };
+        const format = (v) => decimals > 0 ? v.toFixed(decimals) : String(v);
+
+        const setValue = (rawVal) => {
+            const val = round(Math.min(max, Math.max(min, Number(rawVal))));
+            const percent = ((val - min) / (max - min)) * 100;
+            fill.style.width = `${percent}%`;
+            fill.dataset.value = val;
+            input.value = val;
+            valueDisplay.textContent = format(val);
+            return val;
+        };
+
+        let isDragging = false;
+        const updateFromMouse = (e) => {
+            const rect = bar.getBoundingClientRect();
+            const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+            setValue(min + percent * (max - min));
+        };
+
+        bar.addEventListener("mousedown", (e) => { isDragging = true; updateFromMouse(e); });
+        document.addEventListener("mousemove", (e) => { if (isDragging) updateFromMouse(e); });
+        document.addEventListener("mouseup", () => { isDragging = false; });
+        input.addEventListener("input", () => setValue(input.value));
+
+        return { setValue };
+    };
+
+    let gainSlider = null;
+    let mouthArticulationSlider = null;
+
+    const initSongSliders = () => {
+        gainSlider = createRangeSlider({
+            barId: 'song-gain-bar', fillId: 'song-gain-fill',
+            valueId: 'song-gain-value', inputId: 'song-gain',
+            min: 0.1, max: 3.0, decimals: 1,
+        });
+        mouthArticulationSlider = createRangeSlider({
+            barId: 'song-mouth-articulation-bar', fillId: 'song-mouth-articulation-fill',
+            valueId: 'song-mouth-articulation-value', inputId: 'song-mouth-articulation',
+            min: 1, max: 10, decimals: 0,
+        });
+    };
+
+    // Mouth Articulation always has a value in the form (like Gain) - no
+    // "override" toggle. If the song has never set one, seed the slider from
+    // whichever persona is currently loaded, so the shown value matches what
+    // playback would actually use until you drag the slider yourself.
+    const setSongMouthArticulation = async (storedValue) => {
+        if (storedValue !== '' && storedValue !== null && storedValue !== undefined) {
+            mouthArticulationSlider?.setValue(storedValue);
+            return;
+        }
+        try {
+            const response = await fetch('/persona/current/mouth-articulation');
+            const data = await response.json();
+            mouthArticulationSlider?.setValue(data.mouth_articulation ?? 5);
+        } catch (error) {
+            debugLog('WARNING', 'Failed to fetch persona mouth articulation, using default:', error);
+            mouthArticulationSlider?.setValue(5);
         }
     };
 
@@ -253,18 +334,19 @@ const SongsManager = (() => {
         document.getElementById('song-title').value = '';
         document.getElementById('song-keywords').value = '';
         document.getElementById('song-bpm').value = 120;
-        document.getElementById('song-gain').value = 1.0;
+        gainSlider?.setValue(1.0);
         document.getElementById('song-tail-threshold').value = 1500;
         document.getElementById('song-compensate-tail').value = 0;
         document.getElementById('song-head-moves').value = '';
+        document.getElementById('song-tail-moves').value = '';
+        document.getElementById('song-mouth-mutes').value = '';
+        setSongMouthArticulation('');
         document.getElementById('song-half-tempo').checked = false;
         
         // Hide play buttons and reset file status
         ['full', 'vocals', 'drums'].forEach(type => {
             const playButton = document.getElementById(`play-${type}`);
-            const statusEl = document.getElementById(`${type}-status`);
             if (playButton) playButton.classList.add('hidden');
-            if (statusEl) statusEl.innerHTML = '<span class="text-xs text-zinc-500">No file chosen</span>';
             updateFileStatus(type, false);
         });
     };
@@ -289,6 +371,9 @@ const SongsManager = (() => {
                 tail_threshold: parseFloat(document.getElementById('song-tail-threshold').value),
                 compensate_tail: parseFloat(document.getElementById('song-compensate-tail').value),
                 head_moves: document.getElementById('song-head-moves').value,
+                tail_moves: document.getElementById('song-tail-moves').value,
+                mouth_mutes: document.getElementById('song-mouth-mutes').value,
+                mouth_articulation: document.getElementById('song-mouth-articulation').value,
                 half_tempo_tail_flap: document.getElementById('song-half-tempo').checked,
             };
 
@@ -440,25 +525,20 @@ const SongsManager = (() => {
         // Handle file selection
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
-            const statusEl = document.getElementById(`${fileType}-status`);
-            
+
             if (file) {
                 const url = URL.createObjectURL(file);
                 audioElement.src = url;
                 playButton.classList.remove('hidden');
-                
-                // Update status to show filename
-                if (statusEl) {
-                    statusEl.innerHTML = `<span class="text-xs text-emerald-400">✓ ${file.name}</span>`;
-                }
-                
+                updateFileStatus(fileType, true);
+
+                const statusEl = document.getElementById(`${fileType}-status`);
+                if (statusEl) statusEl.title = file.name;
+
                 // Reset icon when new file is loaded
                 if (playIcon) playIcon.textContent = 'play_circle';
             } else {
-                // Reset status if no file selected
-                if (statusEl) {
-                    statusEl.innerHTML = '<span class="text-xs text-zinc-500">No file chosen</span>';
-                }
+                updateFileStatus(fileType, false);
                 playButton.classList.add('hidden');
             }
         });
@@ -505,6 +585,8 @@ const SongsManager = (() => {
         setupAudioPreview('full');
         setupAudioPreview('vocals');
         setupAudioPreview('drums');
+
+        initSongSliders();
 
         if (isSongsPage) {
             showListView();

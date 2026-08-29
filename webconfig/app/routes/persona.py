@@ -56,6 +56,26 @@ def get_default_persona():
     })
 
 
+@bp.route("/persona/current/mouth-articulation")
+def get_current_persona_mouth_articulation():
+    """Read-only: the mouth articulation level the active persona currently
+    falls back to (same source core.movements._articulation_multiplier()
+    reads). Used by the Song editor to show a sensible default - has no
+    side effects, unlike GET /persona/<name> which switches the active persona.
+    """
+    from core.persona_manager import persona_manager
+
+    level = 5
+    try:
+        data = persona_manager.get_current_persona_data() or {}
+        raw = data.get('meta', {}).get('mouth_articulation')
+        if raw not in (None, ''):
+            level = max(0, min(10, float(raw)))
+    except Exception:
+        pass
+    return jsonify({"mouth_articulation": level})
+
+
 @bp.route("/persona/<persona_name>")
 def get_persona(persona_name):
     """Get a specific persona configuration."""

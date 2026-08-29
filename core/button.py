@@ -76,6 +76,7 @@ _button_was_pressed = False
 _button_interrupt_armed = False
 button_debounce_delay = 0.12  # seconds debounce against switch bounce
 button_release_settle_delay = 0.20
+SONG_MODE_WAKEWORD_RESUME_DELAY = 1.5  # let room echo/reverb decay before re-arming
 _button_rearm_required = False
 _button_released_since = 0.0
 _button_state_lock = threading.Lock()
@@ -444,7 +445,12 @@ def trigger_session_start(source: str = "button"):
                     _button_interrupt_armed = False
                     if get_status_led_state() not in {"error", "stopping", "off"}:
                         set_status_led_state("idle")
-                    time.sleep(0.3)
+                    # Songs are louder/more bass-heavy than short TTS clips and the
+                    # wake-word listener has no echo cancellation at all (unlike a
+                    # BillySession, which has AEC while a response plays) - give
+                    # room reverb time to decay so it doesn't false-trigger on the
+                    # song's own tail and immediately start another one.
+                    time.sleep(SONG_MODE_WAKEWORD_RESUME_DELAY)
                     _resume_wakeword_listener()
                     logger.info("Waiting for button press...", "🕐")
                     with contextlib.suppress(Exception):

@@ -104,6 +104,9 @@ class SongManager:
             "tail_threshold": 1500.0,
             "compensate_tail": 0.0,
             "head_moves": "",
+            "tail_moves": "",
+            "mouth_mutes": "",
+            "mouth_articulation": "",
             "half_tempo_tail_flap": False,
             "has_full": has_full,
             "has_vocals": has_vocals,
@@ -128,6 +131,11 @@ class SongManager:
                         'SONG', 'compensate_tail', fallback=0.0
                     ),
                     "head_moves": config.get('SONG', 'head_moves', fallback=''),
+                    "tail_moves": config.get('SONG', 'tail_moves', fallback=''),
+                    "mouth_mutes": config.get('SONG', 'mouth_mutes', fallback=''),
+                    "mouth_articulation": config.get(
+                        'SONG', 'mouth_articulation', fallback=''
+                    ),
                     "half_tempo_tail_flap": config.getboolean(
                         'SONG', 'half_tempo_tail_flap', fallback=False
                     ),
@@ -173,6 +181,9 @@ class SongManager:
             'tail_threshold': str(metadata.get('tail_threshold', 1500.0)),
             'compensate_tail': str(metadata.get('compensate_tail', 0.0)),
             'head_moves': metadata.get('head_moves', ''),
+            'tail_moves': metadata.get('tail_moves', ''),
+            'mouth_mutes': metadata.get('mouth_mutes', ''),
+            'mouth_articulation': metadata.get('mouth_articulation', ''),
             'half_tempo_tail_flap': str(metadata.get('half_tempo_tail_flap', False)),
         }
 
@@ -213,8 +224,30 @@ class SongManager:
             logger.error(f"Failed to delete song {song_name}: {e}")
             return False
 
-    def save_audio_file(self, song_name: str, file_type: str, file_data: bytes) -> bool:
-        """Save an audio file for a song (full.wav, vocals.wav, or drums.wav) in custom_songs."""
+    # Formats accepted on upload in addition to WAV; transcoded to WAV on the
+    # way in so the playback engine only ever has to deal with one format.
+    TRANSCODABLE_EXTENSIONS = {".mp3", ".m4a"}
+
+    def save_audio_file(
+        self,
+        song_name: str,
+        file_type: str,
+        file_data: bytes,
+        original_filename: Optional[str] = None,
+    ) -> bool:
+        """Save an audio file for a song (full.wav, vocals.wav, or drums.wav) in custom_songs.
+
+        Args:
+            song_name: Name of the song
+            file_type: One of 'full', 'vocals', 'drums'
+            file_data: Raw bytes of the uploaded file
+            original_filename: Original upload filename, used to detect MP3/M4A
+                so they can be transcoded to WAV before saving. A WAV upload is
+                also inspected and normalized if it isn't already 16-bit PCM
+                stereo at 24kHz/48kHz (e.g. DAW exports using 32-bit float
+                samples, which Python's `wave` module - and therefore
+                play_song() - cannot read at all).
+        """
         if file_type not in ['full', 'vocals', 'drums']:
             logger.error(f"Invalid file type: {file_type}")
             return False
@@ -225,7 +258,21 @@ class SongManager:
 
         audio_file = song_path / f"{file_type}.wav"
 
+        source_ext = Path(original_filename).suffix.lower() if original_filename else ""
+
         try:
+            if source_ext in self.TRANSCODABLE_EXTENSIONS:
+                file_data = self._transcode_to_wav(file_data, source_ext)
+            elif source_ext in ("", ".wav") and not self._is_playback_ready_wav(
+                file_data
+            ):
+                logger.info(
+                    f"Normalizing non-standard WAV for {file_type}.wav "
+                    f"(song: {song_name}) to 16-bit PCM/stereo/24kHz",
+                    "🎛️",
+                )
+                file_data = self._transcode_to_wav(file_data, ".wav")
+
             with open(audio_file, 'wb') as f:
                 f.write(file_data)
             logger.info(f"Saved {file_type}.wav for song: {song_name}", "🎵")
@@ -233,6 +280,47 @@ class SongManager:
         except Exception as e:
             logger.error(f"Failed to save {file_type}.wav for {song_name}: {e}")
             return False
+
+    def _is_playback_ready_wav(self, file_data: bytes) -> bool:
+        """Check whether WAV bytes already match what play_song() expects:
+        16-bit PCM, stereo, 24kHz or 48kHz. Anything else - float/24-bit
+        samples, mono, an odd sample rate, or a header the stdlib `wave`
+        module can't even parse (e.g. DAW exports using IEEE float, which
+        raises "unknown format: 3") - needs transcoding first.
+        """
+        import io
+        import wave as wave_module
+
+        try:
+            with wave_module.open(io.BytesIO(file_data), 'rb') as wf:
+                return (
+                    wf.getsampwidth() == 2
+                    and wf.getnchannels() == 2
+                    and wf.getframerate() in (24000, 48000)
+                )
+        except Exception:
+            return False
+
+    def _transcode_to_wav(self, file_data: bytes, source_ext: str) -> bytes:
+        """Decode MP3/M4A/WAV bytes and re-encode to the WAV format play_song()
+        expects (16-bit PCM, stereo, 24kHz)."""
+        import io
+
+        from pydub import AudioSegment
+
+        from .config import FFMPEG_BIN
+
+        AudioSegment.converter = FFMPEG_BIN
+
+        pydub_format = (
+            "mp4" if source_ext == ".m4a" else source_ext.lstrip(".") or "wav"
+        )
+        audio = AudioSegment.from_file(io.BytesIO(file_data), format=pydub_format)
+        audio = audio.set_frame_rate(24000).set_channels(2).set_sample_width(2)
+
+        out = io.BytesIO()
+        audio.export(out, format="wav")
+        return out.getvalue()
 
     def get_audio_file_path(self, song_name: str, file_type: str) -> Optional[Path]:
         """Get the path to an audio file for a song.
