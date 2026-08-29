@@ -41,85 +41,89 @@
                 </div>
             </section>
 
-            <section data-mobile-split-detail class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl overflow-hidden min-w-0">
-                <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-700">
-                    <div class="flex items-center gap-3 min-w-0">
-                        <button id="back-to-songs-list-btn"
-                                data-mobile-split-back
-                                class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white md:hidden">
-                            <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
-                            <span>Back</span>
-                        </button>
-                        <h2 class="text-lg text-white flex items-center gap-2">
-                            <span class="material-icons text-emerald-400">edit_note</span>
-                            <span id="songs-modal-title">Song Details</span>
-                        </h2>
-                    </div>
+            <div data-mobile-split-detail class="min-w-0">
+                <button id="back-to-songs-list-btn"
+                        data-mobile-split-back
+                        type="button"
+                        class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white mb-4 md:hidden">
+                    <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+                    <span>Back</span>
+                </button>
+
+                <div id="song-edit-empty-state" class="flex min-h-[18rem] items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 px-6 text-center text-zinc-400">
+                    Select a song on the left or create a new one to edit it here.
                 </div>
 
-                <div class="p-4">
-                    <div id="song-edit-empty-state" class="flex min-h-[18rem] items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 px-6 text-center text-zinc-400">
-                        Select a song on the left or create a new one to edit it here.
-                    </div>
+                <div id="song-edit-view" class="hidden">
+                <form id="song-edit-form" class="space-y-4">
 
-                    <div id="song-edit-view" class="hidden">
-                    <form id="song-edit-form" class="space-y-6">
-                    <div id="song-name-field">
-                        <label for="song-name" class="block text-sm text-slate-300 mb-2">
-                            Song Name (folder name)
-                        </label>
-                        <input type="text" id="song-name" name="name"
-                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
-                               placeholder="e.g., my_awesome_song"
-                               pattern="[a-z0-9_]+"
-                               title="Only lowercase letters, numbers, and underscores">
-                        <p class="text-xs text-zinc-500 mt-1">Only lowercase letters, numbers, and underscores</p>
-                    </div>
+                    <!-- Basic Info -->
+                    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg collapsible-section"
+                         id="section-song-basic">
+                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                            <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">info</span>
+                            Basic Info
+                            <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                        </h3>
 
-                    <div>
-                        <label for="song-title" class="block text-sm text-slate-300 mb-2">
-                            Display Title
-                        </label>
-                        <input type="text" id="song-title" name="title"
-                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
-                               placeholder="e.g., My Awesome Song"
-                               required>
-                    </div>
-
-                    <div>
-                        <label for="song-keywords" class="flex justify-between items-center text-sm text-slate-300">
-                            Keywords (comma-separated)
-                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
-                                  onclick="toggleTooltip(this)">help_outline</span>
-                        </label>
-                        <div class="relative">
-                            <div data-tooltip>
-                                Keywords help Billy understand when to play this song.<br>
-                                Include song title, artist name, genre, mood, or themes.
+                        <div class="space-y-4">
+                            <div id="song-name-field">
+                                <label for="song-name" class="block text-sm text-slate-300 mb-2">
+                                    Song Name (folder name)
+                                </label>
+                                <input type="text" id="song-name" name="name"
+                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       placeholder="e.g., my_awesome_song"
+                                       pattern="[a-z0-9_]+"
+                                       title="Only lowercase letters, numbers, and underscores">
+                                <p class="text-xs text-zinc-500 mt-1">Only lowercase letters, numbers, and underscores</p>
                             </div>
-                            <input type="text" id="song-keywords" name="keywords"
-                                   class="w-full px-3 py-2 mt-1 bg-zinc-800 border border-zinc-700 rounded text-white"
-                                   placeholder="e.g., rock, guitar, upbeat">
-                        </div>
-                    </div>
 
-                    <div class="space-y-4">
-                        <label class="flex justify-between items-center text-sm text-slate-300">
-                            <span class="flex items-center gap-2">
-                                <span class="material-icons text-sm">audiotrack</span>
-                                Audio Files
-                            </span>
-                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
-                                  onclick="toggleTooltip(this)">help_outline</span>
-                        </label>
-                        <div class="relative">
-                            <div data-tooltip>
-                                Only Vocals is required — that alone is enough for a quick spoken
-                                quote. Add a Full Mix if there's music/backing to play instead of
-                                just the vocals, and a Drums stem for automatic tail animation.
-                                Accepts WAV, MP3, or M4A — non-WAV files are converted automatically.
+                            <div>
+                                <label for="song-title" class="block text-sm text-slate-300 mb-2">
+                                    Display Title
+                                </label>
+                                <input type="text" id="song-title" name="title"
+                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       placeholder="e.g., My Awesome Song"
+                                       required>
+                            </div>
+
+                            <div>
+                                <label for="song-keywords" class="flex justify-between items-center text-sm text-slate-300">
+                                    Keywords (comma-separated)
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
+                                          onclick="toggleTooltip(this)">help_outline</span>
+                                </label>
+                                <div class="relative">
+                                    <div data-tooltip>
+                                        Keywords help Billy understand when to play this song.<br>
+                                        Include song title, artist name, genre, mood, or themes.
+                                    </div>
+                                    <input type="text" id="song-keywords" name="keywords"
+                                           class="w-full px-3 py-2 mt-1 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                           placeholder="e.g., rock, guitar, upbeat">
+                                </div>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Audio Files -->
+                    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg collapsible-section"
+                         id="section-song-audio">
+                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                            <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">audiotrack</span>
+                            Audio Files
+                            <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                        </h3>
+
+                        <div class="space-y-4">
+                        <p class="text-xs text-zinc-500">
+                            Only Vocals is required — that alone is enough for a quick spoken
+                            quote. Add a Full Mix if there's music/backing to play instead of
+                            just the vocals, and a Drums stem for automatic tail animation.
+                            Accepts WAV, MP3, or M4A — non-WAV files are converted automatically.
+                        </p>
 
                         <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700" id="vocals-card">
                             <div class="flex items-center justify-between">
@@ -183,14 +187,19 @@
                             </div>
                             <audio id="drums-audio" class="hidden"></audio>
                         </div>
+                        </div>
                     </div>
 
-                    <div class="space-y-4">
-                        <h3 class="text-sm text-slate-300 flex items-center gap-2">
-                            <span class="material-icons text-sm">tune</span>
+                    <!-- Animation Settings -->
+                    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg collapsible-section"
+                         id="section-song-animation">
+                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                            <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">animation</span>
                             Animation Settings
+                            <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
                         </h3>
 
+                        <div class="space-y-4">
                         <div>
                             <label class="flex justify-between items-center text-sm text-slate-300">
                                 Gain (Volume Multiplier)
@@ -310,15 +319,43 @@
                             </div>
                         </div>
 
-                        <div class="bg-zinc-800/30 border border-dashed border-zinc-700 rounded p-4 collapsible-section"
-                             id="section-song-advanced" data-default-collapsed="true">
-                            <h3 class="flex items-center gap-2 cursor-pointer group text-sm justify-between mb-4 text-zinc-300 hover:text-emerald-400 transition-colors">
-                                <span class="material-icons text-sm text-white group-hover:text-emerald-400 transition-colors">tune</span>
-                                Advanced (Drums stem only)
-                                <span class="material-icons text-sm transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-                            </h3>
+                        <div id="song-led-color-field" class="hidden">
+                            <label class="flex justify-between items-center text-sm text-slate-300">
+                                LED Color
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
+                                      onclick="toggleTooltip(this)">help_outline</span>
+                            </label>
+                            <div class="relative">
+                                <div data-tooltip>
+                                    When set, the status LED pulses this color while the song
+                                    plays. Leave unset for the default rainbow animation.
+                                </div>
+                                <div class="mt-2 flex items-center gap-3">
+                                    <input type="color" id="song-led-color" value="#00c8ff"
+                                           class="h-10 w-14 rounded border border-zinc-700 bg-zinc-800 cursor-pointer p-1">
+                                    <button type="button" id="song-led-color-clear"
+                                            class="secondary-action secondary-action--hover--rose h-10 px-3 text-sm"
+                                            style="display: none;">
+                                        Clear
+                                    </button>
+                                    <span id="song-led-color-label" class="text-sm text-zinc-400">Default rainbow animation</span>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
 
-                            <p class="text-xs text-zinc-500 mb-4">
+                    <!-- Advanced (Drums stem only), collapsed by default -->
+                    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg collapsible-section"
+                         id="section-song-advanced" data-default-collapsed="true">
+                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                            <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">tune</span>
+                            Advanced (Drums stem only)
+                            <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
+                        </h3>
+
+                        <div class="space-y-4">
+                            <p class="text-xs text-zinc-500">
                                 These only take effect when a Drums stem is uploaded — they tune
                                 the automatic, drum-driven tail flap.
                             </p>
@@ -364,23 +401,20 @@
                             </div>
                         </div>
                     </div>
-                    </form>
-                </div>
-                </div>
 
-                <div id="song-edit-footer" class="hidden border-t border-zinc-700 p-4 flex justify-between items-center">
-                    <button id="delete-song-btn" type="button"
-                            class="bg-rose-600 hover:bg-rose-500 transition-colors text-white text-sm py-2 px-4 rounded flex gap-2 items-center">
-                        <span class="material-icons text-sm">delete</span>
-                        Delete Song
-                    </button>
-                    <button id="save-song-btn" type="button"
-                            class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm py-2 px-4 rounded flex gap-2 items-center">
-                        <span class="material-icons text-sm">save</span>
-                        <span id="save-song-btn-text">Save Song</span>
-                    </button>
+                    </form>
+
+                    <div id="song-edit-footer" class="hidden relative pt-0 md:py-4 flex justify-end">
+                        <div class="rounded shadow overflow-hidden border border-emerald-500">
+                            <button id="save-song-btn" type="button"
+                                    class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-black py-2 px-4 flex items-center gap-1 focus:outline-none">
+                                <span class="material-icons align-middle">save</span>
+                                <span id="save-song-btn-text">Save Song</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </section>
+            </div>
         </div>
     </div>
 </main>

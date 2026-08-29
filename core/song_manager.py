@@ -74,16 +74,20 @@ class SongManager:
         if is_custom is None:
             # Check custom first, then example
             song_path = self.custom_songs_dir / song_name
+            resolved_is_custom = True
             if not song_path.exists():
                 song_path = self.example_songs_dir / song_name
+                resolved_is_custom = False
                 if not song_path.exists():
                     return None
         elif is_custom:
             song_path = self.custom_songs_dir / song_name
+            resolved_is_custom = True
             if not song_path.exists():
                 return None
         else:
             song_path = self.example_songs_dir / song_name
+            resolved_is_custom = False
             if not song_path.exists():
                 return None
 
@@ -107,10 +111,12 @@ class SongManager:
             "tail_moves": "",
             "mouth_mutes": "",
             "mouth_articulation": "",
+            "led_color": "",
             "half_tempo_tail_flap": False,
             "has_full": has_full,
             "has_vocals": has_vocals,
             "has_drums": has_drums,
+            "is_custom": resolved_is_custom,
         }
 
         # Load from INI file if it exists
@@ -136,6 +142,7 @@ class SongManager:
                     "mouth_articulation": config.get(
                         'SONG', 'mouth_articulation', fallback=''
                     ),
+                    "led_color": config.get('SONG', 'led_color', fallback=''),
                     "half_tempo_tail_flap": config.getboolean(
                         'SONG', 'half_tempo_tail_flap', fallback=False
                     ),
@@ -184,6 +191,7 @@ class SongManager:
             'tail_moves': metadata.get('tail_moves', ''),
             'mouth_mutes': metadata.get('mouth_mutes', ''),
             'mouth_articulation': metadata.get('mouth_articulation', ''),
+            'led_color': metadata.get('led_color', ''),
             'half_tempo_tail_flap': str(metadata.get('half_tempo_tail_flap', False)),
         }
 
@@ -406,8 +414,13 @@ class SongManager:
             logger.verbose(f"Skipping last-song MQTT publish: {e}", "🎵")
 
     def pick_random_song(self, avoid_last: bool = True) -> Optional[str]:
-        """Pick a random song name, avoiding an immediate repeat when possible."""
-        names = [song["name"] for song in self.list_songs()]
+        """Pick a random song name, avoiding an immediate repeat when possible.
+
+        Only considers songs actually copied to custom_songs - examples are
+        just a template gallery until explicitly added, so they're never
+        eligible for Billy to pick on its own.
+        """
+        names = [song["name"] for song in self.list_songs() if song.get("is_custom")]
         if not names:
             return None
 

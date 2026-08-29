@@ -694,7 +694,6 @@ const SettingsForm = (() => {
 
         if (!bar || !fill || !input) return;
 
-        let isDragging = false;
         const updateUI = (val) => {
             const percent = ((val - min) / (max - min)) * 100;
             fill.style.width = `${percent}%`;
@@ -708,22 +707,32 @@ const SettingsForm = (() => {
                 valueDisplay.textContent = valueFormatter(val);
             }
         };
-        const updateFromMouse = (e) => {
-            const rect = bar.getBoundingClientRect();
-            const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-            const rawVal = min + percent * (max - min);
-            const steppedVal = Math.round(rawVal / step) * step;
-            const val = Math.min(max, Math.max(min, Number(steppedVal.toFixed(4))));
-            input.value = val;
-            // Ensure the input value is properly set for form submission
-            input.setAttribute('value', val);
-            input.dispatchEvent(new Event("input", {bubbles: true}));
-            updateUI(val);
-        };
-        bar.addEventListener("mousedown", (e) => { isDragging = true; updateFromMouse(e); });
-        document.addEventListener("mousemove", (e) => { if (isDragging) updateFromMouse(e); });
-        document.addEventListener("mouseup", () => { isDragging = false; });
-        input.addEventListener("input", () => updateUI(Number(input.value)));
+
+        // #main-content is replaced wholesale on normal SPA navigation (fresh
+        // DOM => must bind), but this can also be re-run against the *same*
+        // DOM (e.g. after a reconnect) => must not double-bind mousemove/up
+        // on document, which would otherwise accumulate across soft refreshes.
+        if (bar.dataset.bound !== 'true') {
+            bar.dataset.bound = 'true';
+
+            let isDragging = false;
+            const updateFromMouse = (e) => {
+                const rect = bar.getBoundingClientRect();
+                const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+                const rawVal = min + percent * (max - min);
+                const steppedVal = Math.round(rawVal / step) * step;
+                const val = Math.min(max, Math.max(min, Number(steppedVal.toFixed(4))));
+                input.value = val;
+                // Ensure the input value is properly set for form submission
+                input.setAttribute('value', val);
+                input.dispatchEvent(new Event("input", {bubbles: true}));
+                updateUI(val);
+            };
+            bar.addEventListener("mousedown", (e) => { isDragging = true; updateFromMouse(e); });
+            document.addEventListener("mousemove", (e) => { if (isDragging) updateFromMouse(e); });
+            document.addEventListener("mouseup", () => { isDragging = false; });
+            input.addEventListener("input", () => updateUI(Number(input.value)));
+        }
         updateUI(Number(input.value));
     }
 

@@ -451,8 +451,12 @@ def _pin_is_active(pin: int) -> bool:
 
 
 def stop_all_motors():
-    global _gpio_active
+    global _gpio_active, head_out
     logger.info("Stopping all motors", "🛑")
+    # Reset regardless of GPIO state - a stale True here (e.g. from a manual
+    # head move that never got its own "off" tick) would wrongly defer tail
+    # flaps on the next song even though the head is no longer actually out.
+    head_out = False
     if not _gpio_active:
         return  # GPIO handle already closed, skip
     for pin in motor_pins:

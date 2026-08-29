@@ -844,8 +844,6 @@ const PersonaForm = (() => {
 
         if (!bar || !fill || !input || !valueDisplay) return;
 
-        let isDragging = false;
-        
         const updateUI = (val) => {
             const percent = ((val - 1) / 9) * 100; // 1-10 range to 0-100%
             fill.style.width = `${percent}%`;
@@ -854,22 +852,31 @@ const PersonaForm = (() => {
             input.setAttribute('value', val);
             valueDisplay.textContent = val;
         };
-        
-        const updateFromMouse = (e) => {
-            const rect = bar.getBoundingClientRect();
-            const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-            const val = Math.round(1 + percent * 9); // 1-10 range
-            input.value = val;
-            input.setAttribute('value', val);
-            input.dispatchEvent(new Event("input", {bubbles: true}));
-            updateUI(val);
-        };
-        
-        bar.addEventListener("mousedown", (e) => { isDragging = true; updateFromMouse(e); });
-        document.addEventListener("mousemove", (e) => { if (isDragging) updateFromMouse(e); });
-        document.addEventListener("mouseup", () => { isDragging = false; });
-        input.addEventListener("input", () => updateUI(Number(input.value)));
-        
+
+        // #main-content is replaced wholesale on normal SPA navigation (fresh
+        // DOM => must bind), but this can also be re-run against the *same*
+        // DOM (e.g. after a reconnect) => must not double-bind mousemove/up
+        // on document, which would otherwise accumulate across soft refreshes.
+        if (bar.dataset.bound !== 'true') {
+            bar.dataset.bound = 'true';
+
+            let isDragging = false;
+            const updateFromMouse = (e) => {
+                const rect = bar.getBoundingClientRect();
+                const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+                const val = Math.round(1 + percent * 9); // 1-10 range
+                input.value = val;
+                input.setAttribute('value', val);
+                input.dispatchEvent(new Event("input", {bubbles: true}));
+                updateUI(val);
+            };
+
+            bar.addEventListener("mousedown", (e) => { isDragging = true; updateFromMouse(e); });
+            document.addEventListener("mousemove", (e) => { if (isDragging) updateFromMouse(e); });
+            document.addEventListener("mouseup", () => { isDragging = false; });
+            input.addEventListener("input", () => updateUI(Number(input.value)));
+        }
+
         // Initialize with current value
         updateUI(Number(input.value));
     };

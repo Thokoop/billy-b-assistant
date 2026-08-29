@@ -40,18 +40,35 @@ const SongsManager = (() => {
         }
     };
 
+    // fetch() only throws on network-level failures (server unreachable), not
+    // on HTTP error statuses - exactly the case right after a Pi reboot where
+    // the webconfig service isn't accepting connections yet. Retries a few
+    // times before giving up, so a tab left open across a restart recovers
+    // on its own instead of needing a manual refresh.
+    const fetchWithRetry = async (url, options = {}, attempts = 5, delayMs = 1500) => {
+        let lastError;
+        for (let i = 0; i < attempts; i++) {
+            try {
+                return await fetch(url, options);
+            } catch (error) {
+                lastError = error;
+                if (i < attempts - 1) {
+                    await new Promise((resolve) => setTimeout(resolve, delayMs));
+                }
+            }
+        }
+        throw lastError;
+    };
+
     const showListView = () => {
         document.getElementById('songs-list-view')?.classList.remove('hidden');
         document.getElementById('song-edit-view')?.classList.add('hidden');
         document.getElementById('song-edit-footer')?.classList.add('hidden');
         document.getElementById('song-edit-empty-state')?.classList.remove('hidden');
         window.MobileSplitView?.showList('songs-split-view');
-        
-        // Update header
+
         document.getElementById('back-to-songs-list-btn')?.classList.add('hidden');
-        const title = document.getElementById('songs-modal-title');
-        if (title) title.textContent = 'Song Details';
-        
+
         currentSong = null;
         isEditMode = false;
         loadSongs();
@@ -66,24 +83,18 @@ const SongsManager = (() => {
         isEditMode = songName !== null;
         currentSong = songName;
 
-        // Update header
         document.getElementById('back-to-songs-list-btn')?.classList.remove('hidden');
-        const title = document.getElementById('songs-modal-title');
-        if (title) title.textContent = isEditMode ? 'Edit Song' : 'New Song';
 
         // Show/hide song name field (only for new songs)
         const songNameField = document.getElementById('song-name-field');
         const songNameInput = document.getElementById('song-name');
-        const deleteBtn = document.getElementById('delete-song-btn');
-        
+
         if (isEditMode) {
             songNameField.classList.add('hidden');
             songNameInput.removeAttribute('required');
-            deleteBtn.classList.remove('hidden');
         } else {
             songNameField.classList.remove('hidden');
             songNameInput.setAttribute('required', 'required');
-            deleteBtn.classList.add('hidden');
         }
 
         loadSongs();
@@ -121,62 +132,66 @@ const SongsManager = (() => {
         grid.classList.remove('hidden');
         emptyState.classList.add('hidden');
 
-        grid.innerHTML = songs.map(song => {
+        // Examples are a template gallery, not part of the active rotation -
+        // keep them out of the way at the bottom. Array.sort is stable, so
+        // each group keeps the alphabetical order it already arrived in.
+        const sortedSongs = [...songs].sort(
+            (a, b) => (a.is_example ? 1 : 0) - (b.is_example ? 1 : 0)
+        );
+
+        grid.innerHTML = sortedSongs.map(song => {
             // Vocals is the only required stem - Full Mix and Drums are optional.
             const hasRequiredFiles = !!song.has_vocals;
             const isExample = song.is_example || false;
             const isSelected = currentSong === song.name;
 
-            const statusIcon = hasRequiredFiles ?
-                '<span class="material-icons text-emerald-400 text-sm" title="Ready to play">check_circle</span>' :
+            const statusIcon = hasRequiredFiles ? '' :
                 '<span class="material-icons text-amber-400 text-sm" title="Missing required Vocals stem">warning</span>';
             
             // Example songs have a different style and action
             if (isExample) {
                 return `
                     <div class="bg-zinc-800/50 border border-amber-600/50 rounded-lg p-4 hover:border-amber-500 transition-colors">
-                        <div class="flex items-start justify-between mb-2">
+                        <div class="flex items-start justify-between">
                             <div class="flex-1">
                                 <div class="flex items-center gap-2">
                                     <h4 class="text-white">${song.title}</h4>
                                     <span class="text-xs bg-amber-600/20 text-amber-400 px-2 py-0.5 rounded">Example</span>
                                 </div>
                                 <p class="text-xs text-zinc-500">${song.name}</p>
+                                ${song.keywords ? `
+                                    <p class="text-sm text-zinc-400">${song.keywords}</p>
+                                ` : ''}
                             </div>
-                            ${statusIcon}
+                            <button onclick="window.SongsManager.copyExample('${song.name}')"
+                                    class="secondary-action secondary-action--hover--amber h-11 w-11 p-0 shrink-0"
+                                    title="Copy to Custom Songs">
+                                <span class="material-icons">content_copy</span>
+                            </button>
                         </div>
-                        ${song.keywords ? `
-                            <p class="text-sm text-zinc-400 mb-2">${song.keywords}</p>
-                        ` : ''}
-                        <div class="flex gap-2 text-xs text-zinc-500 mb-3">
-                            <span>${song.bpm} BPM</span>
-                            <span>•</span>
-                            <span>Gain: ${song.gain}</span>
-                        </div>
-                        <button onclick="window.SongsManager.copyExample('${song.name}')" 
-                                class="w-full bg-amber-600 text-white text-sm py-2 px-3 rounded flex items-center justify-center gap-2 transition-colors">
-                            <span class="material-icons text-sm">content_copy</span>
-                            Copy to Custom Songs
-                        </button>
                     </div>
                 `;
             }
-            
+
             return `
                 <div class="${isSelected ? 'bg-emerald-500/10 border-emerald-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'bg-zinc-800 border-zinc-700 hover:border-emerald-500'} border rounded-lg p-4 transition-colors cursor-pointer"
                      onclick="window.SongsManager.editSong('${song.name}')">
-                    <div class="flex items-start justify-between mb-2">
+                    <div class="flex items-start justify-between">
                         <div class="flex-1">
                             <h4 class="text-white">${song.title}</h4>
+                            ${song.keywords ? `
+                                <p class="text-sm text-zinc-400">${song.keywords}</p>
+                            ` : ''}
                         </div>
-                        ${statusIcon}
-                    </div>
-                    ${song.keywords ? `
-                        <p class="text-sm text-zinc-400 mb-2">${song.keywords}</p>
-                    ` : ''}
-                    <div class="flex gap-2 text-xs text-zinc-500">
-                        ${song.has_drums ? `<span>${song.bpm} BPM</span><span>•</span>` : ''}
-                        <span>Gain: ${song.gain}</span>
+                        <div class="flex items-center gap-1 shrink-0">
+                            ${statusIcon}
+                            <button type="button"
+                                    class="secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0"
+                                    onclick="event.stopPropagation(); window.SongsManager.deleteSong('${song.name}')"
+                                    title="Delete song">
+                                <span class="material-icons">delete</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -201,6 +216,7 @@ const SongsManager = (() => {
             document.getElementById('song-tail-moves').value = song.tail_moves || '';
             document.getElementById('song-mouth-mutes').value = song.mouth_mutes || '';
             await setSongMouthArticulation(song.mouth_articulation);
+            setSongLedColor(song.led_color);
             document.getElementById('song-half-tempo').checked = song.half_tempo_tail_flap || false;
 
             // Update file status indicators and show play buttons for existing files
@@ -309,6 +325,55 @@ const SongsManager = (() => {
         });
     };
 
+    // LED Color has no meaningful "default value" to seed like Mouth
+    // Articulation - an unset color IS the default (rainbow), so it just
+    // tracks a plain string, shown/hidden based on whether STATUS_LED_ENABLED.
+    let songLedColorValue = '';
+
+    const updateSongLedColorLabel = () => {
+        const clearBtn = document.getElementById('song-led-color-clear');
+        const label = document.getElementById('song-led-color-label');
+        if (label) {
+            label.textContent = songLedColorValue
+                ? 'Pulses this color while the song plays'
+                : 'Default rainbow animation';
+        }
+        // .secondary-action is unlayered CSS (not inside a Tailwind @layer),
+        // so it beats the .hidden utility's `display: none` in the cascade -
+        // toggle the style directly instead of fighting that with a class.
+        if (clearBtn) clearBtn.style.display = songLedColorValue ? '' : 'none';
+    };
+
+    const setSongLedColor = (storedValue) => {
+        songLedColorValue = storedValue || '';
+        const input = document.getElementById('song-led-color');
+        if (input && songLedColorValue) input.value = songLedColorValue;
+        updateSongLedColorLabel();
+    };
+
+    const initSongLedColor = () => {
+        const input = document.getElementById('song-led-color');
+        const clearBtn = document.getElementById('song-led-color-clear');
+        if (!input || !clearBtn) return;
+
+        input.addEventListener('input', () => {
+            songLedColorValue = input.value;
+            updateSongLedColorLabel();
+        });
+        clearBtn.addEventListener('click', () => {
+            songLedColorValue = '';
+            updateSongLedColorLabel();
+        });
+    };
+
+    const applySongLedColorVisibility = async () => {
+        const field = document.getElementById('song-led-color-field');
+        if (!field) return;
+        const cfg = await ConfigService.fetchConfig();
+        const enabled = String(cfg?.STATUS_LED_ENABLED ?? '').toLowerCase() === 'true';
+        field.classList.toggle('hidden', !enabled);
+    };
+
     // Mouth Articulation always has a value in the form (like Gain) - no
     // "override" toggle. If the song has never set one, seed the slider from
     // whichever persona is currently loaded, so the shown value matches what
@@ -341,6 +406,7 @@ const SongsManager = (() => {
         document.getElementById('song-tail-moves').value = '';
         document.getElementById('song-mouth-mutes').value = '';
         setSongMouthArticulation('');
+        setSongLedColor('');
         document.getElementById('song-half-tempo').checked = false;
         
         // Hide play buttons and reset file status
@@ -374,6 +440,7 @@ const SongsManager = (() => {
                 tail_moves: document.getElementById('song-tail-moves').value,
                 mouth_mutes: document.getElementById('song-mouth-mutes').value,
                 mouth_articulation: document.getElementById('song-mouth-articulation').value,
+                led_color: songLedColorValue,
                 half_tempo_tail_flap: document.getElementById('song-half-tempo').checked,
             };
 
@@ -466,15 +533,15 @@ const SongsManager = (() => {
         }
     };
 
-    const deleteSong = async () => {
-        if (!currentSong) return;
+    const deleteSong = async (songName = currentSong) => {
+        if (!songName) return;
 
-        if (!confirm(`Are you sure you want to delete "${currentSong}"? This cannot be undone.`)) {
+        if (!confirm(`Are you sure you want to delete "${songName}"? This cannot be undone.`)) {
             return;
         }
 
         try {
-            const response = await fetch(`/songs/${currentSong}`, {
+            const response = await fetch(`/songs/${songName}`, {
                 method: 'DELETE'
             });
 
@@ -483,9 +550,12 @@ const SongsManager = (() => {
                 throw new Error(error.error || 'Failed to delete song');
             }
 
-            showNotification(`Song '${currentSong}' deleted successfully`, 'success');
-            showListView();
-            await loadSongs();
+            showNotification(`Song '${songName}' deleted successfully`, 'success');
+            if (songName === currentSong) {
+                showListView();
+            } else {
+                await loadSongs();
+            }
         } catch (error) {
             debugLog('ERROR', 'Failed to delete song:', error);
             showNotification(error.message || 'Failed to delete song', 'error');
@@ -572,21 +642,31 @@ const SongsManager = (() => {
 
     const init = () => {
         const isSongsPage = !!document.getElementById('songs-grid');
+        const createBtn = document.getElementById('create-song-btn');
 
-        // View navigation
-        document.getElementById('create-song-btn')?.addEventListener('click', () => showEditView(null));
-        document.getElementById('back-to-songs-list-btn')?.addEventListener('click', showListView);
-        
-        // Form actions
-        document.getElementById('save-song-btn')?.addEventListener('click', saveSong);
-        document.getElementById('delete-song-btn')?.addEventListener('click', deleteSong);
+        // #main-content gets replaced wholesale on normal SPA navigation (fresh
+        // DOM => must bind), but init() can also be re-run against the *same*
+        // DOM (e.g. after a reconnect) => must not double-bind. dataset.bound
+        // lives on the element itself so it naturally resets on a real swap.
+        if (createBtn && createBtn.dataset.bound !== 'true') {
+            createBtn.dataset.bound = 'true';
 
-        // Audio preview controls
-        setupAudioPreview('full');
-        setupAudioPreview('vocals');
-        setupAudioPreview('drums');
+            // View navigation
+            createBtn.addEventListener('click', () => showEditView(null));
+            document.getElementById('back-to-songs-list-btn')?.addEventListener('click', showListView);
 
-        initSongSliders();
+            // Form actions
+            document.getElementById('save-song-btn')?.addEventListener('click', saveSong);
+
+            // Audio preview controls
+            setupAudioPreview('full');
+            setupAudioPreview('vocals');
+            setupAudioPreview('drums');
+
+            initSongSliders();
+            initSongLedColor();
+            applySongLedColorVisibility();
+        }
 
         if (isSongsPage) {
             showListView();
@@ -598,7 +678,8 @@ const SongsManager = (() => {
         init,
         editSong: showEditView,
         loadSongs,
-        copyExample
+        copyExample,
+        deleteSong
     };
 })();
 

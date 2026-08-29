@@ -708,31 +708,35 @@ async def play_song(song_name, interrupt_event=None):
     from core.movements import stop_all_motors
     from core.mqtt import mqtt_publish
     from core.song_manager import song_manager
+    from core.status_led import status_led
 
     reset_for_new_song()
 
-    # Use song manager to find the correct song path
-    song_metadata = song_manager.get_song_metadata(song_name)
+    # Only songs actually copied to custom_songs are playable. Examples are a
+    # template gallery, not a live song - otherwise there'd be no way to
+    # "remove" a bundled example from Billy's rotation, since the example
+    # files themselves ship with every install and can't be deleted by users.
+    song_metadata = song_manager.get_song_metadata(song_name, is_custom=True)
 
-    # If not found by name, try to find by title
+    # If not found by name, try to find by title (custom songs only)
     if not song_metadata:
         songs = song_manager.list_songs()
         for song in songs:
-            if song.get('title', '').lower() == song_name.lower():
+            if (
+                song.get('is_custom')
+                and song.get('title', '').lower() == song_name.lower()
+            ):
                 song_metadata = song
                 break
 
     if not song_metadata:
-        print(f"❌ Song not found: {song_name}")
-        print(f"💡 Tip: Use the web UI to copy example songs or create new ones")
+        print(f"❌ Song not found in custom_songs: {song_name}")
+        print(f"💡 Tip: Use the web UI to copy example songs to custom_songs first")
         return
 
     # Get the actual song directory path using the song name (directory name)
     actual_song_name = song_metadata['name']
-    if song_metadata.get('is_custom', True):
-        SONG_DIR = f"./custom_songs/{actual_song_name}"
-    else:
-        SONG_DIR = f"./sounds/songs/{actual_song_name}"
+    SONG_DIR = f"./custom_songs/{actual_song_name}"
 
     # Double-check the directory exists
     if not os.path.exists(SONG_DIR):
@@ -772,6 +776,7 @@ async def play_song(song_name, interrupt_event=None):
             "compensate_tail": 0.0,
             "half_tempo_tail_flap": False,
             "mouth_articulation": None,
+            "led_color": "",
         }
 
         # Try new metadata.ini format first
@@ -803,6 +808,10 @@ async def play_song(song_name, interrupt_event=None):
                     metadata['mouth_articulation'] = max(
                         0.0, min(10.0, float(articulation_str))
                     )
+
+                metadata['led_color'] = config.get(
+                    'SONG', 'led_color', fallback=''
+                ).strip()
 
                 head_moves_str = config.get('SONG', 'head_moves', fallback='')
                 if head_moves_str:
@@ -856,6 +865,23 @@ async def play_song(song_name, interrupt_event=None):
                         metadata[key] = value.strip().lower() == "true"
         return metadata
 
+    # Real audio length - manual head/tail moves must never outlast it. Once
+    # the last audio chunk is consumed, nothing else ticks the playback loop
+    # to notice a move's timer has expired, so an unclamped move would leave
+    # the head/tail stuck out until the *next* sound plays (if ever).
+    with wave.open(MAIN_AUDIO, 'rb') as _probe:
+        song_duration_seconds = _probe.getnframes() / _probe.getframerate()
+
+    def _clamp_moves(moves):
+        clamped = []
+        for move_time, move_duration in moves:
+            if move_time >= song_duration_seconds:
+                continue
+            duration = min(move_duration, song_duration_seconds - move_time)
+            if duration > 0:
+                clamped.append((move_time, duration))
+        return clamped
+
     # --- Load metadata ---
     metadata = load_metadata(SONG_DIR)
     GAIN = metadata.get("gain", 1.0)
@@ -868,10 +894,10 @@ async def play_song(song_name, interrupt_event=None):
     song_mouth_threshold = mouth_threshold
     song_tail_threshold = tail_threshold
     song_mouth_articulation = metadata.get("mouth_articulation")
-    head_move_schedule = metadata.get("head_moves", [])
+    head_move_schedule = _clamp_moves(metadata.get("head_moves", []))
     for move in head_move_schedule:
         audio.head_move_queue.put(move)
-    tail_move_schedule = metadata.get("tail_moves", [])
+    tail_move_schedule = _clamp_moves(metadata.get("tail_moves", []))
     for move in tail_move_schedule:
         audio.tail_move_queue.put(move)
     audio.mouth_mute_windows.extend(metadata.get("mouth_mutes", []))
@@ -885,6 +911,9 @@ async def play_song(song_name, interrupt_event=None):
     audio.song_mode = True
     ensure_playback_worker_started(CHUNK_MS)
 
+    # A song-specific color pulses instead of the default rainbow; empty/unset
+    # falls back to rainbow (cleared again in the finally block below).
+    status_led.set_song_color(status_led.parse_hex_color(metadata.get("led_color")))
     mqtt_publish("billy/state", "playing_song")
     print(
         f"\n🎧 Playing {song_name}"
@@ -1006,6 +1035,7 @@ async def play_song(song_name, interrupt_event=None):
     finally:
         audio.song_mode = False
         stop_all_motors()
+        status_led.set_song_color(None)
         mqtt_publish("billy/state", "idle")
         print("🎶 Song finished, waiting for button press.")
 
