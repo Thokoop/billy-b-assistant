@@ -1130,10 +1130,12 @@
 
                     <div class="relative">
                         <div data-tooltip>
-                            After pressing the red button, Billy: </br>
+                            After pressing the red button (or wake word), Billy: </br>
                             <b>Normal:</b> tries to keep the conversation going until the mic silence timeout is
                             reached (see Audio Settings).<br>
-                            <b>Dory:</b> responds only once, then ends and forgets the conversation.
+                            <b>Dory:</b> responds only once, then ends and forgets the conversation.<br>
+                            <b>Song (offline):</b> skips the AI conversation entirely and just plays a song. No
+                            OpenAI API key or internet connection required.
                         </div>
                         <select id="RUN_MODE" name="RUN_MODE"
                                 class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
@@ -1141,6 +1143,8 @@
                             'RUN_MODE', 'normal') == 'normal' %}selected{% endif %}>Normal</option>
                             <option value="dory" {% if config.get(
                             'RUN_MODE') == 'dory' %}selected{% endif %}>Dory</option>
+                            <option value="song" {% if config.get(
+                            'RUN_MODE') == 'song' %}selected{% endif %}>Song (offline)</option>
                         </select>
                     </div>
                 </div>

@@ -3,7 +3,10 @@ Song Manager - Handles custom song management for Billy Bass
 """
 
 import configparser
+import json
+import random
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -26,6 +29,12 @@ class SongManager:
 
         # For backward compatibility and general operations, use custom_songs as default
         self.songs_dir = self.custom_songs_dir
+
+        # Persisted "last song played" state, used to avoid immediate repeats
+        # when Billy picks a song on its own (e.g. offline Song mode).
+        self.state_dir = project_root / "state"
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.last_song_path = self.state_dir / "last_song.json"
 
     def list_songs(self) -> list[dict[str, Any]]:
         """List all available songs with their metadata from both custom and example directories."""
@@ -283,6 +292,43 @@ class SongManager:
         except Exception as e:
             logger.error(f"Failed to copy example song: {e}")
             return False
+
+    def get_last_song(self) -> Optional[str]:
+        """Return the name of the last song Billy played, if known."""
+        try:
+            data = json.loads(self.last_song_path.read_text())
+            return data.get("name") or None
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+
+    def set_last_song(self, song_name: str) -> None:
+        """Persist the last played song and publish it over MQTT (retained)."""
+        try:
+            self.last_song_path.write_text(
+                json.dumps({"name": song_name, "played_at": time.time()})
+            )
+        except OSError as e:
+            logger.warning(f"Failed to save last song state: {e}")
+
+        try:
+            from .mqtt import mqtt_publish
+
+            mqtt_publish("billy/song/last", song_name, retain=True)
+        except Exception as e:
+            logger.verbose(f"Skipping last-song MQTT publish: {e}", "🎵")
+
+    def pick_random_song(self, avoid_last: bool = True) -> Optional[str]:
+        """Pick a random song name, avoiding an immediate repeat when possible."""
+        names = [song["name"] for song in self.list_songs()]
+        if not names:
+            return None
+
+        if avoid_last and len(names) > 1:
+            last = self.get_last_song()
+            if last in names:
+                names = [name for name in names if name != last]
+
+        return random.choice(names)
 
     def get_dynamic_tool_description(self) -> str:
         """Generate dynamic tool description based on available songs."""

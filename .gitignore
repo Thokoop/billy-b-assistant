@@ -82,6 +82,7 @@ personas/
 !persona_presets/*/persona.ini
 profiles/
 custom_songs/
+state/
 3d_files/
 models/
 wakewords/*.ppn

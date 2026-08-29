@@ -706,6 +706,8 @@ async def play_song(song_name, interrupt_event=None):
         print(f"💡 Tip: Use the web UI to copy example songs or create new ones")
         return
 
+    song_manager.set_last_song(actual_song_name)
+
     MAIN_AUDIO = os.path.join(SONG_DIR, "full.wav")
     VOCALS_AUDIO = os.path.join(SONG_DIR, "vocals.wav")
     DRUMS_AUDIO = os.path.join(SONG_DIR, "drums.wav")

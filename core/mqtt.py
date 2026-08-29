@@ -19,10 +19,45 @@ from .status_led import set_status_led_state
 mqtt_client: mqtt.Client | None = None
 mqtt_connected = False
 _say_lock = threading.Lock()
+_reconnect_lock = threading.Lock()
+_last_reconnect_attempt = 0.0
+RECONNECT_MIN_INTERVAL_SECONDS = 15.0
 
 
 def mqtt_available():
     return all([MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD])
+
+
+def _request_reconnect():
+    """Kick off a reconnect attempt in the background, rate-limited.
+
+    Reconnecting (DNS lookup + TCP connect) can block for seconds when the
+    network is genuinely unreachable. Callers of mqtt_publish (e.g. song
+    playback) must not stall on that, so this runs off-thread and skips if
+    an attempt already ran recently or is in flight.
+    """
+    global _last_reconnect_attempt
+
+    if not _reconnect_lock.acquire(blocking=False):
+        return
+    try:
+        now = time.time()
+        if now - _last_reconnect_attempt < RECONNECT_MIN_INTERVAL_SECONDS:
+            return
+        _last_reconnect_attempt = now
+    finally:
+        _reconnect_lock.release()
+
+    def _do_reconnect():
+        global mqtt_connected
+        try:
+            mqtt_client.reconnect()
+            mqtt_connected = True
+            logger.success("MQTT reconnected.", "🔌")
+        except Exception as e:
+            logger.warning(f"MQTT reconnect attempt failed: {e}")
+
+    threading.Thread(target=_do_reconnect, daemon=True).start()
 
 
 def on_connect(client, userdata, flags, rc):
@@ -64,6 +99,16 @@ def start_mqtt():
                     from .mood import mood_manager
 
                     mood_manager.publish()
+                with contextlib.suppress(Exception):
+                    # Song mode can pick/play songs while offline; republish the
+                    # locally persisted last-song state once MQTT is back.
+                    from .song_manager import song_manager
+
+                    last_song = song_manager.get_last_song()
+                    if last_song:
+                        mqtt_publish(
+                            "billy/song/last", last_song, retain=True, retry=False
+                        )
                 return
             except Exception as e:
                 logger.error(f"MQTT connection error: {e}")
@@ -89,18 +134,11 @@ def mqtt_publish(topic, payload, retain=True, retry=True):
     if mqtt_available():
         if not mqtt_client or not mqtt_connected:
             if retry:
-                logger.info("MQTT not connected. Trying to reconnect...", "🔁")
-                try:
-                    mqtt_client.reconnect()
-                    mqtt_connected = True
-                except Exception as e:
-                    logger.error(f"MQTT reconnect failed: {e}")
-                    return
-            else:
-                logger.warning(
-                    f"MQTT not connected. Skipping publish {topic}={payload}"
-                )
-                return
+                _request_reconnect()
+            logger.verbose(
+                f"MQTT not connected. Skipping publish {topic}={payload}", "🔌"
+            )
+            return
 
         try:
             mqtt_client.publish(topic, payload, retain=retain)
@@ -232,6 +270,20 @@ def mqtt_send_discovery():
     mqtt_client.publish(
         "homeassistant/text/billy/song/config",
         json.dumps(payload_song_input),
+        retain=True,
+    )
+
+    # Sensor for the last song Billy played (e.g. offline Song mode picks)
+    payload_last_song_sensor = {
+        "name": "Billy Last Song",
+        "unique_id": "billy_last_song",
+        "state_topic": "billy/song/last",
+        "icon": "mdi:music",
+        "device": device,
+    }
+    mqtt_client.publish(
+        "homeassistant/sensor/billy/last_song/config",
+        json.dumps(payload_last_song_sensor),
         retain=True,
     )
 
