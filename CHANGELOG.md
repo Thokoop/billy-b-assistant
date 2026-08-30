@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.5.0] — 2026-08-30
+
+### Added
+- **Song Manager Improvements**: A full waveform-based editor and several quality-of-life features for managing custom songs
+  - Interactive waveform timeline for Head/Tail/Mouth Mute moves, replacing the plain text fields — click to add, drag to move/resize, double-click to remove, overlapping markers merge automatically
+  - Read-only drum RMS reference with a live Tail Threshold line for Auto tail mode
+  - Seamless stem switching (Vocals/Full Mix/Drums) while previewing, without interrupting playback
+  - Per-song Enable/Disable, so Billy can skip a song without deleting it
+  - Download/Upload Song as a zip bundle, matching Persona/Profile
+  - Per-song LED Color now supports Rainbow/Solid/Off
+  - Folder Name field shows the song's storage folder next to its Display Title, auto-generated as you type when creating a new song
+- **Show Tooltips Setting**: Added an Advanced Settings toggle to hide the (?) help icons throughout the Web UI.
+- **Profile ID Field**: User Profiles now shows a read-only Profile ID (the profile's internal storage name) next to Display Name, with the rename control moved there from the profile list.
+
+### Changed
+- **iOS-style Toggles**: Replaced Enabled/Disabled dropdowns and checkboxes with a consistent iOS-style switch across Advanced Settings, Wake-word, AEC, Mood, Mic Timeout Tail Flap, and the song editor.
+- **Status LED Brightness**: 0% brightness now turns the status LED off entirely, replacing the separate Status LED Enabled toggle.
+- **Mouth Articulation Curve**: Rebalanced the articulation intensity scale, since the old curve only felt right because of the timer bug fixed below.
+
+### Fixed
+- **Song Manager Improvements**:
+  - Automatic drum-driven tail flaps stopped working after the first song played since a restart
+  - A song session that couldn't be stopped in time (e.g. rapid button presses) could keep running and corrupt or interrupt the next song
+- **Mouth Flap Jitter on Sustained Loud Audio**: A stale timer could cut a flap short mid-hold, causing visible jitter on sustained loud audio.
+- **Guest Profile Deletion**: The Guest profile could previously be deleted from the profile list; it's now protected in the Web UI and API.
+
+---
+
 ## [2.4.0] — 2026-08-11
 
 ### Added

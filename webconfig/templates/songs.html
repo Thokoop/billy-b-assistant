@@ -76,26 +76,41 @@
                         </h3>
 
                         <div class="space-y-4">
-                            <div id="song-name-field">
-                                <label for="song-name" class="block text-sm text-slate-300 mb-2">
-                                    Song Name (folder name)
-                                </label>
-                                <input type="text" id="song-name" name="name"
-                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
-                                       placeholder="e.g., my_awesome_song"
-                                       pattern="[a-z0-9_]+"
-                                       title="Only lowercase letters, numbers, and underscores">
-                                <p class="text-xs text-zinc-500 mt-1">Only lowercase letters, numbers, and underscores</p>
-                            </div>
-
-                            <div>
-                                <label for="song-title" class="block text-sm text-slate-300 mb-2">
-                                    Display Title
-                                </label>
-                                <input type="text" id="song-title" name="title"
-                                       class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
-                                       placeholder="e.g., My Awesome Song"
-                                       required>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label for="song-title" class="block text-sm text-slate-300 mb-2">
+                                        Display Title
+                                    </label>
+                                    <input type="text" id="song-title" name="title"
+                                           class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                           placeholder="e.g., Never Gonna Give You Up"
+                                           required>
+                                </div>
+                                <div id="song-name-field">
+                                    <label for="song-name" class="flex justify-between items-center text-sm text-slate-300 mb-2">
+                                        Folder Name
+                                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
+                                              onclick="toggleTooltip(this)">help_outline</span>
+                                    </label>
+                                    <div class="relative">
+                                        <div data-tooltip>
+                                            Auto-generated from the title. Only lowercase letters,
+                                            numbers, and underscores.
+                                        </div>
+                                        <input type="text" id="song-name" name="name"
+                                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                               placeholder="e.g., never_gonna_give_you_up"
+                                               pattern="[a-z0-9_]+"
+                                               title="Only lowercase letters, numbers, and underscores">
+                                    </div>
+                                </div>
+                                <div id="song-folder-display-field" class="hidden">
+                                    <label class="block text-sm text-slate-300 mb-2">
+                                        Folder
+                                    </label>
+                                    <div id="song-folder-display"
+                                         class="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded text-zinc-400 truncate"></div>
+                                </div>
                             </div>
 
                             <div>
@@ -111,7 +126,7 @@
                                     </div>
                                     <input type="text" id="song-keywords" name="keywords"
                                            class="w-full px-3 py-2 mt-1 bg-zinc-800 border border-zinc-700 rounded text-white"
-                                           placeholder="e.g., rock, guitar, upbeat">
+                                           placeholder="e.g., rick astley, 80s, pop">
                                 </div>
                             </div>
                         </div>
@@ -323,7 +338,7 @@
                                                 <input type="checkbox" id="song-half-tempo" name="half_tempo_tail_flap">
                                                 <span class="wf-toggle-track"><span class="wf-toggle-thumb"></span></span>
                                             </label>
-                                            <span class="text-sm text-zinc-400">Enable half-tempo tail movement</span>
+                                            <span class="text-sm text-zinc-400">Half-tempo tail movement</span>
                                         </div>
                                     </div>
                                 </div>

@@ -41,20 +41,45 @@
                     </h3>
 
                     <div class="space-y-6">
-                        <!-- Display Name -->
-                        <div>
-                            <label class="flex justify-between items-center text-sm text-slate-300 relative mb-3">
-                                Display Name
-                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
-                                      onclick="toggleTooltip(this)">
-                                    help_outline
-                                </span>
-                            </label>
-                            <div class="relative">
-                                <div data-tooltip>
-                                    How your name appears in the interface. Useful if Billy mispronounces your name (e.g., "Tom" instead of "Thom").
+                        <!-- Display Name / Profile ID -->
+                        <div id="profile-name-row-main" class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="flex justify-between items-center text-sm text-slate-300 relative mb-3">
+                                    Display Name
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                          onclick="toggleTooltip(this)">
+                                        help_outline
+                                    </span>
+                                </label>
+                                <div class="relative">
+                                    <div data-tooltip>
+                                        How your name appears in the interface. Useful if Billy mispronounces your name (e.g., "Tom" instead of "Thom").
+                                    </div>
+                                    <input type="text" id="display-name-input-main" class="w-full bg-zinc-800 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Enter display name">
                                 </div>
-                                <input type="text" id="display-name-input-main" class="w-full bg-zinc-800 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Enter display name">
+                            </div>
+                            <div>
+                                <label class="flex justify-between items-center text-sm text-slate-300 relative mb-3">
+                                    Profile ID
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                          onclick="toggleTooltip(this)">
+                                        help_outline
+                                    </span>
+                                </label>
+                                <div class="relative">
+                                    <div data-tooltip>
+                                        The internal ID Billy stores this profile under. Renaming it here renames the stored file too - the Display Name above is what's actually shown in the interface.
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <div id="profile-id-display-main"
+                                             class="flex-1 min-w-0 px-3 py-2 bg-zinc-800/50 border border-zinc-600 rounded text-zinc-400 truncate"></div>
+                                        <button type="button" id="profile-id-rename-btn-main"
+                                                class="icon-action-btn icon-action-btn--edit"
+                                                title="Rename profile">
+                                            <span class="material-icons">edit</span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 

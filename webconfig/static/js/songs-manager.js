@@ -2,6 +2,12 @@
 const SongsManager = (() => {
     let currentSong = null;
     let isEditMode = false;
+    let songNameManuallyEdited = false;
+
+    const slugifySongName = (title) => title
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, '_')
+        .replace(/^_+|_+$/g, '');
 
     // Debug logging utility
     const debugLog = (level, message, ...args) => {
@@ -89,12 +95,18 @@ const SongsManager = (() => {
         const songNameField = document.getElementById('song-name-field');
         const songNameInput = document.getElementById('song-name');
 
+        const folderDisplayField = document.getElementById('song-folder-display-field');
+        const folderDisplay = document.getElementById('song-folder-display');
+
         if (isEditMode) {
             songNameField.classList.add('hidden');
             songNameInput.removeAttribute('required');
+            folderDisplayField.classList.remove('hidden');
+            folderDisplay.textContent = songName;
         } else {
             songNameField.classList.remove('hidden');
             songNameInput.setAttribute('required', 'required');
+            folderDisplayField.classList.add('hidden');
         }
 
         loadSongs();
@@ -449,6 +461,7 @@ const SongsManager = (() => {
 
     const resetForm = () => {
         document.getElementById('song-edit-form').reset();
+        songNameManuallyEdited = false;
         document.getElementById('song-name').value = '';
         document.getElementById('song-title').value = '';
         document.getElementById('song-keywords').value = '';
@@ -967,7 +980,7 @@ const SongsManager = (() => {
         // 2 of every 3 windows), which is why it looked sparser than the
         // real data until you zoomed in far enough for 3px to cover less
         // than one window.
-        for (let x = 0; x < w; x += 1) {
+        for (let x = 0; x < w - 1; x += 1) {
             const t = (x / w) * wfMainDuration;
             const idx = Math.min(values.length - 1, Math.floor(t / windowSec));
             const amp = values[idx] || 0;
@@ -1197,7 +1210,12 @@ const SongsManager = (() => {
         if (!editorScroll || !editorInner || !ruler) return;
 
         wfBaseWidth = Math.max(320, editorScroll.clientWidth);
-        wfCurrentPxWidth = Math.round(wfBaseWidth * wfZoom);
+        // clientWidth can be fractional (sub-pixel layout, high-DPI, etc.);
+        // Math.round() would sometimes round the zoomed width up past what
+        // actually fits, leaving a 1px overflow that shows as a scrollbar
+        // with almost no real travel even at zoom 1.0x. floor() guarantees
+        // it never exceeds the available space.
+        wfCurrentPxWidth = Math.floor(wfBaseWidth * wfZoom);
 
         // editor-inner must carry the same explicit width as its zoomed
         // children - otherwise it never actually grows as their containing
@@ -1613,6 +1631,18 @@ const SongsManager = (() => {
         wfSetupResizeObserver();
     };
 
+    const initSongNameAutoDerive = () => {
+        const titleInput = document.getElementById('song-title');
+        const nameInput = document.getElementById('song-name');
+        titleInput?.addEventListener('input', () => {
+            if (isEditMode || songNameManuallyEdited) return;
+            nameInput.value = slugifySongName(titleInput.value);
+        });
+        nameInput?.addEventListener('input', () => {
+            songNameManuallyEdited = true;
+        });
+    };
+
     const init = () => {
         const isSongsPage = !!document.getElementById('songs-grid');
         const createBtn = document.getElementById('create-song-btn');
@@ -1639,6 +1669,7 @@ const SongsManager = (() => {
             initSongSliders();
             initSongLedColor();
             applySongLedColorVisibility();
+            initSongNameAutoDerive();
             wfInitWaveformEditor();
         }
 

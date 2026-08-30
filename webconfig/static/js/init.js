@@ -44,6 +44,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Absent key (fresh install / pre-existing .env) defaults to shown, same
     // as core/config.py's SHOW_TOOLTIPS fallback.
     applyShowTooltipsPreference(!(cfg?.SHOW_TOOLTIPS === 'False' || cfg?.SHOW_TOOLTIPS === false));
+    applyReduceMotionPreference(localStorage.getItem('reduceMotion') === '1');
     LogPanel.bindUI(cfg);
     // Initial fetch, then WebSocket takes over
     LogPanel.fetchLogs();

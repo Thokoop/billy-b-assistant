@@ -103,7 +103,7 @@ const MainPageRouter = (() => {
                 setTimeout(() => window.AudioPanel?.updateDeviceLabels?.(), 3000);
             }
             window.ServiceStatus?.fetchStatus?.();
-            window.LogPanel?.hideSupportPanelIfDisabled?.(cfg);
+            window.LogPanel?.bindUI?.(cfg);
             window.BillyVersionUI?.refresh();
             window.ReleaseNotes?.refresh();
             window.MobileSplitView?.bindAll();

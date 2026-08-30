@@ -99,6 +99,9 @@ def get_profile(profile_name):
 def delete_profile(profile_name):
     """Delete a user profile."""
     try:
+        if profile_name.lower() == 'guest':
+            return jsonify({"error": "The Guest profile cannot be deleted"}), 400
+
         # Convert to lowercase to match file naming convention
         profile_file = get_profiles_dir() / f"{profile_name.lower()}.ini"
         if not profile_file.exists():

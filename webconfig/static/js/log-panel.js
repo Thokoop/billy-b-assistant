@@ -357,8 +357,24 @@ const LogPanel = (() => {
     const toggleMotion = () => {
         const checkbox = elements.toggleMotionBtn;
         const animationsEnabled = checkbox.checked;
-        document.documentElement.classList.toggle("reduce-motion", !animationsEnabled);
+        applyReduceMotionPreference(!animationsEnabled);
         localStorage.setItem("reduceMotion", animationsEnabled ? "0" : "1");
+    };
+
+    // #toggle-motion-btn lives inside a page-router-swapped section, so it's
+    // a fresh DOM node on every SPA navigation - re-query and re-bind it each
+    // time bindUI() runs (guarded per-element via dataset.bound, since
+    // uiBound itself only reflects whether the *first-ever* bind happened).
+    // The .reduce-motion class itself is applied globally by init.js on every
+    // page load via applyReduceMotionPreference() - this only syncs the
+    // checkbox to match, for whichever page actually has it.
+    const bindMotionToggle = () => {
+        const checkbox = document.getElementById("toggle-motion-btn");
+        if (!checkbox || checkbox.dataset.bound === "true") return;
+        checkbox.dataset.bound = "true";
+        elements.toggleMotionBtn = checkbox;
+        checkbox.addEventListener("change", toggleMotion);
+        checkbox.checked = localStorage.getItem("reduceMotion") !== "1";
     };
 
     const toggleFullscreenLog = () => {
@@ -429,6 +445,7 @@ const LogPanel = (() => {
             }
             checkAndShowPasswordModal(cfg);
             hideSupportPanelIfDisabled(cfg);
+            bindMotionToggle();
             return;
         }
 
@@ -485,9 +502,7 @@ const LogPanel = (() => {
             elements.scrollBtn.classList.toggle("text-white", !autoScrollEnabled);
             elements.scrollBtn.title = autoScrollEnabled ? "Auto-scroll ON" : "Auto-scroll OFF";
         }
-        if (elements.toggleMotionBtn) {
-            elements.toggleMotionBtn.addEventListener("change", toggleMotion);
-        }
+        bindMotionToggle();
         if (elements.openEnvEditorBtn) {
             elements.openEnvEditorBtn.dataset.envEditorOpenBound = "true";
             elements.openEnvEditorBtn.addEventListener("click", openEnvEditorModal);
@@ -541,11 +556,6 @@ const LogPanel = (() => {
         const logLevelSelect = document.getElementById("log-level-select");
         if (logLevelSelect && cfg.LOG_LEVEL) {
             logLevelSelect.value = cfg.LOG_LEVEL;
-        }
-        if (elements.toggleMotionBtn) {
-            const isReduced = localStorage.getItem("reduceMotion") === "1";
-            document.documentElement.classList.toggle("reduce-motion", isReduced);
-            elements.toggleMotionBtn.checked = !isReduced;
         }
 
         // Load RC versions / startup flap settings into their toggles

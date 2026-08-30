@@ -73,6 +73,15 @@ function applyShowTooltipsPreference(show) {
     document.documentElement.classList.toggle('tooltips-hidden', !show);
 }
 
+// Driven by the "UI Animations & Effects" toggle. Applied globally on every
+// page load (not just when the Settings page's own checkbox happens to be in
+// the DOM) so the .reduce-motion class - and anything CSS keys off it, like
+// the body gradient or the LED rainbow shift - stays correct regardless of
+// which page the user lands on.
+function applyReduceMotionPreference(reduced) {
+    document.documentElement.classList.toggle('reduce-motion', reduced);
+}
+
 function toggleTooltip(el, evt) {
     if (!el) return;
     const clickEvent = evt || window.event;
