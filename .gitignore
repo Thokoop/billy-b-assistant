@@ -6,8 +6,11 @@ __pycache__/
 # Response history audio files
 sounds/response-history/
 
-# grok 
+# Grok AI
 .grok
+
+# Claude AI
+.claude
 
 # MACOS-SPECIFIC FILES
 ## General

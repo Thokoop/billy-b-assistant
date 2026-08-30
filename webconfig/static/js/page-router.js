@@ -83,6 +83,8 @@ const MainPageRouter = (() => {
             SettingsForm.handleSettingsSave();
             SettingsForm.saveDropdownSelections();
             SettingsForm.populateDropdowns(cfg);
+            SettingsForm.initBooleanToggles();
+            SettingsForm.initShowTooltipsToggle();
             await SettingsForm.initHostFields();
             SettingsForm.initMouthArticulationSlider();
             SettingsForm.initStatusLedBrightnessSlider();

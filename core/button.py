@@ -427,6 +427,7 @@ def trigger_session_start(source: str = "button"):
 
             def run_session():
                 global is_active, _button_interrupt_armed
+                my_thread = threading.current_thread()
                 try:
                     song_name = song_manager.pick_random_song()
                     if not song_name:
@@ -440,6 +441,20 @@ def trigger_session_start(source: str = "button"):
                 except Exception as e:
                     logger.error(f"Song playback error: {e}")
                 finally:
+                    # A thread that got "detached" (trigger_session_start()
+                    # gave up waiting for it and reassigned/cleared the
+                    # session_thread global to start a newer session) must
+                    # not run this cleanup - it would stop the *new*
+                    # session's head move, clear its is_active flag, and
+                    # release the lock the new session is actively holding,
+                    # letting a third session start prematurely on top of it.
+                    if session_thread is not my_thread:
+                        logger.info(
+                            "Detached song session finished; skipping cleanup "
+                            "(a newer session is active)",
+                            "🧹",
+                        )
+                        return
                     move_head("off")
                     is_active = False
                     _button_interrupt_armed = False

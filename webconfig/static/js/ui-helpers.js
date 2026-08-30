@@ -64,6 +64,15 @@ function updateTooltipContainerLayers() {
     });
 }
 
+// Driven by the SHOW_TOOLTIPS setting (Advanced Settings). A single class
+// on <html> plus a CSS rule targeting every [onclick*="toggleTooltip"] icon
+// (the same selector findTooltipTrigger() below already uses to locate
+// them) covers every page, including ones the SPA router injects later -
+// no per-page JS needed to re-hide icons after this runs once.
+function applyShowTooltipsPreference(show) {
+    document.documentElement.classList.toggle('tooltips-hidden', !show);
+}
+
 function toggleTooltip(el, evt) {
     if (!el) return;
     const clickEvent = evt || window.event;

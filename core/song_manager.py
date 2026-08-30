@@ -113,6 +113,7 @@ class SongManager:
             "mouth_articulation": "",
             "led_color": "",
             "half_tempo_tail_flap": False,
+            "enabled": True,
             "has_full": has_full,
             "has_vocals": has_vocals,
             "has_drums": has_drums,
@@ -146,6 +147,7 @@ class SongManager:
                     "half_tempo_tail_flap": config.getboolean(
                         'SONG', 'half_tempo_tail_flap', fallback=False
                     ),
+                    "enabled": config.getboolean('SONG', 'enabled', fallback=True),
                 })
         # Try to load from old metadata.txt format
         elif (song_path / "metadata.txt").exists():
@@ -193,6 +195,7 @@ class SongManager:
             'mouth_articulation': metadata.get('mouth_articulation', ''),
             'led_color': metadata.get('led_color', ''),
             'half_tempo_tail_flap': str(metadata.get('half_tempo_tail_flap', False)),
+            'enabled': str(metadata.get('enabled', True)),
         }
 
         try:
@@ -231,6 +234,69 @@ class SongManager:
         except Exception as e:
             logger.error(f"Failed to delete song {song_name}: {e}")
             return False
+
+    # The only files a song bundle ever contains - import only ever writes
+    # these exact basenames regardless of what a zip's central directory
+    # claims, which sidesteps path-traversal (ZipSlip) entirely rather than
+    # trying to sanitize arbitrary member paths.
+    SONG_BUNDLE_FILES = ("metadata.ini", "full.wav", "vocals.wav", "drums.wav")
+
+    def export_song_zip(self, song_name: str) -> Optional[bytes]:
+        """Bundle a custom song's metadata + whichever audio files it has
+        into an in-memory zip. Only custom songs are exportable (examples
+        ship with the app already, same restriction as delete_song)."""
+        import io
+        import zipfile
+
+        song_path = self.custom_songs_dir / song_name
+        if not song_path.exists():
+            return None
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for filename in self.SONG_BUNDLE_FILES:
+                file_path = song_path / filename
+                if file_path.exists():
+                    zf.write(file_path, arcname=filename)
+        return buffer.getvalue()
+
+    def import_song_zip(self, song_name: str, zip_bytes: bytes) -> tuple[bool, str]:
+        """Extract a song bundle zip into custom_songs/<song_name>, creating
+        it (or overwriting an existing custom song of the same name)."""
+        import io
+        import zipfile
+
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+        except zipfile.BadZipFile:
+            return False, "Not a valid zip file"
+
+        names = set(zf.namelist())
+        if "metadata.ini" not in names:
+            return False, "Zip is missing metadata.ini - not a valid song bundle"
+
+        metadata_text = zf.read("metadata.ini").decode("utf-8", errors="replace")
+        config = configparser.ConfigParser()
+        try:
+            config.read_string(metadata_text)
+        except configparser.Error:
+            return False, "metadata.ini is not valid"
+        if not config.has_section("SONG"):
+            return (
+                False,
+                "metadata.ini is missing the [SONG] section - not a valid song bundle",
+            )
+
+        song_path = self.custom_songs_dir / song_name
+        song_path.mkdir(parents=True, exist_ok=True)
+
+        for filename in self.SONG_BUNDLE_FILES:
+            if filename in names:
+                with open(song_path / filename, "wb") as f:
+                    f.write(zf.read(filename))
+
+        logger.info(f"Imported song: {song_name}", "📦")
+        return True, f"Imported song '{song_name}'"
 
     # Formats accepted on upload in addition to WAV; transcoded to WAV on the
     # way in so the playback engine only ever has to deal with one format.
@@ -418,9 +484,16 @@ class SongManager:
 
         Only considers songs actually copied to custom_songs - examples are
         just a template gallery until explicitly added, so they're never
-        eligible for Billy to pick on its own.
+        eligible for Billy to pick on its own. A song toggled off (enabled=False)
+        stays in custom_songs but is skipped, the same way a disabled example
+        would be if it were copied in - lets a song be paused without deleting
+        its files/settings.
         """
-        names = [song["name"] for song in self.list_songs() if song.get("is_custom")]
+        names = [
+            song["name"]
+            for song in self.list_songs()
+            if song.get("is_custom") and song.get("enabled", True)
+        ]
         if not names:
             return None
 
@@ -433,7 +506,10 @@ class SongManager:
 
     def get_dynamic_tool_description(self) -> str:
         """Generate dynamic tool description based on available songs."""
-        songs = self.list_songs()
+        # A disabled song is meant to be fully paused, not just excluded from
+        # random rotation - leave it out of what the assistant is told it can
+        # offer/play by name too.
+        songs = [s for s in self.list_songs() if s.get("enabled", True)]
 
         if not songs:
             return "Plays a special Billy song. No songs are currently available."

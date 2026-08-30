@@ -350,80 +350,15 @@ const LogPanel = (() => {
     };
 
 
+    // The checkbox (id="toggle-motion-btn", an iOS-style toggle now rather
+    // than a button) is the source of truth - "checked" means animations are
+    // ON, the opposite sense of the "reduce-motion" class/localStorage flag
+    // it drives.
     const toggleMotion = () => {
-        const btn = elements.toggleMotionBtn;
-        const icon = btn.querySelector(".material-icons");
-        const statusText = document.getElementById("motion-status-text");
-        document.documentElement.classList.toggle("reduce-motion");
-        const isReduced = document.documentElement.classList.contains("reduce-motion");
-        localStorage.setItem("reduceMotion", isReduced ? "1" : "0");
-        
-        // Update text color based on state
-        if (isReduced) {
-            btn.classList.remove("text-emerald-400");
-            btn.classList.add("text-white");
-        } else {
-            btn.classList.remove("text-white");
-            btn.classList.add("text-emerald-400");
-        }
-        
-        if (icon) icon.textContent = isReduced ? "blur_off" : "blur_on";
-        if (statusText) statusText.textContent = isReduced ? "Disabled" : "Enabled";
-    };
-
-    const toggleShowRCVersions = () => {
-        const btn = document.getElementById("toggle-rc-versions-btn");
-        const icon = btn?.querySelector(".material-icons");
-        const statusText = document.getElementById("rc-versions-status-text");
-        const hiddenCheckbox = document.getElementById("SHOW_RC_VERSIONS");
-        
-        if (!btn) return;
-        
-        // Toggle the visual state based on current text color
-        const isCurrentlyEnabled = btn.classList.contains("text-emerald-400");
-        
-        // Update text color based on new state
-        if (isCurrentlyEnabled) {
-            // Currently enabled, switch to disabled
-            btn.classList.remove("text-emerald-400");
-            btn.classList.add("text-white");
-            if (statusText) statusText.textContent = "Disabled";
-            if (hiddenCheckbox) hiddenCheckbox.checked = false;
-        } else {
-            // Currently disabled, switch to enabled
-            btn.classList.remove("text-white");
-            btn.classList.add("text-emerald-400");
-            if (statusText) statusText.textContent = "Enabled";
-            if (hiddenCheckbox) hiddenCheckbox.checked = true;
-        }
-        
-        // Update icon
-        if (icon) icon.textContent = "science";
-    };
-
-    const toggleFlapOnBoot = () => {
-        const btn = document.getElementById("toggle-flap-boot-btn");
-        const icon = btn?.querySelector(".material-icons");
-        const statusText = document.getElementById("flap-boot-status-text");
-        const hiddenCheckbox = document.getElementById("FLAP_ON_BOOT");
-
-        if (!btn) return;
-
-        const isCurrentlyEnabled = btn.classList.contains("text-emerald-400");
-
-        if (isCurrentlyEnabled) {
-            btn.classList.remove("text-emerald-400");
-            btn.classList.add("text-white");
-            if (statusText) statusText.textContent = "Disabled";
-            if (hiddenCheckbox) hiddenCheckbox.checked = false;
-        } else {
-            btn.classList.remove("text-white");
-            btn.classList.add("text-emerald-400");
-            if (statusText) statusText.textContent = "Enabled";
-            if (hiddenCheckbox) hiddenCheckbox.checked = true;
-        }
-
-        if (icon) icon.textContent = "waving_hand";
+        const checkbox = elements.toggleMotionBtn;
+        const animationsEnabled = checkbox.checked;
+        document.documentElement.classList.toggle("reduce-motion", !animationsEnabled);
+        localStorage.setItem("reduceMotion", animationsEnabled ? "0" : "1");
     };
 
     const toggleFullscreenLog = () => {
@@ -551,7 +486,7 @@ const LogPanel = (() => {
             elements.scrollBtn.title = autoScrollEnabled ? "Auto-scroll ON" : "Auto-scroll OFF";
         }
         if (elements.toggleMotionBtn) {
-            elements.toggleMotionBtn.addEventListener("click", toggleMotion);
+            elements.toggleMotionBtn.addEventListener("change", toggleMotion);
         }
         if (elements.openEnvEditorBtn) {
             elements.openEnvEditorBtn.dataset.envEditorOpenBound = "true";
@@ -607,82 +542,31 @@ const LogPanel = (() => {
         if (logLevelSelect && cfg.LOG_LEVEL) {
             logLevelSelect.value = cfg.LOG_LEVEL;
         }
-        if (elements.toggleMotionBtn && localStorage.getItem("reduceMotion") === "1") {
-            document.documentElement.classList.add("reduce-motion");
-            const btn = elements.toggleMotionBtn;
-            const icon = btn.querySelector(".material-icons");
-            const statusText = document.getElementById("motion-status-text");
-            btn.classList.remove("bg-zinc-700");
-            btn.classList.remove("text-emerald-400");
-            btn.classList.add("text-white");
-            if (icon) icon.textContent = "blur_off";
-            if (statusText) statusText.textContent = "Disabled";
-        } else if (elements.toggleMotionBtn) {
-            // Ensure enabled state has emerald color
-            const btn = elements.toggleMotionBtn;
-            btn.classList.remove("text-white");
-            btn.classList.add("text-emerald-400");
+        if (elements.toggleMotionBtn) {
+            const isReduced = localStorage.getItem("reduceMotion") === "1";
+            document.documentElement.classList.toggle("reduce-motion", isReduced);
+            elements.toggleMotionBtn.checked = !isReduced;
         }
-        
-        // Load RC versions setting
+
+        // Load RC versions / startup flap settings into their toggles
         fetch('/config')
             .then(res => res.json())
             .then(data => {
-                const toggleRCVersionsBtn = document.getElementById("toggle-rc-versions-btn");
-                const icon = toggleRCVersionsBtn?.querySelector(".material-icons");
-                const statusText = document.getElementById("rc-versions-status-text");
-                const toggleFlapBootBtn = document.getElementById("toggle-flap-boot-btn");
-                const flapIcon = toggleFlapBootBtn?.querySelector(".material-icons");
-                const flapStatusText = document.getElementById("flap-boot-status-text");
-                
-                if (toggleRCVersionsBtn) {
-                    const isEnabled = data.SHOW_RC_VERSIONS === 'True' || data.SHOW_RC_VERSIONS === true;
-                    const hiddenCheckbox = document.getElementById("SHOW_RC_VERSIONS");
-                    
-                    if (isEnabled) {
-                        toggleRCVersionsBtn.classList.remove("text-white");
-                        toggleRCVersionsBtn.classList.add("text-emerald-400");
-                        if (hiddenCheckbox) hiddenCheckbox.checked = true;
-                    } else {
-                        toggleRCVersionsBtn.classList.remove("text-emerald-400");
-                        toggleRCVersionsBtn.classList.add("text-white");
-                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                    }
-                    
-                    if (icon) icon.textContent = "science";
-                    if (statusText) statusText.textContent = isEnabled ? "Enabled" : "Disabled";
+                const rcVersionsCheckbox = document.getElementById("SHOW_RC_VERSIONS");
+                if (rcVersionsCheckbox) {
+                    rcVersionsCheckbox.checked = data.SHOW_RC_VERSIONS === 'True' || data.SHOW_RC_VERSIONS === true;
                 }
-
-                if (toggleFlapBootBtn) {
-                    const isEnabled = data.FLAP_ON_BOOT === 'True' || data.FLAP_ON_BOOT === true;
-                    const hiddenCheckbox = document.getElementById("FLAP_ON_BOOT");
-
-                    if (isEnabled) {
-                        toggleFlapBootBtn.classList.remove("text-white");
-                        toggleFlapBootBtn.classList.add("text-emerald-400");
-                        if (hiddenCheckbox) hiddenCheckbox.checked = true;
-                    } else {
-                        toggleFlapBootBtn.classList.remove("text-emerald-400");
-                        toggleFlapBootBtn.classList.add("text-white");
-                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                    }
-
-                    if (flapIcon) flapIcon.textContent = "waving_hand";
-                    if (flapStatusText) flapStatusText.textContent = isEnabled ? "Enabled" : "Disabled";
+                const flapOnBootCheckbox = document.getElementById("FLAP_ON_BOOT");
+                if (flapOnBootCheckbox) {
+                    flapOnBootCheckbox.checked = data.FLAP_ON_BOOT === 'True' || data.FLAP_ON_BOOT === true;
+                }
+                const showTooltipsCheckbox = document.getElementById("SHOW_TOOLTIPS");
+                if (showTooltipsCheckbox) {
+                    // Absent key defaults to shown, same as core/config.py's fallback.
+                    showTooltipsCheckbox.checked = !(data.SHOW_TOOLTIPS === 'False' || data.SHOW_TOOLTIPS === false);
                 }
             })
             .catch(err => console.error('Failed to load RC versions setting:', err));
-
-        // Add event listener for RC versions toggle
-        const toggleRCVersionsBtn = document.getElementById("toggle-rc-versions-btn");
-        if (toggleRCVersionsBtn) {
-            toggleRCVersionsBtn.addEventListener('click', toggleShowRCVersions);
-        }
-
-        const toggleFlapBootBtn = document.getElementById("toggle-flap-boot-btn");
-        if (toggleFlapBootBtn) {
-            toggleFlapBootBtn.addEventListener('click', toggleFlapOnBoot);
-        }
 
         // Handle password change modal and button visibility
         checkAndShowPasswordModal(cfg);

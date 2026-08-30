@@ -540,6 +540,14 @@ button {
     @apply static top-auto right-auto left-auto max-w-none p-0.5;
 }
 
+/* Driven by the "Show tooltip icons" setting (Advanced Settings, applied via
+   applyShowTooltipsPreference() in ui-helpers.js) - hides every (?) trigger
+   icon app-wide, including ones added later by SPA page navigation, since
+   this is a plain declarative selector rather than a one-time DOM edit. */
+.tooltips-hidden [onclick*="toggleTooltip"] {
+    display: none !important;
+}
+
 .log-level-tooltip-inline[data-tooltip][data-visible="true"] {
     @apply !flex;
 }
@@ -591,4 +599,421 @@ button {
         opacity: 1;
         transform: translateX(0);
     }
+}
+
+/* ===================== Song waveform + pointer editor ===================== */
+/* Global, not scoped to .wf-editor - #song-led-color-field is a sibling of
+   it (not a descendant) and needs --wf-rose for its own clear badge, so
+   scoping these to .wf-editor left that var undefined there (transparent
+   badge) even though structurally everything else about it worked fine. */
+:root {
+    --wf-cyan: #22d3ee;
+    --wf-green: #4ade80;
+    --wf-yellow: #facc15;
+    --wf-amber: #fbbf24;
+    --wf-violet: #a78bfa;
+    --wf-rose: #f43f5e;
+}
+
+.wf-stem-tabs {
+    display: inline-flex;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    overflow: hidden;
+    font-size: 12px;
+}
+.wf-stem-tabs button {
+    background: transparent;
+    border: none;
+    color: rgb(161 161 170);
+    padding: 5px 12px;
+    cursor: pointer;
+}
+.wf-stem-tabs button.active {
+    background: rgba(255, 255, 255, 0.08);
+    font-weight: 500;
+}
+.wf-stem-tabs button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.wf-play-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 0.6rem;
+    background: rgba(24, 24, 27, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 7px 10px;
+}
+.wf-play-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(39, 39, 42, 0.5);
+    color: rgb(228 228 231);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.wf-play-btn:hover {
+    background: #3f3f46;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+.wf-play-btn .material-icons {
+    font-size: 18px;
+}
+
+.wf-zoom-ctl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgb(161 161 170);
+    font-size: 12px;
+    flex: 1;
+    min-width: 120px;
+}
+.wf-zoom-ctl .wf-zoom-label {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.wf-zoom-ctl button {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(39, 39, 42, 0.5);
+    color: rgb(228 228 231);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.wf-zoom-ctl button:hover {
+    background: #3f3f46;
+}
+.wf-zoom-ctl input[type="range"] {
+    flex: 1;
+    accent-color: var(--wf-cyan);
+}
+
+.wf-editor-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+}
+.wf-editor-inner {
+    min-width: 100%;
+}
+.wf-ruler {
+    position: relative;
+    height: 16px;
+    margin-bottom: 2px;
+}
+.wf-ruler span {
+    position: absolute;
+    top: 0;
+    font-size: 10px;
+    color: rgb(113 113 122);
+    font-variant-numeric: tabular-nums;
+    transform: translateX(-50%);
+}
+#wf-wave {
+    display: block;
+    height: 72px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.19);
+    cursor: pointer;
+}
+.wf-wave-wrap {
+    position: relative;
+}
+.wf-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #fff;
+    opacity: 0.9;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.wf-lanes {
+    margin-top: 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.wf-lane-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.wf-lane-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--wf-lane-c, rgb(161 161 170));
+}
+.wf-lane-label .wf-name {
+    position: sticky;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.wf-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--wf-lane-c, rgb(161 161 170));
+    flex-shrink: 0;
+}
+.wf-lane-track {
+    position: relative;
+    height: 30px;
+    border-radius: 6px;
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: copy;
+    /* visible, not hidden - markers/rms bars are already bounded to the
+       track's own width, but a marker's delete badge deliberately floats
+       just outside its corner and would get clipped by hidden overflow. */
+    overflow: visible;
+}
+/* A native <input type="color"> normally shows as a small swatch with
+   padding around it (revealing whatever background sits behind it) - these
+   overrides make the swatch itself fill the whole element edge-to-edge, so
+   it reads as a solid color bar matching the lane tracks/markers above it,
+   not a separate control floating on its own background. */
+.wf-color-input {
+    height: 30px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    cursor: pointer;
+}
+.wf-color-input::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+.wf-color-input::-webkit-color-swatch {
+    border: none;
+    border-radius: 5px;
+}
+.wf-color-input::-moz-color-swatch {
+    border: none;
+    border-radius: 5px;
+}
+/* Sits directly over .wf-color-input in Rainbow mode, so the bar never
+   falsely previews a specific color for the "no color, use the default
+   animation" state. Mode switching is explicit via the Rainbow/Solid/Off
+   tabs now, not by clicking through to the swatch, so this stays
+   non-interactive. */
+.wf-color-rainbow {
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    overflow: hidden;
+    background: linear-gradient(
+        90deg,
+        #ff3b6f, #ff9500, #ffd60a, #34d399, #22d3ee, #5b8def, #b06aff, #ff3b6f
+    );
+    background-size: 200% 100%;
+    animation: wf-rainbow-shift 6s linear infinite;
+}
+@keyframes wf-rainbow-shift {
+    to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .wf-color-rainbow { animation: none; }
+}
+/* Off mode's bar - deliberately plain, no gradient/text, just the same dark
+   surface every other lane track uses when there's nothing to show. */
+.wf-off-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    pointer-events: none;
+}
+
+/* iOS-style on/off switch (song list: enable/disable without deleting).
+   A real checkbox drives it for free keyboard/focus/label semantics - only
+   its own box is hidden, the track+thumb next to it are what's drawn. */
+.wf-toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.wf-toggle input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+}
+.wf-toggle-track {
+    width: 42px;
+    height: 24px;
+    border-radius: 999px;
+    background: #52525b;
+    display: inline-block;
+    position: relative;
+    transition: background-color 0.2s ease;
+}
+.wf-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.wf-toggle input:checked + .wf-toggle-track {
+    background: #10b981;
+}
+.wf-toggle input:checked + .wf-toggle-track .wf-toggle-thumb {
+    transform: translateX(18px);
+}
+.wf-toggle input:active + .wf-toggle-track .wf-toggle-thumb {
+    width: 23px;
+}
+.wf-toggle input:checked:active + .wf-toggle-track .wf-toggle-thumb {
+    transform: translateX(15px);
+}
+.wf-toggle input:focus-visible + .wf-toggle-track {
+    outline: 2px solid #22d3ee;
+    outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+    .wf-toggle-track, .wf-toggle-thumb { transition: none; }
+}
+
+.wf-static-track {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.wf-lane-track[data-readonly="true"] {
+    cursor: default;
+}
+/* Tail Auto's read-only RMS envelope gets extra height (over the normal
+   30px lane) so the threshold line has room to sit at a legible fraction
+   of the bar instead of being squeezed flush against the drum peaks. */
+.wf-lane-track[data-lane="tail"][data-readonly="true"] {
+    height: 56px;
+}
+.wf-marker {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--wf-lane-c) 30%, transparent);
+    border: 1px solid var(--wf-lane-c);
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    touch-action: none;
+}
+.wf-marker:active {
+    cursor: grabbing;
+}
+.wf-marker .wf-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    /* Was 7px - too thin to reliably grab with a finger on a touchscreen. */
+    width: 16px;
+    cursor: ew-resize;
+}
+/* Markers are removed by double-clicking the marker itself now (see
+   wfRenderLane's dblclick listener) - a delete badge sharing space with the
+   resize handle was fiddly to hit precisely, especially on touch, where
+   there's no hover to reveal it in the first place. This class remains for
+   the LED color swatch's standalone clear button, shown/hidden via JS. */
+.wf-del {
+    position: absolute;
+    left: 50%;
+    top: -8px;
+    transform: translateX(-50%);
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    background: var(--wf-rose);
+    color: #fff;
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+}
+.wf-rms-bar {
+    position: absolute;
+    bottom: 0;
+    width: 2px;
+    background: var(--wf-amber);
+    opacity: 0.75;
+    border-radius: 1px 1px 0 0;
+}
+/* Marks where the Tail Threshold field crosses the drum RMS envelope, so
+   you can see which hits will trigger a flap without saving and testing
+   on hardware. */
+.wf-threshold-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--wf-rose);
+    opacity: 0.85;
+    pointer-events: none;
+}
+
+.wf-lane-mode {
+    position: sticky;
+    right: 0;
+    display: inline-flex;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    overflow: hidden;
+    font-size: 11px;
+    background: rgba(24, 24, 27, 0.8);
+}
+.wf-lane-mode button {
+    background: transparent;
+    border: none;
+    color: rgb(161 161 170);
+    padding: 3px 9px;
+    cursor: pointer;
+}
+.wf-lane-mode button.active {
+    background: var(--wf-amber);
+    color: #412402;
+    font-weight: 500;
 }

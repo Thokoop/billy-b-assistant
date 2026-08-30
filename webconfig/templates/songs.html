@@ -16,11 +16,20 @@
                         <span class="material-icons text-emerald-400">library_music</span>
                         Song Manager
                     </h2>
-                    <button id="create-song-btn"
-                            class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0"
-                            title="New song">
-                        <span class="material-icons">add</span>
-                    </button>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <label for="upload-song-file"
+                               class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0 cursor-pointer"
+                               title="Upload song (.zip)">
+                            <span class="material-icons">file_upload</span>
+                        </label>
+                        <input type="file" id="upload-song-file" accept=".zip" class="hidden"
+                               onchange="window.SongsManager.uploadSong(this)">
+                        <button id="create-song-btn"
+                                class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0"
+                                title="New song">
+                            <span class="material-icons">add</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="p-4">
@@ -118,13 +127,6 @@
                         </h3>
 
                         <div class="space-y-4">
-                        <p class="text-xs text-zinc-500">
-                            Only Vocals is required — that alone is enough for a quick spoken
-                            quote. Add a Full Mix if there's music/backing to play instead of
-                            just the vocals, and a Drums stem for automatic tail animation.
-                            Accepts WAV, MP3, or M4A — non-WAV files are converted automatically.
-                        </p>
-
                         <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700" id="vocals-card">
                             <div class="flex items-center justify-between">
                                 <label class="text-sm text-zinc-300">
@@ -137,9 +139,6 @@
                                     <label for="vocals-file" class="text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer" title="Upload file">
                                         <span class="material-icons">upload</span>
                                     </label>
-                                    <button type="button" id="play-vocals" class="text-zinc-400 hover:text-emerald-400 transition-colors hidden" title="Play/Pause">
-                                        <span class="material-icons">play_circle</span>
-                                    </button>
                                     <input type="file" id="vocals-file" accept=".wav,.mp3,.m4a" class="hidden">
                                 </div>
                             </div>
@@ -158,9 +157,6 @@
                                     <label for="full-file" class="text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer" title="Upload file">
                                         <span class="material-icons">upload</span>
                                     </label>
-                                    <button type="button" id="play-full" class="text-zinc-400 hover:text-emerald-400 transition-colors hidden" title="Play/Pause">
-                                        <span class="material-icons">play_circle</span>
-                                    </button>
                                     <input type="file" id="full-file" accept=".wav,.mp3,.m4a" class="hidden">
                                 </div>
                             </div>
@@ -179,13 +175,22 @@
                                     <label for="drums-file" class="text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer" title="Upload file">
                                         <span class="material-icons">upload</span>
                                     </label>
-                                    <button type="button" id="play-drums" class="text-zinc-400 hover:text-emerald-400 transition-colors hidden" title="Play/Pause">
-                                        <span class="material-icons">play_circle</span>
-                                    </button>
                                     <input type="file" id="drums-file" accept=".wav,.mp3,.m4a" class="hidden">
                                 </div>
                             </div>
                             <audio id="drums-audio" class="hidden"></audio>
+                        </div>
+
+                        <div class="relative flex items-center justify-end">
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-slate-300"
+                                  data-tooltip-target="wf-audio-files-tooltip"
+                                  onclick="toggleTooltip(this)">help_outline</span>
+                            <div id="wf-audio-files-tooltip" data-tooltip>
+                                Only Vocals is required — that alone is enough for a quick spoken
+                                quote. Add a Full Mix if there's music/backing to play instead of
+                                just the vocals, and a Drums stem for automatic tail animation.
+                                Accepts WAV, MP3, or M4A — non-WAV files are converted automatically.
+                            </div>
                         </div>
                         </div>
                     </div>
@@ -200,71 +205,162 @@
                         </h3>
 
                         <div class="space-y-4">
-                        <div>
-                            <label class="flex justify-between items-center text-sm text-slate-300">
-                                Gain (Volume Multiplier)
-                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
-                                      onclick="toggleTooltip(this)">help_outline</span>
-                            </label>
-                            <div class="relative">
-                                <div data-tooltip>
-                                    Scales this song's playback volume. 1.0 is unchanged; higher is
-                                    louder, lower is quieter.
+                        <div id="song-moves-editor" class="wf-editor">
+                            <div class="relative flex items-center justify-between gap-2 mb-2">
+                                <div class="wf-stem-tabs" id="wf-stem-tabs">
+                                    <button type="button" data-stem="vocals">Vocals</button>
+                                    <button type="button" data-stem="full">Full Mix</button>
+                                    <button type="button" data-stem="drums">Drums</button>
                                 </div>
-                                <div class="mb-2 mt-2 flex gap-2 items-center">
-                                    <div class="w-16 text-sm text-gray-200">
-                                        <span id="song-gain-value">1.0</span>x
-                                    </div>
-                                    <input type="range"
-                                           id="song-gain"
-                                           name="gain"
-                                           min="0.1" max="3.0" step="0.1" value="1.0"
-                                           class="hidden">
-                                    <div class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
-                                         id="song-gain-bar"
-                                         style="user-select: none;">
-                                        <div class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
-                                             id="song-gain-fill"
-                                             style="width: 31%;"
-                                             data-value="1.0"></div>
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-slate-300"
+                                      data-tooltip-target="wf-moves-tooltip"
+                                      onclick="toggleTooltip(this)">help_outline</span>
+                                <div id="wf-moves-tooltip" data-tooltip>
+                                    Pick a stem above to preview it, then click anywhere on the
+                                    waveform to play from that spot - it's the one player for
+                                    Vocals, Full Mix and Drums now. Click an empty spot on a lane
+                                    to drop a pointer, drag its body to move it, drag the right
+                                    edge to resize. The amber bars on Tail are the drum stem's
+                                    read-only RMS reference - switch to Manual to place real
+                                    pointers there instead. Every change updates Head Moves, Tail
+                                    Moves, and Mouth Mute above.
+                                </div>
+                            </div>
+
+                            <div class="wf-play-row" id="wf-play-row" style="display: none;">
+                                <button type="button" class="wf-play-btn" id="wf-play-btn" aria-label="Play">
+                                    <span class="material-icons" id="wf-play-icon">play_arrow</span>
+                                </button>
+                                <div class="wf-zoom-ctl">
+                                    <button type="button" id="wf-zoom-out" aria-label="Zoom out">−</button>
+                                    <input type="range" id="wf-zoom-range" min="1" max="6" step="0.5" value="1">
+                                    <button type="button" id="wf-zoom-in" aria-label="Zoom in">+</button>
+                                    <span class="wf-zoom-label">Zoom <span id="wf-zoom-label">1.0×</span></span>
+                                </div>
+                            </div>
+
+                            <div id="wf-empty-state" class="text-xs text-zinc-500 italic py-6 text-center border border-dashed border-zinc-700 rounded">
+                                Upload a Vocals file to start editing timing.
+                            </div>
+
+                            <div id="wf-editor-body" class="hidden">
+                                <div class="wf-editor-scroll" id="wf-editor-scroll">
+                                    <div class="wf-editor-inner" id="wf-editor-inner">
+                                        <div class="wf-ruler" id="wf-ruler"></div>
+                                        <div class="wf-wave-wrap">
+                                            <canvas id="wf-wave" width="800" height="72"></canvas>
+                                            <div class="wf-playhead" id="wf-playhead" style="left:0px"></div>
+                                        </div>
+
+                                        <div class="wf-lanes">
+                                            <div class="wf-lane-row">
+                                                <div class="wf-lane-label" style="--wf-lane-c:var(--wf-green)"><span class="wf-name"><span class="wf-dot"></span>Head</span></div>
+                                                <div class="wf-lane-track" id="wf-track-head" data-lane="head" style="--wf-lane-c:var(--wf-green)">
+                                                    <div class="wf-playhead" id="wf-playhead-head" style="left:0px"></div>
+                                                </div>
+                                            </div>
+                                            <div class="wf-lane-row">
+                                                <div class="wf-lane-label" style="--wf-lane-c:var(--wf-violet)"><span class="wf-name"><span class="wf-dot"></span>Mute mouth</span></div>
+                                                <div class="wf-lane-track" id="wf-track-mute" data-lane="mute" style="--wf-lane-c:var(--wf-violet)">
+                                                    <div class="wf-playhead" id="wf-playhead-mute" style="left:0px"></div>
+                                                </div>
+                                            </div>
+                                            <div class="wf-lane-row">
+                                                <div class="wf-lane-label" style="--wf-lane-c:var(--wf-yellow)">
+                                                    <span class="wf-name"><span class="wf-dot"></span>Tail</span>
+                                                    <div class="wf-lane-mode" id="wf-tail-mode-toggle" style="display: none;">
+                                                        <button type="button" data-mode="auto">Auto (drums)</button>
+                                                        <button type="button" data-mode="manual">Manual</button>
+                                                    </div>
+                                                </div>
+                                                <div class="wf-lane-track" id="wf-track-tail" data-lane="tail" style="--wf-lane-c:var(--wf-yellow)" data-readonly="false">
+                                                    <div class="wf-playhead" id="wf-playhead-tail" style="left:0px"></div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div>
-                            <label class="flex justify-between items-center text-sm text-slate-300">
-                                Mouth Articulation
-                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
-                                      onclick="toggleTooltip(this)">help_outline</span>
-                            </label>
-                            <div class="relative">
-                                <div data-tooltip>
-                                    How this song's mouth-sync speed feels - higher is slower/more
-                                    fluid, lower is snappier. Defaults to whichever persona is
-                                    currently loaded until you adjust it here.
-                                </div>
-                                <div class="mb-2 mt-2 flex gap-2 items-center">
-                                    <div class="w-20 text-sm text-gray-200">
-                                        Level: <span id="song-mouth-articulation-value">5</span>
+                        <div id="wf-tail-advanced" class="hidden">
+                            <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700">
+                                <p class="text-xs text-zinc-500 mb-3">Tune the automatic, drum-driven tail flap.</p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label for="song-bpm" class="block text-sm text-zinc-300 mb-2">
+                                            BPM (Beats Per Minute)
+                                        </label>
+                                        <input type="number" id="song-bpm" name="bpm"
+                                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                               value="120" min="40" max="200" step="0.1">
                                     </div>
-                                    <input type="range"
-                                           id="song-mouth-articulation"
-                                           name="mouth_articulation"
-                                           min="1" max="10" value="5"
-                                           class="hidden">
-                                    <div class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
-                                         id="song-mouth-articulation-bar"
-                                         style="user-select: none;">
-                                        <div class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
-                                             id="song-mouth-articulation-fill"
-                                             style="width: 44%;"
-                                             data-value="5"></div>
+
+                                    <div>
+                                        <label for="song-tail-threshold" class="block text-sm text-slate-300 mb-2">
+                                            Tail Threshold
+                                        </label>
+                                        <input type="number" id="song-tail-threshold" name="tail_threshold"
+                                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                               value="1500" min="0" max="10000" step="100">
+                                    </div>
+
+                                    <div>
+                                        <label for="song-compensate-tail" class="block text-sm text-slate-300 mb-2">
+                                            Compensate Tail (0-1)
+                                        </label>
+                                        <input type="number" id="song-compensate-tail" name="compensate_tail"
+                                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                               value="0" min="0" max="1" step="0.05">
+                                    </div>
+
+                                    <div>
+                                        <label for="song-half-tempo" class="block text-sm text-slate-300 mb-2">
+                                            Half Tempo Tail Flap
+                                        </label>
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <label class="wf-toggle" title="Half Tempo Tail Flap">
+                                                <input type="checkbox" id="song-half-tempo" name="half_tempo_tail_flap">
+                                                <span class="wf-toggle-track"><span class="wf-toggle-thumb"></span></span>
+                                            </label>
+                                            <span class="text-sm text-zinc-400">Enable half-tempo tail movement</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
+                        <div id="song-led-color-field" class="hidden">
+                            <div class="relative flex items-center justify-between gap-2 mb-1">
+                                <span class="flex items-center gap-2 text-xs" id="song-led-color-label-wrap" style="color: rgb(161 161 170)">
+                                    <span class="wf-dot" id="song-led-color-dot" style="background:#71717a"></span>
+                                    LED Color
+                                </span>
+                                <div class="flex items-center gap-2">
+                                    <div class="wf-lane-mode" id="song-led-mode-toggle">
+                                        <button type="button" data-mode="rainbow">Rainbow</button>
+                                        <button type="button" data-mode="solid">Solid</button>
+                                        <button type="button" data-mode="off">Off</button>
+                                    </div>
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-slate-300"
+                                          data-tooltip-target="wf-led-tooltip"
+                                          onclick="toggleTooltip(this)">help_outline</span>
+                                    <div id="wf-led-tooltip" data-tooltip>
+                                        Choose what the status LED does while this song plays: the
+                                        default rainbow animation, a solid pulse in a color you pick,
+                                        or off entirely.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="relative" id="song-led-color-bar-wrap" style="height: 30px;">
+                                <input type="color" id="song-led-color" value="#00c8ff"
+                                       class="wf-color-input w-full">
+                                <div id="song-led-color-rainbow" class="wf-color-rainbow"></div>
+                                <div id="song-led-color-off-bar" class="wf-off-track"></div>
+                            </div>
+                        </div>
+
+                        <div id="song-moves-legacy-inputs" class="hidden">
                         <div>
                             <label for="song-head-moves" class="flex justify-between items-center text-sm text-slate-300">
                                 Head Moves (time:duration pairs)
@@ -318,99 +414,101 @@
                                        placeholder="e.g., 5:3.0, 12:1.5">
                             </div>
                         </div>
-
-                        <div id="song-led-color-field" class="hidden">
-                            <label class="flex justify-between items-center text-sm text-slate-300">
-                                LED Color
-                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
-                                      onclick="toggleTooltip(this)">help_outline</span>
-                            </label>
-                            <div class="relative">
-                                <div data-tooltip>
-                                    When set, the status LED pulses this color while the song
-                                    plays. Leave unset for the default rainbow animation.
-                                </div>
-                                <div class="mt-2 flex items-center gap-3">
-                                    <input type="color" id="song-led-color" value="#00c8ff"
-                                           class="h-10 w-14 rounded border border-zinc-700 bg-zinc-800 cursor-pointer p-1">
-                                    <button type="button" id="song-led-color-clear"
-                                            class="secondary-action secondary-action--hover--rose h-10 px-3 text-sm"
-                                            style="display: none;">
-                                        Clear
-                                    </button>
-                                    <span id="song-led-color-label" class="text-sm text-zinc-400">Default rainbow animation</span>
-                                </div>
-                            </div>
                         </div>
-                        </div>
-                    </div>
 
-                    <!-- Advanced (Drums stem only), collapsed by default -->
-                    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg collapsible-section"
-                         id="section-song-advanced" data-default-collapsed="true">
-                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
-                            <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">tune</span>
-                            Advanced (Drums stem only)
-                            <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
-                        </h3>
-
-                        <div class="space-y-4">
-                            <p class="text-xs text-zinc-500">
-                                These only take effect when a Drums stem is uploaded — they tune
-                                the automatic, drum-driven tail flap.
-                            </p>
-
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label for="song-bpm" class="block text-sm text-zinc-300 mb-2">
-                                        BPM (Beats Per Minute)
-                                    </label>
-                                    <input type="number" id="song-bpm" name="bpm"
-                                           class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
-                                           value="120" min="40" max="200" step="0.1">
-                                </div>
-
-                                <div>
-                                    <label for="song-tail-threshold" class="block text-sm text-slate-300 mb-2">
-                                        Tail Threshold
-                                    </label>
-                                    <input type="number" id="song-tail-threshold" name="tail_threshold"
-                                           class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
-                                           value="1500" min="0" max="10000" step="100">
-                                </div>
-
-                                <div>
-                                    <label for="song-compensate-tail" class="block text-sm text-slate-300 mb-2">
-                                        Compensate Tail (0-1)
-                                    </label>
-                                    <input type="number" id="song-compensate-tail" name="compensate_tail"
-                                           class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
-                                           value="0" min="0" max="1" step="0.05">
-                                </div>
-
-                                <div>
-                                    <label for="song-half-tempo" class="block text-sm text-slate-300 mb-2">
-                                        Half Tempo Tail Flap
-                                    </label>
-                                    <div class="flex items-center gap-2 mt-1">
-                                        <input type="checkbox" id="song-half-tempo" name="half_tempo_tail_flap"
-                                               class="w-4 h-4 bg-zinc-800 border-zinc-700 rounded text-emerald-600 focus:ring-emerald-500">
-                                        <span class="text-sm text-zinc-400">Enable half-tempo tail movement</span>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="flex justify-between items-center text-sm text-slate-300">
+                                    Gain (Volume Multiplier)
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
+                                          onclick="toggleTooltip(this)">help_outline</span>
+                                </label>
+                                <div class="relative">
+                                    <div data-tooltip>
+                                        Scales this song's playback volume. 1.0 is unchanged; higher is
+                                        louder, lower is quieter.
+                                    </div>
+                                    <div class="mb-2 mt-2 flex gap-2 items-center">
+                                        <div class="w-16 text-sm text-gray-200">
+                                            <span id="song-gain-value">1.0</span>x
+                                        </div>
+                                        <input type="range"
+                                               id="song-gain"
+                                               name="gain"
+                                               min="0.1" max="3.0" step="0.1" value="1.0"
+                                               class="hidden">
+                                        <div class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
+                                             id="song-gain-bar"
+                                             style="user-select: none;">
+                                            <div class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
+                                                 id="song-gain-fill"
+                                                 style="width: 31%;"
+                                                 data-value="1.0"></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+
+                            <div>
+                                <label class="flex justify-between items-center text-sm text-slate-300">
+                                    Mouth Articulation
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
+                                          onclick="toggleTooltip(this)">help_outline</span>
+                                </label>
+                                <div class="relative">
+                                    <div data-tooltip>
+                                        How this song's mouth-sync speed feels - higher is slower/more
+                                        fluid, lower is snappier. Defaults to whichever persona is
+                                        currently loaded until you adjust it here.
+                                    </div>
+                                    <div class="mb-2 mt-2 flex gap-2 items-center">
+                                        <div class="w-20 text-sm text-gray-200">
+                                            Level: <span id="song-mouth-articulation-value">5</span>
+                                        </div>
+                                        <input type="range"
+                                               id="song-mouth-articulation"
+                                               name="mouth_articulation"
+                                               min="1" max="10" value="5"
+                                               class="hidden">
+                                        <div class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4"
+                                             id="song-mouth-articulation-bar"
+                                             style="user-select: none;">
+                                            <div class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100"
+                                                 id="song-mouth-articulation-fill"
+                                                 style="width: 44%;"
+                                                 data-value="5"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         </div>
                     </div>
 
                     </form>
 
                     <div id="song-edit-footer" class="hidden relative pt-0 md:py-4 flex justify-end">
-                        <div class="rounded shadow overflow-hidden border border-emerald-500">
-                            <button id="save-song-btn" type="button"
-                                    class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-black py-2 px-4 flex items-center gap-1 focus:outline-none">
-                                <span class="material-icons align-middle">save</span>
-                                <span id="save-song-btn-text">Save Song</span>
-                            </button>
+                        <div class="relative inline-block">
+                            <div class="flex rounded shadow overflow-hidden border border-emerald-500">
+                                <button id="save-song-btn" type="button"
+                                        class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-black py-2 px-4 flex items-center gap-1 focus:outline-none">
+                                    <span class="material-icons align-middle">save</span>
+                                    <span id="save-song-btn-text">Save Song</span>
+                                </button>
+                                <button id="song-save-dropdown-btn"
+                                        type="button"
+                                        class="dropdown-toggle bg-emerald-600 hover:bg-emerald-500 text-black px-2 flex items-center focus:outline-none"
+                                        onclick="toggleDropdown(this)">
+                                    <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
+                                </button>
+                            </div>
+                            <div class="dropdown-menu absolute bottom-full right-0 mb-1 w-48 text-black border border-emerald-500 backdrop-blur-xs rounded z-20 hidden">
+                                <button type="button" onclick="window.SongsManager.downloadCurrentSong()"
+                                        class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
+                                    <span class="material-icons">file_download</span>
+                                    Download Song
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

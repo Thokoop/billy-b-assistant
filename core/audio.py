@@ -63,9 +63,39 @@ last_played_time = time.time()
 song_mode = False
 beat_length = 0.5
 compensate_tail_beats = 0.0
+# Drum-triggered tail-flap beat tracking, read/written by the persistent
+# playback_worker() thread and reset per-song by reset_for_new_song().
+next_beat_time = 0.0
+drums_peak = 0.0
+drums_peak_time = 0.0
 song_mouth_threshold = 1500
 song_tail_threshold = 1500
 song_mouth_articulation = None  # None = fall back to the current persona's setting
+
+# A play_song() call whose session_thread couldn't be stopped in time gets
+# "detached" by button.py (session_thread = None) rather than actually
+# killed - Python can't forcibly kill a thread. Without this, that orphaned
+# call keeps feeding the shared playback_queue and reading/writing the
+# song_* globals above right alongside whatever song starts next, causing
+# audible glitches, drum-tail detection silently breaking (wrong thresholds),
+# or the new song's "wait for completion" loop hanging on a queue a zombie
+# keeps refilling. Same pattern as echo_canceller's render generation.
+_song_generation_lock = threading.Lock()
+_song_generation = 0
+
+
+def begin_song_generation() -> int:
+    """Claim a new song-playback epoch; invalidates any earlier one."""
+    global _song_generation
+    with _song_generation_lock:
+        _song_generation += 1
+        return _song_generation
+
+
+def is_current_song_generation(generation: int) -> bool:
+    with _song_generation_lock:
+        return generation == _song_generation
+
 
 PROVIDER_MIC_RATE = 24000
 PROVIDER_OUTPUT_RATE = 24000
@@ -234,15 +264,22 @@ def playback_worker(chunk_ms):
     global last_played_time
     global song_start_time
     global _playback_output_latency_seconds
+    # This worker is a single persistent thread for the process's whole
+    # lifetime (see ensure_playback_worker_started() - it only ever starts
+    # once), but reset_for_new_song() runs fresh at the top of every
+    # play_song() call and is meant to zero these out per-song. They must be
+    # the same globals reset_for_new_song() resets, not locals re-initialized
+    # only on this function's first (and only) call - otherwise next_beat_time
+    # keeps climbing from song 1's playback and is never caught up to by a
+    # later, shorter song's elapsed time, so its drum-triggered tail flaps
+    # silently never fire past the first song played since a restart.
+    global next_beat_time, drums_peak, drums_peak_time
 
     interlude_counter = 0
     interlude_target = random.randint(150000, 300000)
     head_move_active = False
     head_move_end_time = 0
     next_head_move = None
-    drums_peak = 0
-    drums_peak_time = 0
-    next_beat_time = 0
 
     try:
         with sd.OutputStream(
@@ -710,6 +747,7 @@ async def play_song(song_name, interrupt_event=None):
     from core.song_manager import song_manager
     from core.status_led import status_led
 
+    my_generation = begin_song_generation()
     reset_for_new_song()
 
     # Only songs actually copied to custom_songs are playable. Examples are a
@@ -911,9 +949,17 @@ async def play_song(song_name, interrupt_event=None):
     audio.song_mode = True
     ensure_playback_worker_started(CHUNK_MS)
 
-    # A song-specific color pulses instead of the default rainbow; empty/unset
-    # falls back to rainbow (cleared again in the finally block below).
-    status_led.set_song_color(status_led.parse_hex_color(metadata.get("led_color")))
+    # led_color is one of three things: empty/unset -> default rainbow, the
+    # sentinel "off" -> stay dark all song, or a "#rrggbb" string -> solid
+    # pulse in that color. All three are cleared again in the finally block
+    # below.
+    led_color_setting = str(metadata.get("led_color") or "").strip().lower()
+    status_led.set_song_led_off(led_color_setting == "off")
+    status_led.set_song_color(
+        None
+        if led_color_setting == "off"
+        else status_led.parse_hex_color(led_color_setting)
+    )
     mqtt_publish("billy/state", "playing_song")
     print(
         f"\n🎧 Playing {song_name}"
@@ -940,8 +986,14 @@ async def play_song(song_name, interrupt_event=None):
             )
 
             while True:
-                # Check for interruption
-                if interrupt_event and interrupt_event.is_set():
+                # Check for interruption - a newer play_song() call (this
+                # thread failed to stop in time and got detached, see
+                # begin_song_generation()'s comment) means we must stop
+                # feeding the shared queue even if interrupt_event was never
+                # set for us specifically.
+                if (interrupt_event and interrupt_event.is_set()) or not (
+                    is_current_song_generation(my_generation)
+                ):
                     print("🛑 Song playback interrupted")
                     break
 
@@ -1018,6 +1070,13 @@ async def play_song(song_name, interrupt_event=None):
                         break
                 break
 
+            if not is_current_song_generation(my_generation):
+                # A newer song now owns the shared queue - it's no longer
+                # ours to flush or wait on, just stop (see
+                # begin_song_generation()'s comment).
+                print("🛑 Superseded by a newer song, abandoning wait")
+                break
+
             # Check if queue is done
             if (
                 audio.playback_queue.empty()
@@ -1033,11 +1092,21 @@ async def play_song(song_name, interrupt_event=None):
         print(f"❌ Playback failed: {e}")
 
     finally:
-        audio.song_mode = False
-        stop_all_motors()
-        status_led.set_song_color(None)
-        mqtt_publish("billy/state", "idle")
-        print("🎶 Song finished, waiting for button press.")
+        # A superseded call must not run end-of-song cleanup - stop_all_motors()
+        # would yank the *new* song's active head/tail move mid-motion, and the
+        # state publishes/song_mode flag would clobber what the new song has
+        # already set for itself (see begin_song_generation()'s comment).
+        if is_current_song_generation(my_generation):
+            audio.song_mode = False
+            stop_all_motors()
+            status_led.set_song_color(None)
+            status_led.set_song_led_off(False)
+            mqtt_publish("billy/state", "idle")
+            print("🎶 Song finished, waiting for button press.")
+        else:
+            print(
+                "🧹 Superseded song cleanup skipped (a newer song owns playback state now)"
+            )
 
 
 def _resample_24k_mono_to_48k_stereo(mono: np.ndarray) -> np.ndarray:

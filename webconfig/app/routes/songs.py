@@ -89,6 +89,102 @@ def update_song(song_name):
         return jsonify({"error": str(e)}), 500
 
 
+@songs_bp.route('/songs/<song_name>/enabled', methods=['PUT'])
+def set_song_enabled(song_name):
+    """Toggle whether a song is eligible for Billy to pick/play on its own.
+
+    Only touches the 'enabled' field - reads the song's full existing
+    metadata first and re-saves it as a whole, since save_song_metadata()
+    writes a complete metadata.ini section (a partial dict would silently
+    reset every other field to its default).
+    """
+    try:
+        from core.song_manager import song_manager
+
+        data = request.get_json() or {}
+        if 'enabled' not in data:
+            return jsonify({"error": "'enabled' is required"}), 400
+
+        metadata = song_manager.get_song_metadata(song_name, is_custom=True)
+        if not metadata:
+            return jsonify({"error": "Song not found"}), 404
+
+        metadata['enabled'] = bool(data['enabled'])
+        success = song_manager.save_song_metadata(song_name, metadata)
+
+        if not success:
+            return jsonify({"error": "Failed to update song"}), 500
+
+        return jsonify({
+            "message": f"Song '{song_name}' enabled={metadata['enabled']}",
+            "enabled": metadata['enabled'],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@songs_bp.route('/songs/export/<song_name>', methods=['GET'])
+def export_song(song_name):
+    """Download a custom song as a zip bundle (metadata.ini + whichever
+    audio files it has)."""
+    try:
+        import io
+
+        from core.song_manager import song_manager
+
+        zip_bytes = song_manager.export_song_zip(song_name)
+        if zip_bytes is None:
+            return jsonify({"error": "Song not found"}), 404
+
+        return send_file(
+            io.BytesIO(zip_bytes),
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=f"{song_name}.zip",
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@songs_bp.route('/songs/import', methods=['POST'])
+def import_song():
+    """Create (or overwrite) a custom song from an uploaded zip bundle.
+
+    Unlike persona/profile import, the target name isn't chosen up front -
+    a song bundle covers several files at once (not one you're already
+    editing), so the name is derived from the uploaded zip's own filename,
+    the same way a brand new song's name is derived on creation.
+    """
+    try:
+        from pathlib import Path
+
+        from core.song_manager import song_manager
+
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        if not file.filename.lower().endswith('.zip'):
+            return jsonify({"error": "File must be a .zip"}), 400
+
+        song_name = secure_filename(Path(file.filename).stem).replace(' ', '_').lower()
+        if not song_name:
+            return jsonify({
+                "error": "Could not derive a song name from that file name"
+            }), 400
+
+        success, message = song_manager.import_song_zip(song_name, file.read())
+
+        if not success:
+            return jsonify({"error": message}), 400
+
+        return jsonify({"message": message, "name": song_name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @songs_bp.route('/songs/<song_name>', methods=['DELETE'])
 def delete_song(song_name):
     """Delete a song."""
