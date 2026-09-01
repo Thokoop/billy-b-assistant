@@ -92,3 +92,4 @@ wakewords/*.ppn
 !wakewords/hey-billy.ppn
 knowledge/
 test/
+/docs/plans

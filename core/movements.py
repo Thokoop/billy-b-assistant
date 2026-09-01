@@ -7,7 +7,7 @@ from threading import Lock, Thread
 
 import numpy as np
 
-from .config import BILLY_PINS, MOCKFISH, is_classic_billy
+from .config import BILLY_PINS, MOCKFISH, MOUTH_BOOST, is_classic_billy
 from .logger import logger
 
 
@@ -380,6 +380,11 @@ def flap_from_pcm_chunk(
 
     # Flap speed and duration scaling
     speed = int(np.clip(np.interp(normalized, [0.005, 0.15], [25, 100]), 25, 100))
+    # Compensates for mechanical variability between units - some mouth
+    # mechanisms (especially newer, not-yet-broken-in ones) need more torque
+    # than a quiet moment's computed speed to overcome static friction, even
+    # though the same hardware moves fine at full power (see Mouth Test).
+    speed = int(np.clip(speed * MOUTH_BOOST, 25, 100))
     duration_ms = np.interp(normalized, [0.005, 0.15], [15, 70])
 
     duration_ms = np.clip(duration_ms, 15, chunk_ms)

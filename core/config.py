@@ -192,6 +192,7 @@ MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS = float(
 )
 PLAYBACK_VOLUME = 1
 MOUTH_ARTICULATION = int(os.getenv("MOUTH_ARTICULATION", "5"))
+MOUTH_BOOST = float(os.getenv("MOUTH_BOOST", "1.0"))
 TURN_EAGERNESS = os.getenv("TURN_EAGERNESS", "high").strip().lower()
 HEAD_RETRACT_DELAY_SECONDS = float(os.getenv("HEAD_RETRACT_DELAY_SECONDS", "1.5"))
 WAKE_WORD_ENABLED = os.getenv("WAKE_WORD_ENABLED", "false").lower() == "true"

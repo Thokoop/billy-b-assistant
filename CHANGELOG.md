@@ -7,16 +7,18 @@ All notable changes to this project will be documented in this file.
 ## [2.5.0] — 2026-08-30
 
 ### Added
-- **Song Manager Improvements**: A full waveform-based editor and several quality-of-life features for managing custom songs
+- **Custom Song Manager Improvements**: A full waveform-based editor and several quality-of-life features for managing custom songs
   - Interactive waveform timeline for Head/Tail/Mouth Mute moves, replacing the plain text fields — click to add, drag to move/resize, double-click to remove, overlapping markers merge automatically
-  - Read-only drum RMS reference with a live Tail Threshold line for Auto tail mode
   - Seamless stem switching (Vocals/Full Mix/Drums) while previewing, without interrupting playback
+  - Read-only drum RMS reference with a live Tail Threshold line for Auto tail mode
   - Per-song Enable/Disable, so Billy can skip a song without deleting it
-  - Download/Upload Song as a zip bundle, matching Persona/Profile
-  - Per-song LED Color now supports Rainbow/Solid/Off
+  - Download/Upload Song as a zip bundle
+  - Per-song LED Color, supports Rainbow/Solid/Off
   - Folder Name field shows the song's storage folder next to its Display Title, auto-generated as you type when creating a new song
+  - Audio uploads now accept MP3 and M4A alongside WAV, automatically transcoded to the 16-bit PCM/stereo/24kHz format playback needs; non-standard WAV exports (e.g. 32-bit float from a DAW) are normalized the same way
 - **Show Tooltips Setting**: Added an Advanced Settings toggle to hide the (?) help icons throughout the Web UI.
 - **Profile ID Field**: User Profiles now shows a read-only Profile ID (the profile's internal storage name) next to Display Name, with the rename control moved there from the profile list.
+- **Mouth Boost Setting**: Added a Hardware Settings slider (1x-2.5x) that boosts mouth motor power during speech and songs, to compensate for mechanical variability between units (e.g. a stiffer, not-yet-broken-in mouth mechanism).
 
 ### Changed
 - **iOS-style Toggles**: Replaced Enabled/Disabled dropdowns and checkboxes with a consistent iOS-style switch across Advanced Settings, Wake-word, AEC, Mood, Mic Timeout Tail Flap, and the song editor.

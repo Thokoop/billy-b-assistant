@@ -88,6 +88,7 @@ const MainPageRouter = (() => {
             await SettingsForm.initHostFields();
             SettingsForm.initMouthArticulationSlider();
             SettingsForm.initStatusLedBrightnessSlider();
+            SettingsForm.initMouthBoostSlider();
             SettingsForm.bindFactoryReset();
             SettingsForm.bindEnvEditorCard();
             SettingsForm.bindNewsSources();

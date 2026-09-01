@@ -751,6 +751,21 @@ const SettingsForm = (() => {
         );
     };
 
+    const initMouthBoostSlider = () => {
+        setupSlider(
+            "mouth-boost-bar",
+            "mouth-boost-fill",
+            "MOUTH_BOOST",
+            1,
+            2.5,
+            {
+                step: 0.25,
+                valueDisplayId: "mouth-boost-value",
+                valueFormatter: (val) => `${Number(val).toFixed(2)}x`,
+            }
+        );
+    };
+
     function setupSlider(barId, fillId, inputId, min, max, options = {}) {
         const bar = document.getElementById(barId);
         const fill = document.getElementById(fillId);
@@ -851,6 +866,10 @@ const SettingsForm = (() => {
         const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
         if (ledBrightness && config.STATUS_LED_BRIGHTNESS) {
             ledBrightness.value = config.STATUS_LED_BRIGHTNESS;
+        }
+        const mouthBoost = document.getElementById("MOUTH_BOOST");
+        if (mouthBoost && config.MOUTH_BOOST) {
+            mouthBoost.value = config.MOUTH_BOOST;
         }
     };
 
@@ -1893,6 +1912,7 @@ const SettingsForm = (() => {
         initShowTooltipsToggle,
         initMouthArticulationSlider,
         initStatusLedBrightnessSlider,
+        initMouthBoostSlider,
         refreshFromConfig,
         populateCameraHardwareDropdown,
         bindCameraPreview,
