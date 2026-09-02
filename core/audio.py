@@ -51,6 +51,11 @@ os.makedirs(RESPONSE_HISTORY_DIR, exist_ok=True)
 
 playback_queue = Queue()
 head_move_queue = Queue()
+tail_move_queue = Queue()
+# List of (start_seconds, duration_seconds) windows during which mouth-flap
+# driving is suppressed. Unlike head/tail moves this isn't a one-shot fire -
+# checked by song-position on every chunk, so it's a plain list, not a Queue.
+mouth_mute_windows = []
 playback_done_event = threading.Event()
 _playback_thread = None
 _playback_output_latency_seconds = 0.0
@@ -58,8 +63,39 @@ last_played_time = time.time()
 song_mode = False
 beat_length = 0.5
 compensate_tail_beats = 0.0
+# Drum-triggered tail-flap beat tracking, read/written by the persistent
+# playback_worker() thread and reset per-song by reset_for_new_song().
+next_beat_time = 0.0
+drums_peak = 0.0
+drums_peak_time = 0.0
 song_mouth_threshold = 1500
 song_tail_threshold = 1500
+song_mouth_articulation = None  # None = fall back to the current persona's setting
+
+# A play_song() call whose session_thread couldn't be stopped in time gets
+# "detached" by button.py (session_thread = None) rather than actually
+# killed - Python can't forcibly kill a thread. Without this, that orphaned
+# call keeps feeding the shared playback_queue and reading/writing the
+# song_* globals above right alongside whatever song starts next, causing
+# audible glitches, drum-tail detection silently breaking (wrong thresholds),
+# or the new song's "wait for completion" loop hanging on a queue a zombie
+# keeps refilling. Same pattern as echo_canceller's render generation.
+_song_generation_lock = threading.Lock()
+_song_generation = 0
+
+
+def begin_song_generation() -> int:
+    """Claim a new song-playback epoch; invalidates any earlier one."""
+    global _song_generation
+    with _song_generation_lock:
+        _song_generation += 1
+        return _song_generation
+
+
+def is_current_song_generation(generation: int) -> bool:
+    with _song_generation_lock:
+        return generation == _song_generation
+
 
 PROVIDER_MIC_RATE = 24000
 PROVIDER_OUTPUT_RATE = 24000
@@ -228,15 +264,22 @@ def playback_worker(chunk_ms):
     global last_played_time
     global song_start_time
     global _playback_output_latency_seconds
+    # This worker is a single persistent thread for the process's whole
+    # lifetime (see ensure_playback_worker_started() - it only ever starts
+    # once), but reset_for_new_song() runs fresh at the top of every
+    # play_song() call and is meant to zero these out per-song. They must be
+    # the same globals reset_for_new_song() resets, not locals re-initialized
+    # only on this function's first (and only) call - otherwise next_beat_time
+    # keeps climbing from song 1's playback and is never caught up to by a
+    # later, shorter song's elapsed time, so its drum-triggered tail flaps
+    # silently never fire past the first song played since a restart.
+    global next_beat_time, drums_peak, drums_peak_time
 
     interlude_counter = 0
     interlude_target = random.randint(150000, 300000)
     head_move_active = False
     head_move_end_time = 0
     next_head_move = None
-    drums_peak = 0
-    drums_peak_time = 0
-    next_beat_time = 0
 
     try:
         with sd.OutputStream(
@@ -270,6 +313,19 @@ def playback_worker(chunk_ms):
                         head_move_end_time = now + move_duration
                         print(f"🐟 Head move started for {move_duration:.2f} seconds")
 
+                if not tail_move_queue.empty() and not movements.head_out:
+                    # Modern (2-motor) hardware shares one bridge between head and
+                    # tail, so a tail flap while the head is out would yank the
+                    # head back down. Defer - the move stays queued and fires as
+                    # soon as head_out clears, same as the automatic drums path.
+                    move_time, move_duration = tail_move_queue.queue[0]  # peek
+                    if now - song_start_time >= move_time:
+                        tail_move_queue.get()
+                        move_tail_async(duration=move_duration)
+                        print(
+                            f"🐟 Manual tail move started for {move_duration:.2f} seconds"
+                        )
+
                 if item is None:
                     logger.info("Received stop signal, cleaning up.", "🧵")
                     playback_queue.task_done()
@@ -280,10 +336,23 @@ def playback_worker(chunk_ms):
                     if mode == "song":
                         audio_chunk, flap_chunk, rms_drums = item[1], item[2], item[3]
 
+                        flap_samples = np.frombuffer(flap_chunk, dtype=np.int16)
+                        song_position = now - song_start_time
+                        if mouth_mute_windows and any(
+                            start <= song_position < start + duration
+                            for start, duration in mouth_mute_windows
+                        ):
+                            # Feed silence rather than skip the call entirely, so
+                            # flap_from_pcm_chunk's own "too quiet, stop motor"
+                            # path actively closes the mouth instead of leaving it
+                            # stuck wherever it was when the mute window began.
+                            flap_samples = np.zeros_like(flap_samples)
+
                         flap_from_pcm_chunk(
-                            np.frombuffer(flap_chunk, dtype=np.int16),
+                            flap_samples,
                             threshold=song_mouth_threshold,
                             chunk_ms=chunk_ms,
+                            articulation_override=song_mouth_articulation,
                         )
 
                         if rms_drums > drums_peak:
@@ -654,6 +723,8 @@ def reset_for_new_song():
         drums_peak_time
     playback_queue.queue.clear()
     head_move_queue.queue.clear()
+    tail_move_queue.queue.clear()
+    mouth_mute_windows.clear()
     playback_done_event.clear()
     last_played_time = time.time()
     song_start_time = time.time()
@@ -674,31 +745,36 @@ async def play_song(song_name, interrupt_event=None):
     from core.movements import stop_all_motors
     from core.mqtt import mqtt_publish
     from core.song_manager import song_manager
+    from core.status_led import status_led
 
+    my_generation = begin_song_generation()
     reset_for_new_song()
 
-    # Use song manager to find the correct song path
-    song_metadata = song_manager.get_song_metadata(song_name)
+    # Only songs actually copied to custom_songs are playable. Examples are a
+    # template gallery, not a live song - otherwise there'd be no way to
+    # "remove" a bundled example from Billy's rotation, since the example
+    # files themselves ship with every install and can't be deleted by users.
+    song_metadata = song_manager.get_song_metadata(song_name, is_custom=True)
 
-    # If not found by name, try to find by title
+    # If not found by name, try to find by title (custom songs only)
     if not song_metadata:
         songs = song_manager.list_songs()
         for song in songs:
-            if song.get('title', '').lower() == song_name.lower():
+            if (
+                song.get('is_custom')
+                and song.get('title', '').lower() == song_name.lower()
+            ):
                 song_metadata = song
                 break
 
     if not song_metadata:
-        print(f"❌ Song not found: {song_name}")
-        print(f"💡 Tip: Use the web UI to copy example songs or create new ones")
+        print(f"❌ Song not found in custom_songs: {song_name}")
+        print(f"💡 Tip: Use the web UI to copy example songs to custom_songs first")
         return
 
     # Get the actual song directory path using the song name (directory name)
     actual_song_name = song_metadata['name']
-    if song_metadata.get('is_custom', True):
-        SONG_DIR = f"./custom_songs/{actual_song_name}"
-    else:
-        SONG_DIR = f"./sounds/songs/{actual_song_name}"
+    SONG_DIR = f"./custom_songs/{actual_song_name}"
 
     # Double-check the directory exists
     if not os.path.exists(SONG_DIR):
@@ -706,8 +782,21 @@ async def play_song(song_name, interrupt_event=None):
         print(f"💡 Tip: Use the web UI to copy example songs or create new ones")
         return
 
-    MAIN_AUDIO = os.path.join(SONG_DIR, "full.wav")
+    has_full = bool(song_metadata.get('has_full'))
+    has_vocals = bool(song_metadata.get('has_vocals'))
+    has_drums = bool(song_metadata.get('has_drums'))
+
+    # Vocals is the only required stem, so a bare quote/line (no separate
+    # full mix) can just be a vocals.wav. If full.wav exists, it always wins
+    # as the main audio - vocals stays purely a mouth-flap driver in that case.
+    if not has_vocals:
+        print(f"❌ Song '{song_name}' has no vocals stem (required to play)")
+        return
+
+    song_manager.set_last_song(actual_song_name)
+
     VOCALS_AUDIO = os.path.join(SONG_DIR, "vocals.wav")
+    MAIN_AUDIO = os.path.join(SONG_DIR, "full.wav") if has_full else VOCALS_AUDIO
     DRUMS_AUDIO = os.path.join(SONG_DIR, "drums.wav")
 
     def load_metadata(song_dir):
@@ -717,11 +806,15 @@ async def play_song(song_name, interrupt_event=None):
         metadata = {
             "bpm": None,
             "head_moves": [],
+            "tail_moves": [],
+            "mouth_mutes": [],
             "mouth_threshold": 1500,
             "tail_threshold": 1500,
             "gain": 1.0,
             "compensate_tail": 0.0,
             "half_tempo_tail_flap": False,
+            "mouth_articulation": None,
+            "led_color": "",
         }
 
         # Try new metadata.ini format first
@@ -746,11 +839,39 @@ async def play_song(song_name, interrupt_event=None):
                     'SONG', 'half_tempo_tail_flap', fallback=False
                 )
 
+                articulation_str = config.get(
+                    'SONG', 'mouth_articulation', fallback=''
+                ).strip()
+                if articulation_str:
+                    metadata['mouth_articulation'] = max(
+                        0.0, min(10.0, float(articulation_str))
+                    )
+
+                metadata['led_color'] = config.get(
+                    'SONG', 'led_color', fallback=''
+                ).strip()
+
                 head_moves_str = config.get('SONG', 'head_moves', fallback='')
                 if head_moves_str:
                     metadata['head_moves'] = [
                         (float(v.split(':')[0]), float(v.split(':')[1]))
                         for v in head_moves_str.split(',')
+                        if ':' in v
+                    ]
+
+                tail_moves_str = config.get('SONG', 'tail_moves', fallback='')
+                if tail_moves_str:
+                    metadata['tail_moves'] = [
+                        (float(v.split(':')[0]), float(v.split(':')[1]))
+                        for v in tail_moves_str.split(',')
+                        if ':' in v
+                    ]
+
+                mouth_mutes_str = config.get('SONG', 'mouth_mutes', fallback='')
+                if mouth_mutes_str:
+                    metadata['mouth_mutes'] = [
+                        (float(v.split(':')[0]), float(v.split(':')[1]))
+                        for v in mouth_mutes_str.split(',')
                         if ':' in v
                     ]
             return metadata
@@ -782,6 +903,23 @@ async def play_song(song_name, interrupt_event=None):
                         metadata[key] = value.strip().lower() == "true"
         return metadata
 
+    # Real audio length - manual head/tail moves must never outlast it. Once
+    # the last audio chunk is consumed, nothing else ticks the playback loop
+    # to notice a move's timer has expired, so an unclamped move would leave
+    # the head/tail stuck out until the *next* sound plays (if ever).
+    with wave.open(MAIN_AUDIO, 'rb') as _probe:
+        song_duration_seconds = _probe.getnframes() / _probe.getframerate()
+
+    def _clamp_moves(moves):
+        clamped = []
+        for move_time, move_duration in moves:
+            if move_time >= song_duration_seconds:
+                continue
+            duration = min(move_duration, song_duration_seconds - move_time)
+            if duration > 0:
+                clamped.append((move_time, duration))
+        return clamped
+
     # --- Load metadata ---
     metadata = load_metadata(SONG_DIR)
     GAIN = metadata.get("gain", 1.0)
@@ -790,12 +928,17 @@ async def play_song(song_name, interrupt_event=None):
     tail_threshold = metadata.get("tail_threshold", 1500)
     global compensate_tail_beats
     compensate_tail_beats = metadata.get("compensate_tail", 0.0)
-    global song_mouth_threshold, song_tail_threshold
+    global song_mouth_threshold, song_tail_threshold, song_mouth_articulation
     song_mouth_threshold = mouth_threshold
     song_tail_threshold = tail_threshold
-    head_move_schedule = metadata.get("head_moves", [])
+    song_mouth_articulation = metadata.get("mouth_articulation")
+    head_move_schedule = _clamp_moves(metadata.get("head_moves", []))
     for move in head_move_schedule:
         audio.head_move_queue.put(move)
+    tail_move_schedule = _clamp_moves(metadata.get("tail_moves", []))
+    for move in tail_move_schedule:
+        audio.tail_move_queue.put(move)
+    audio.mouth_mute_windows.extend(metadata.get("mouth_mutes", []))
     half_tempo_tail_flap = metadata.get("half_tempo_tail_flap", False)
 
     audio.beat_length = 60.0 / BPM
@@ -806,32 +949,59 @@ async def play_song(song_name, interrupt_event=None):
     audio.song_mode = True
     ensure_playback_worker_started(CHUNK_MS)
 
+    # led_color is one of three things: empty/unset -> default rainbow, the
+    # sentinel "off" -> stay dark all song, or a "#rrggbb" string -> solid
+    # pulse in that color. All three are cleared again in the finally block
+    # below.
+    led_color_setting = str(metadata.get("led_color") or "").strip().lower()
+    status_led.set_song_led_off(led_color_setting == "off")
+    status_led.set_song_color(
+        None
+        if led_color_setting == "off"
+        else status_led.parse_hex_color(led_color_setting)
+    )
     mqtt_publish("billy/state", "playing_song")
-    print(f"\n🎧 Playing {song_name} with mouth (vocals) and tail (drums) flaps")
+    print(
+        f"\n🎧 Playing {song_name}"
+        + (" (vocals-only)" if not has_full else "")
+        + " with mouth (vocals) flaps"
+        + (" and tail (drums) flaps" if has_drums else " (no drums stem, tail idle)")
+    )
 
     try:
         with contextlib.ExitStack() as stack:
             wf_main = stack.enter_context(wave.open(MAIN_AUDIO, 'rb'))
             wf_vocals = stack.enter_context(wave.open(VOCALS_AUDIO, 'rb'))
-            wf_drums = stack.enter_context(wave.open(DRUMS_AUDIO, 'rb'))
+            wf_drums = (
+                stack.enter_context(wave.open(DRUMS_AUDIO, 'rb')) if has_drums else None
+            )
 
             rate_main = wf_main.getframerate()
             rate_vocals = wf_vocals.getframerate()
-            rate_drums = wf_drums.getframerate()
 
             chunk_size_main = int(rate_main * CHUNK_MS / 1000)
             chunk_size_vocals = int(rate_vocals * CHUNK_MS / 1000)
-            chunk_size_drums = int(rate_drums * CHUNK_MS / 1000)
+            chunk_size_drums = (
+                int(wf_drums.getframerate() * CHUNK_MS / 1000) if wf_drums else 0
+            )
 
             while True:
-                # Check for interruption
-                if interrupt_event and interrupt_event.is_set():
+                # Check for interruption - a newer play_song() call (this
+                # thread failed to stop in time and got detached, see
+                # begin_song_generation()'s comment) means we must stop
+                # feeding the shared queue even if interrupt_event was never
+                # set for us specifically.
+                if (interrupt_event and interrupt_event.is_set()) or not (
+                    is_current_song_generation(my_generation)
+                ):
                     print("🛑 Song playback interrupted")
                     break
 
                 frames_main = wf_main.readframes(chunk_size_main)
                 frames_vocals = wf_vocals.readframes(chunk_size_vocals)
-                frames_drums = wf_drums.readframes(chunk_size_drums)
+                frames_drums = (
+                    wf_drums.readframes(chunk_size_drums) if wf_drums else b""
+                )
 
                 if not frames_main:
                     break
@@ -858,17 +1028,20 @@ async def play_song(song_name, interrupt_event=None):
                     np.int16
                 )
 
-                # --- Drums (for tail flap)
-                samples_drums = np.frombuffer(frames_drums, dtype=np.int16)
-                samples_drums = samples_drums.reshape((-1, 2)).mean(axis=1)
-                if rate_drums == 48000:
-                    samples_drums = resample(
-                        samples_drums, len(samples_drums) // 2
-                    ).astype(np.int16)
-                samples_drums = np.clip(samples_drums * GAIN, -32768, 32767).astype(
-                    np.int16
-                )
-                rms_drums = np.sqrt(np.mean(samples_drums.astype(np.float32) ** 2))
+                # --- Drums (for automatic tail flap; optional stem)
+                if wf_drums and frames_drums:
+                    samples_drums = np.frombuffer(frames_drums, dtype=np.int16)
+                    samples_drums = samples_drums.reshape((-1, 2)).mean(axis=1)
+                    if wf_drums.getframerate() == 48000:
+                        samples_drums = resample(
+                            samples_drums, len(samples_drums) // 2
+                        ).astype(np.int16)
+                    samples_drums = np.clip(samples_drums * GAIN, -32768, 32767).astype(
+                        np.int16
+                    )
+                    rms_drums = np.sqrt(np.mean(samples_drums.astype(np.float32) ** 2))
+                else:
+                    rms_drums = 0.0
 
                 # --- Enqueue combined chunk
                 audio.playback_queue.put((
@@ -897,6 +1070,13 @@ async def play_song(song_name, interrupt_event=None):
                         break
                 break
 
+            if not is_current_song_generation(my_generation):
+                # A newer song now owns the shared queue - it's no longer
+                # ours to flush or wait on, just stop (see
+                # begin_song_generation()'s comment).
+                print("🛑 Superseded by a newer song, abandoning wait")
+                break
+
             # Check if queue is done
             if (
                 audio.playback_queue.empty()
@@ -912,10 +1092,21 @@ async def play_song(song_name, interrupt_event=None):
         print(f"❌ Playback failed: {e}")
 
     finally:
-        audio.song_mode = False
-        stop_all_motors()
-        mqtt_publish("billy/state", "idle")
-        print("🎶 Song finished, waiting for button press.")
+        # A superseded call must not run end-of-song cleanup - stop_all_motors()
+        # would yank the *new* song's active head/tail move mid-motion, and the
+        # state publishes/song_mode flag would clobber what the new song has
+        # already set for itself (see begin_song_generation()'s comment).
+        if is_current_song_generation(my_generation):
+            audio.song_mode = False
+            stop_all_motors()
+            status_led.set_song_color(None)
+            status_led.set_song_led_off(False)
+            mqtt_publish("billy/state", "idle")
+            print("🎶 Song finished, waiting for button press.")
+        else:
+            print(
+                "🧹 Superseded song cleanup skipped (a newer song owns playback state now)"
+            )
 
 
 def _resample_24k_mono_to_48k_stereo(mono: np.ndarray) -> np.ndarray:

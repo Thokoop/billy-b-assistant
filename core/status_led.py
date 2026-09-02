@@ -72,6 +72,8 @@ class StatusLed:
         self._transient_until = 0.0
         self._timeout_progress: float | None = None
         self._timeout_started_at = 0.0
+        self._song_color: ColorTuple | None = None
+        self._song_led_off = False
         self._initialized = False
         self._brightness = max(0.0, min(config.STATUS_LED_BRIGHTNESS, 1.0))
         self._backend: str | None = None
@@ -182,6 +184,38 @@ class StatusLed:
             self._timeout_progress = None
             self._timeout_started_at = 0.0
 
+    def set_song_color(self, color: ColorTuple | None):
+        """Set (or clear) a custom pulse color for the "playing_song" state.
+
+        When set, "playing_song" pulses this color instead of the default
+        rainbow animation. Pass None to fall back to rainbow.
+        """
+        with self._lock:
+            self._song_color = color
+
+    def set_song_led_off(self, off: bool):
+        """Force the "playing_song" state to stay dark for this song.
+
+        Takes priority over set_song_color()'s solid pulse and the default
+        rainbow animation alike - a third option alongside them, not a
+        variant of either.
+        """
+        with self._lock:
+            self._song_led_off = bool(off)
+
+    @staticmethod
+    def parse_hex_color(value: str | None) -> ColorTuple | None:
+        """Parse a '#rrggbb' string into an (r, g, b) tuple, or None if empty/invalid."""
+        if not value:
+            return None
+        value = value.strip().lstrip("#")
+        if len(value) != 6:
+            return None
+        try:
+            return (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
+        except ValueError:
+            return None
+
     def _animation_state(self, now: float) -> str:
         """Return a transient animation state without replacing logical state."""
         with self._lock:
@@ -197,6 +231,8 @@ class StatusLed:
         with self._lock:
             timeout_progress = self._timeout_progress
             timeout_started_at = self._timeout_started_at
+            song_color = self._song_color
+            song_led_off = self._song_led_off
 
         if state == "listening" and timeout_progress is not None:
             # Stay solid while listening; the color blend alone (green through
@@ -205,6 +241,11 @@ class StatusLed:
                 "mode": "solid",
                 "color": self._timeout_color(timeout_progress),
             }
+        if state == "playing_song" and song_led_off:
+            return self._STATE_CONFIG["off"]
+        if state == "playing_song" and song_color is not None:
+            # A song-specific color pulses instead of the default rainbow.
+            return {"mode": "pulse", "color": song_color, "period": 1.2}
         return self._STATE_CONFIG.get(state, self._STATE_CONFIG["off"])
 
     @staticmethod
@@ -240,6 +281,8 @@ class StatusLed:
             self._transient_until = 0.0
             self._timeout_progress = None
             self._timeout_started_at = 0.0
+            self._song_color = None
+            self._song_led_off = False
         if strip and hasattr(strip, "deinit"):
             with contextlib.suppress(Exception):
                 strip.deinit()
@@ -387,6 +430,16 @@ def set_status_led_timeout_progress(progress: float):
 def clear_status_led_timeout_progress():
     """Clear microphone timeout progress from the shared LED."""
     status_led.clear_timeout_progress()
+
+
+def set_status_led_song_color(color: ColorTuple | None):
+    """Set (or clear) the shared status LED's per-song pulse color."""
+    status_led.set_song_color(color)
+
+
+def set_status_led_song_off(off: bool):
+    """Force (or release) the shared status LED staying dark for this song."""
+    status_led.set_song_led_off(off)
 
 
 def cleanup_status_led():

@@ -62,6 +62,7 @@ if config.MOCKFISH or not gpiozero_available:
     Button = MockButton
 from .movements import move_head
 from .session_manager import BillySession
+from .song_manager import song_manager
 
 
 # Button and session globals
@@ -75,6 +76,7 @@ _button_was_pressed = False
 _button_interrupt_armed = False
 button_debounce_delay = 0.12  # seconds debounce against switch bounce
 button_release_settle_delay = 0.20
+SONG_MODE_WAKEWORD_RESUME_DELAY = 1.5  # let room echo/reverb decay before re-arming
 _button_rearm_required = False
 _button_released_since = 0.0
 _button_state_lock = threading.Lock()
@@ -242,6 +244,10 @@ def _stop_active_session():
                     logger.warning("Session thread did not finish in time", "⚠️")
                     # Do not keep the start lock blocked forever by a stuck thread.
                     _force_release_session_start_lock("session thread timeout")
+    elif session_thread and session_thread.is_alive():
+        # Song-mode playback has no BillySession/websocket to tear down; just
+        # wait for the playback thread to notice the interrupt and exit.
+        session_thread.join(timeout=2.0)
     is_active = False  # Ensure this is always set after stopping
 
 
@@ -298,7 +304,10 @@ def _handle_active_session_button_press(force_stop: bool = False):
         except Exception as e:
             logger.warning(f"Turn handoff failed, stopping session instead: {e}")
 
-    logger.info("Billy is listening. Ending session.", "🛑")
+    if config.RUN_MODE == "song":
+        logger.info("Button pressed during song playback. Stopping song.", "🛑")
+    else:
+        logger.info("Billy is listening. Ending session.", "🛑")
     _require_button_release()
     _stop_active_session()
 
@@ -407,38 +416,104 @@ def trigger_session_start(source: str = "button"):
                         return False
 
         audio.ensure_playback_worker_started(config.CHUNK_MS)
-        # Clear the playback done event so session waits for wake-up sound
-        audio.playback_done_event.clear()
-        logger.info("🔧 playback_done_event cleared (waiting for wake-up sound)", "🔧")
-        set_status_led_state("starting")
-        threading.Thread(target=audio.play_random_wake_up_clip, daemon=True).start()
         _button_interrupt_armed = False
         is_active = True
         interrupt_event = threading.Event()  # Fresh event for each session
-        logger.info(f"{source} trigger received. Listening...", "🎤")
 
-        def run_session():
-            global session_instance, is_active, _button_interrupt_armed
-            try:
-                session_instance = BillySession(interrupt_event=interrupt_event)
-                session_instance.last_activity[0] = time.time()
-                asyncio.run(session_instance.start())
-            except Exception as e:
-                logger.error(f"Session error: {e}")
-            finally:
-                move_head("off")
-                is_active = False
-                _button_interrupt_armed = False
-                session_instance = None  # Clear reference
-                if get_status_led_state() not in {"error", "stopping", "off"}:
-                    set_status_led_state("idle")
-                # Give ALSA a short moment to release the capture handle.
-                time.sleep(0.3)
-                _resume_wakeword_listener()
-                logger.info("Waiting for button press...", "🕐")
-                # Release lock when session finishes
-                with contextlib.suppress(Exception):
-                    _session_start_lock.release()  # Lock might already be released
+        if config.RUN_MODE == "song":
+            logger.info(
+                f"{source} trigger received (song mode). Playing a song...", "🎵"
+            )
+
+            def run_session():
+                global is_active, _button_interrupt_armed
+                my_thread = threading.current_thread()
+                try:
+                    song_name = song_manager.pick_random_song()
+                    if not song_name:
+                        logger.warning(
+                            "Song mode is active, but no songs are available.", "⚠️"
+                        )
+                        return
+                    asyncio.run(
+                        audio.play_song(song_name, interrupt_event=interrupt_event)
+                    )
+                except Exception as e:
+                    logger.error(f"Song playback error: {e}")
+                finally:
+                    # A thread that got "detached" (trigger_session_start()
+                    # gave up waiting for it and reassigned/cleared the
+                    # session_thread global to start a newer session) must
+                    # not run this cleanup - it would stop the *new*
+                    # session's head move, clear its is_active flag, and
+                    # release the lock the new session is actively holding,
+                    # letting a third session start prematurely on top of it.
+                    if session_thread is not my_thread:
+                        logger.info(
+                            "Detached song session finished; skipping cleanup "
+                            "(a newer session is active)",
+                            "🧹",
+                        )
+                        return
+                    move_head("off")
+                    is_active = False
+                    _button_interrupt_armed = False
+                    if get_status_led_state() not in {"error", "stopping", "off"}:
+                        set_status_led_state("idle")
+                    # Songs are louder/more bass-heavy than short TTS clips and the
+                    # wake-word listener has no echo cancellation at all (unlike a
+                    # BillySession, which has AEC while a response plays) - give
+                    # room reverb time to decay so it doesn't false-trigger on the
+                    # song's own tail and immediately start another one.
+                    time.sleep(SONG_MODE_WAKEWORD_RESUME_DELAY)
+                    _resume_wakeword_listener()
+                    logger.info("Waiting for button press...", "🕐")
+                    with contextlib.suppress(Exception):
+                        _session_start_lock.release()
+
+        else:
+            # Clear the playback done event so session waits for wake-up sound
+            audio.playback_done_event.clear()
+            logger.info(
+                "🔧 playback_done_event cleared (waiting for wake-up sound)", "🔧"
+            )
+            set_status_led_state("starting")
+            threading.Thread(target=audio.play_random_wake_up_clip, daemon=True).start()
+            logger.info(f"{source} trigger received. Listening...", "🎤")
+
+            def run_session():
+                global session_instance, is_active, _button_interrupt_armed
+                try:
+                    session_instance = BillySession(interrupt_event=interrupt_event)
+                    session_instance.last_activity[0] = time.time()
+                    asyncio.run(session_instance.start())
+                except ValueError as e:
+                    if "Realtime AI provider" in str(e) and "not found" in str(e):
+                        logger.error(
+                            f"Session error: {e} - no API key configured for this "
+                            "provider (check OPENAI_API_KEY/XAI_API_KEY in .env)"
+                        )
+                        from .session.error_handler import play_standalone_error_sound
+
+                        asyncio.run(play_standalone_error_sound("error", str(e)))
+                    else:
+                        logger.error(f"Session error: {e}")
+                except Exception as e:
+                    logger.error(f"Session error: {e}")
+                finally:
+                    move_head("off")
+                    is_active = False
+                    _button_interrupt_armed = False
+                    session_instance = None  # Clear reference
+                    if get_status_led_state() not in {"error", "stopping", "off"}:
+                        set_status_led_state("idle")
+                    # Give ALSA a short moment to release the capture handle.
+                    time.sleep(0.3)
+                    _resume_wakeword_listener()
+                    logger.info("Waiting for button press...", "🕐")
+                    # Release lock when session finishes
+                    with contextlib.suppress(Exception):
+                        _session_start_lock.release()  # Lock might already be released
 
         session_thread = threading.Thread(target=run_session, daemon=True)
         session_thread.start()

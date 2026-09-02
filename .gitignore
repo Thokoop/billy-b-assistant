@@ -6,8 +6,11 @@ __pycache__/
 # Response history audio files
 sounds/response-history/
 
-# grok 
+# Grok AI
 .grok
+
+# Claude AI
+.claude
 
 # MACOS-SPECIFIC FILES
 ## General
@@ -73,7 +76,8 @@ core/__pycache__/
 
 # PROJECT-SPECIFIC FILES
 .idea
-.env
+.env*
+!.env.example
 persona.ini
 versions.ini
 venv
@@ -82,9 +86,11 @@ personas/
 !persona_presets/*/persona.ini
 profiles/
 custom_songs/
+state/
 3d_files/
 models/
 wakewords/*.ppn
 !wakewords/hey-billy.ppn
 knowledge/
 test/
+/docs/plans

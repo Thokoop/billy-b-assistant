@@ -105,6 +105,9 @@ class UserProfilePanel {
 
             // Bind display name management
             this.bindDisplayNameManagement();
+
+            // Bind Profile ID rename button
+            this.bindProfileIdRename();
         }
 
         // Load initial data
@@ -185,7 +188,8 @@ class UserProfilePanel {
             this.updateDisplayNameVisibility();
             this.updateSaveButtonVisibility();
             this.updateProfileSettingsVisibility();
-            
+            this.updateProfileIdField();
+
             // Update persona selector to show current persona
             await this.updatePersonaSelectorForCurrentUser();
             this.updateCurrentUserDisplay();
@@ -419,17 +423,12 @@ class UserProfilePanel {
                 </div>
                 <div class="flex items-center space-x-2">
                     ${!isGuestProfile ? `
-                    <button type="button" class="icon-action-btn icon-action-btn--edit" 
-                            onclick="event.stopPropagation(); window.UserProfilePanel.editProfile('${profileName}')" 
-                            title="Rename profile">
-                        <span class="material-icons">edit</span>
-                    </button>
-                    ` : ''}
-                    <button type="button" class="${profileName === currentUser ? 'secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0 opacity-50 cursor-not-allowed' : 'secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0'}" 
-                            onclick="event.stopPropagation(); ${profileName === currentUser ? 'window.UserProfilePanel.showCurrentUserDeleteMessage()' : `window.UserProfilePanel.deleteProfile('${profileName}')`}" 
+                    <button type="button" class="${profileName === currentUser ? 'secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0 opacity-50 cursor-not-allowed' : 'secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0'}"
+                            onclick="event.stopPropagation(); ${profileName === currentUser ? 'window.UserProfilePanel.showCurrentUserDeleteMessage()' : `window.UserProfilePanel.deleteProfile('${profileName}')`}"
                             title="${profileName === currentUser ? 'Cannot delete current user' : 'Delete profile'}">
                         <span class="material-icons">delete</span>
                     </button>
+                    ` : ''}
                 </div>
             `;
 
@@ -626,7 +625,7 @@ class UserProfilePanel {
     }
 
     updateDisplayNameVisibility() {
-        const displayNameSection = document.querySelector('#display-name-input-main') && document.querySelector('#display-name-input-main').closest('div').parentElement;
+        const displayNameSection = document.getElementById('profile-name-row-main');
         const personaSection = document.querySelector('#persona-select-main') && document.querySelector('#persona-select-main').closest('div').parentElement;
         const statsSection = document.querySelector('#section-stats-main');
         const moodSection = document.querySelector('#section-mood-main');
@@ -635,7 +634,7 @@ class UserProfilePanel {
 
         if (this.currentUser && this.currentUser !== 'guest') {
             // Logged in user: show everything
-            if (displayNameSection) displayNameSection.style.display = 'block';
+            if (displayNameSection) displayNameSection.style.display = 'grid';
             if (personaSection) personaSection.style.display = 'block';
             if (statsSection) statsSection.style.display = 'block';
             if (moodSection) moodSection.style.display = 'block';
@@ -855,6 +854,30 @@ class UserProfilePanel {
         }
     }
 
+    // Bind the "Profile ID" field's rename button (Profile Settings panel)
+    bindProfileIdRename() {
+        const btn = document.getElementById('profile-id-rename-btn-main');
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (this.currentUser && this.currentUser !== 'guest') {
+                    this.editProfile(this.currentUser);
+                }
+            });
+        }
+    }
+
+    // Show the current profile's internal ID (the "<name>.ini" filename,
+    // sans extension) next to its editable Display Name.
+    updateProfileIdField() {
+        const display = document.getElementById('profile-id-display-main');
+        const renameBtn = document.getElementById('profile-id-rename-btn-main');
+        if (!display) return;
+
+        const isGuest = this.currentUser === 'guest' || this.currentUser === null;
+        display.textContent = isGuest ? '' : this.currentUser;
+        if (renameBtn) renameBtn.classList.toggle('hidden', isGuest);
+    }
+
     // Load display name for current user
     async loadDisplayName() {
         try {
@@ -1057,6 +1080,11 @@ class UserProfilePanel {
     }
 
     async deleteProfile(profileName) {
+        if (profileName.toLowerCase() === 'guest') {
+            this.showGuestDeleteMessage();
+            return;
+        }
+
         if (profileName === this.currentUser) {
             this.showNotification('Cannot delete the currently active user profile. Switch to a different user first, then delete this profile.', 'error', 8000);
             return;
@@ -1514,6 +1542,10 @@ class UserProfilePanel {
 
     showCurrentUserDeleteMessage() {
         this.showNotification('Cannot delete the currently active user profile. Switch to a different user first, then delete this profile.', 'error', 8000);
+    }
+
+    showGuestDeleteMessage() {
+        this.showNotification('The Guest profile cannot be deleted.', 'error');
     }
 
     debugLog(level, message, ...args) {

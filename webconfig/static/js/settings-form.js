@@ -12,9 +12,11 @@ const SettingsForm = (() => {
         return MODEL_ALIASES[v] || v;
     };
 
+    // STATUS_LED_ENABLED intentionally isn't here - it no longer has its own
+    // select/toggle (0% brightness means "off" now); handleSettingsSave()
+    // derives and submits it from STATUS_LED_BRIGHTNESS on every save instead.
     const BOOLEAN_SELECT_IDS = new Set([
         'AEC_ENABLED',
-        'STATUS_LED_ENABLED',
         'WAKE_WORD_ENABLED',
         'MIC_TIMEOUT_TAIL_FLAP',
         'MOOD_INSTRUCTIONS_ENABLED',
@@ -49,12 +51,31 @@ const SettingsForm = (() => {
         return true;
     };
 
+    // The 5 BOOLEAN_SELECT_IDS keep their original <select> (hidden) as the
+    // real form control - it's what FormData/localStorage/refreshFromConfig
+    // already all work against, untouched. The visible iOS-style switch is a
+    // pure proxy: this keeps it in sync whenever code sets the select's value
+    // programmatically (population/refresh never fire a 'change' event, so
+    // the toggle's own 'change' listener wouldn't see these).
+    const syncBooleanToggle = (selectElement) => {
+        if (!selectElement || !BOOLEAN_SELECT_IDS.has(selectElement.id)) return;
+        const toggle = document.getElementById(`${selectElement.id}_toggle`);
+        if (toggle) toggle.checked = selectElement.value === 'true';
+    };
+
     const ensureSelectHasValue = (element, preferredValue, fallbackValue = null) => {
         if (!element) return false;
-        if (setSelectValueSafely(element, preferredValue)) return true;
-        if (setSelectValueSafely(element, fallbackValue)) return true;
+        if (setSelectValueSafely(element, preferredValue)) {
+            syncBooleanToggle(element);
+            return true;
+        }
+        if (setSelectValueSafely(element, fallbackValue)) {
+            syncBooleanToggle(element);
+            return true;
+        }
         if (element.options.length > 0) {
             element.value = element.options[0].value;
+            syncBooleanToggle(element);
             return true;
         }
         return false;
@@ -226,7 +247,6 @@ const SettingsForm = (() => {
             { id: 'CAMERA_HARDWARE', key: 'CAMERA_HARDWARE' },
             { id: 'BILLY_PINS_SELECT', key: 'BILLY_PINS' },
             { id: 'HA_LANG', key: 'HA_LANG' },
-            { id: 'STATUS_LED_ENABLED', key: 'STATUS_LED_ENABLED' },
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
             { id: 'AEC_ENABLED', key: 'AEC_ENABLED' },
             { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
@@ -293,11 +313,43 @@ const SettingsForm = (() => {
         }
     };
 
+    // Binds each BOOLEAN_SELECT_IDS field's visible iOS toggle to its hidden
+    // <select> (the real, save/load-wired form control - see
+    // syncBooleanToggle()'s comment for why the select stays the source of
+    // truth). One-time bind guarded by dataset, same as the rest of this
+    // form's init functions - the settings page's DOM persists across SPA
+    // navigations, so this can run again on a return visit.
+    const initBooleanToggles = () => {
+        BOOLEAN_SELECT_IDS.forEach((id) => {
+            const select = document.getElementById(id);
+            const toggle = document.getElementById(`${id}_toggle`);
+            if (!select || !toggle) return;
+            toggle.checked = select.value === 'true';
+            if (toggle.dataset.bound === 'true') return;
+            toggle.dataset.bound = 'true';
+            toggle.addEventListener('change', () => {
+                select.value = toggle.checked ? 'true' : 'false';
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+    };
+
+    // Applies immediately (not just after Save Settings) so you see the
+    // effect right away, the same way "UI Animations & Effects" does.
+    const initShowTooltipsToggle = () => {
+        const checkbox = document.getElementById('SHOW_TOOLTIPS');
+        if (!checkbox || checkbox.dataset.bound === 'true') return;
+        checkbox.dataset.bound = 'true';
+        checkbox.addEventListener('change', () => {
+            applyShowTooltipsPreference(checkbox.checked);
+        });
+    };
+
     const saveDropdownSelections = () => {
         // Save dropdown selections to localStorage when they change
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-            'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
+            'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY', 'AEC_ENABLED',
             'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
         ];
@@ -373,6 +425,16 @@ const SettingsForm = (() => {
                 payload.MOUTH_ARTICULATION = mouthArticulationInput.value;
             }
 
+            // STATUS_LED_ENABLED no longer has its own control - 0% brightness
+            // now means "off". Derive and submit it on every save so it stays
+            // consistent with STATUS_LED_BRIGHTNESS (core/config.py also
+            // AND-gates on brightness > 0 for anyone with an older .env who
+            // hasn't saved from this form yet).
+            const statusLedBrightnessInput = document.getElementById("STATUS_LED_BRIGHTNESS");
+            if (statusLedBrightnessInput) {
+                payload.STATUS_LED_ENABLED = parseFloat(statusLedBrightnessInput.value) > 0 ? 'true' : 'false';
+            }
+
             // Manually add SHOW_RC_VERSIONS value (only set to True when checked)
             const showRCVersionsCheckbox = document.getElementById("SHOW_RC_VERSIONS");
             if (showRCVersionsCheckbox && showRCVersionsCheckbox.checked) {
@@ -387,6 +449,14 @@ const SettingsForm = (() => {
                 payload.FLAP_ON_BOOT = 'True';
             } else {
                 payload.FLAP_ON_BOOT = 'False';
+            }
+
+            // Manually add SHOW_TOOLTIPS value (only set to True when checked)
+            const showTooltipsCheckbox = document.getElementById("SHOW_TOOLTIPS");
+            if (showTooltipsCheckbox && showTooltipsCheckbox.checked) {
+                payload.SHOW_TOOLTIPS = 'True';
+            } else {
+                payload.SHOW_TOOLTIPS = 'False';
             }
 
             let hostnameChanged = false;
@@ -681,6 +751,21 @@ const SettingsForm = (() => {
         );
     };
 
+    const initMouthBoostSlider = () => {
+        setupSlider(
+            "mouth-boost-bar",
+            "mouth-boost-fill",
+            "MOUTH_BOOST",
+            1,
+            2.5,
+            {
+                step: 0.25,
+                valueDisplayId: "mouth-boost-value",
+                valueFormatter: (val) => `${Number(val).toFixed(2)}x`,
+            }
+        );
+    };
+
     function setupSlider(barId, fillId, inputId, min, max, options = {}) {
         const bar = document.getElementById(barId);
         const fill = document.getElementById(fillId);
@@ -694,7 +779,6 @@ const SettingsForm = (() => {
 
         if (!bar || !fill || !input) return;
 
-        let isDragging = false;
         const updateUI = (val) => {
             const percent = ((val - min) / (max - min)) * 100;
             fill.style.width = `${percent}%`;
@@ -708,22 +792,32 @@ const SettingsForm = (() => {
                 valueDisplay.textContent = valueFormatter(val);
             }
         };
-        const updateFromMouse = (e) => {
-            const rect = bar.getBoundingClientRect();
-            const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-            const rawVal = min + percent * (max - min);
-            const steppedVal = Math.round(rawVal / step) * step;
-            const val = Math.min(max, Math.max(min, Number(steppedVal.toFixed(4))));
-            input.value = val;
-            // Ensure the input value is properly set for form submission
-            input.setAttribute('value', val);
-            input.dispatchEvent(new Event("input", {bubbles: true}));
-            updateUI(val);
-        };
-        bar.addEventListener("mousedown", (e) => { isDragging = true; updateFromMouse(e); });
-        document.addEventListener("mousemove", (e) => { if (isDragging) updateFromMouse(e); });
-        document.addEventListener("mouseup", () => { isDragging = false; });
-        input.addEventListener("input", () => updateUI(Number(input.value)));
+
+        // #main-content is replaced wholesale on normal SPA navigation (fresh
+        // DOM => must bind), but this can also be re-run against the *same*
+        // DOM (e.g. after a reconnect) => must not double-bind mousemove/up
+        // on document, which would otherwise accumulate across soft refreshes.
+        if (bar.dataset.bound !== 'true') {
+            bar.dataset.bound = 'true';
+
+            let isDragging = false;
+            const updateFromMouse = (e) => {
+                const rect = bar.getBoundingClientRect();
+                const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+                const rawVal = min + percent * (max - min);
+                const steppedVal = Math.round(rawVal / step) * step;
+                const val = Math.min(max, Math.max(min, Number(steppedVal.toFixed(4))));
+                input.value = val;
+                // Ensure the input value is properly set for form submission
+                input.setAttribute('value', val);
+                input.dispatchEvent(new Event("input", {bubbles: true}));
+                updateUI(val);
+            };
+            bar.addEventListener("mousedown", (e) => { isDragging = true; updateFromMouse(e); });
+            document.addEventListener("mousemove", (e) => { if (isDragging) updateFromMouse(e); });
+            document.addEventListener("mouseup", () => { isDragging = false; });
+            input.addEventListener("input", () => updateUI(Number(input.value)));
+        }
         updateUI(Number(input.value));
     }
 
@@ -731,7 +825,7 @@ const SettingsForm = (() => {
         // Update dropdowns with new configuration values
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
-            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG', 'STATUS_LED_ENABLED',
+            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED',
             'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
         ];
@@ -772,6 +866,10 @@ const SettingsForm = (() => {
         const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
         if (ledBrightness && config.STATUS_LED_BRIGHTNESS) {
             ledBrightness.value = config.STATUS_LED_BRIGHTNESS;
+        }
+        const mouthBoost = document.getElementById("MOUTH_BOOST");
+        if (mouthBoost && config.MOUTH_BOOST) {
+            mouthBoost.value = config.MOUTH_BOOST;
         }
     };
 
@@ -1810,8 +1908,11 @@ const SettingsForm = (() => {
         handleSettingsSave,
         populateDropdowns,
         saveDropdownSelections,
+        initBooleanToggles,
+        initShowTooltipsToggle,
         initMouthArticulationSlider,
         initStatusLedBrightnessSlider,
+        initMouthBoostSlider,
         refreshFromConfig,
         populateCameraHardwareDropdown,
         bindCameraPreview,

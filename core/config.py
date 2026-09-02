@@ -192,6 +192,7 @@ MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS = float(
 )
 PLAYBACK_VOLUME = 1
 MOUTH_ARTICULATION = int(os.getenv("MOUTH_ARTICULATION", "5"))
+MOUTH_BOOST = float(os.getenv("MOUTH_BOOST", "1.0"))
 TURN_EAGERNESS = os.getenv("TURN_EAGERNESS", "high").strip().lower()
 HEAD_RETRACT_DELAY_SECONDS = float(os.getenv("HEAD_RETRACT_DELAY_SECONDS", "1.5"))
 WAKE_WORD_ENABLED = os.getenv("WAKE_WORD_ENABLED", "false").lower() == "true"
@@ -242,11 +243,20 @@ SERVER_VAD_PARAMS = {
 
 # === GPIO Config ===
 BUTTON_PIN = 27 if BILLY_PINS == "legacy" else 24  # legacy=pin 13, new=pin 18
-STATUS_LED_ENABLED = os.getenv("STATUS_LED_ENABLED", "false").lower() == "true"
 STATUS_LED_BACKEND = os.getenv("STATUS_LED_BACKEND", "auto").strip().lower()
 STATUS_LED_PIN = int(os.getenv("STATUS_LED_PIN", "18"))
 STATUS_LED_COUNT = max(1, int(os.getenv("STATUS_LED_COUNT", "1")))
 STATUS_LED_BRIGHTNESS = float(os.getenv("STATUS_LED_BRIGHTNESS", "0.2"))
+# The webconfig UI no longer exposes a separate enable/disable control - 0%
+# brightness now means "off" (and the settings form writes STATUS_LED_ENABLED
+# to match on every save, see handleSettingsSave() in settings-form.js). The
+# explicit STATUS_LED_ENABLED flag is kept and still honored on its own so
+# existing .env files that set it (with a nonzero brightness) keep behaving
+# exactly as before.
+STATUS_LED_ENABLED = (
+    os.getenv("STATUS_LED_ENABLED", "false").lower() == "true"
+    and STATUS_LED_BRIGHTNESS > 0
+)
 STATUS_LED_DMA_CHANNEL = int(os.getenv("STATUS_LED_DMA_CHANNEL", "10"))
 STATUS_LED_PWM_CHANNEL = int(os.getenv("STATUS_LED_PWM_CHANNEL", "0"))
 
@@ -272,6 +282,9 @@ SHOW_SUPPORT = os.getenv("SHOW_SUPPORT", True)
 FORCE_PASS_CHANGE = os.getenv("FORCE_PASS_CHANGE", "false").lower() == "true"
 SHOW_RC_VERSIONS = os.getenv("SHOW_RC_VERSIONS", "False")
 FLAP_ON_BOOT = os.getenv("FLAP_ON_BOOT", "false").lower() == "true"
+# webconfig-only preference: hides the (?) tooltip help icons across the UI
+# when off. Enabled by default.
+SHOW_TOOLTIPS = os.getenv("SHOW_TOOLTIPS", "true").lower() == "true"
 MOCKFISH = os.getenv("MOCKFISH", "false").lower() == "true"
 WIFI_COUNTRY = (os.getenv("WIFI_COUNTRY", "US") or "").strip().upper() or "US"
 WIFI_ONBOARDING_MODE = os.getenv("WIFI_ONBOARDING_MODE", "legacy").strip().lower()

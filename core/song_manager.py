@@ -3,7 +3,10 @@ Song Manager - Handles custom song management for Billy Bass
 """
 
 import configparser
+import json
+import random
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -26,6 +29,12 @@ class SongManager:
 
         # For backward compatibility and general operations, use custom_songs as default
         self.songs_dir = self.custom_songs_dir
+
+        # Persisted "last song played" state, used to avoid immediate repeats
+        # when Billy picks a song on its own (e.g. offline Song mode).
+        self.state_dir = project_root / "state"
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.last_song_path = self.state_dir / "last_song.json"
 
     def list_songs(self) -> list[dict[str, Any]]:
         """List all available songs with their metadata from both custom and example directories."""
@@ -65,16 +74,20 @@ class SongManager:
         if is_custom is None:
             # Check custom first, then example
             song_path = self.custom_songs_dir / song_name
+            resolved_is_custom = True
             if not song_path.exists():
                 song_path = self.example_songs_dir / song_name
+                resolved_is_custom = False
                 if not song_path.exists():
                     return None
         elif is_custom:
             song_path = self.custom_songs_dir / song_name
+            resolved_is_custom = True
             if not song_path.exists():
                 return None
         else:
             song_path = self.example_songs_dir / song_name
+            resolved_is_custom = False
             if not song_path.exists():
                 return None
 
@@ -95,10 +108,16 @@ class SongManager:
             "tail_threshold": 1500.0,
             "compensate_tail": 0.0,
             "head_moves": "",
+            "tail_moves": "",
+            "mouth_mutes": "",
+            "mouth_articulation": "",
+            "led_color": "",
             "half_tempo_tail_flap": False,
+            "enabled": True,
             "has_full": has_full,
             "has_vocals": has_vocals,
             "has_drums": has_drums,
+            "is_custom": resolved_is_custom,
         }
 
         # Load from INI file if it exists
@@ -119,9 +138,16 @@ class SongManager:
                         'SONG', 'compensate_tail', fallback=0.0
                     ),
                     "head_moves": config.get('SONG', 'head_moves', fallback=''),
+                    "tail_moves": config.get('SONG', 'tail_moves', fallback=''),
+                    "mouth_mutes": config.get('SONG', 'mouth_mutes', fallback=''),
+                    "mouth_articulation": config.get(
+                        'SONG', 'mouth_articulation', fallback=''
+                    ),
+                    "led_color": config.get('SONG', 'led_color', fallback=''),
                     "half_tempo_tail_flap": config.getboolean(
                         'SONG', 'half_tempo_tail_flap', fallback=False
                     ),
+                    "enabled": config.getboolean('SONG', 'enabled', fallback=True),
                 })
         # Try to load from old metadata.txt format
         elif (song_path / "metadata.txt").exists():
@@ -164,7 +190,12 @@ class SongManager:
             'tail_threshold': str(metadata.get('tail_threshold', 1500.0)),
             'compensate_tail': str(metadata.get('compensate_tail', 0.0)),
             'head_moves': metadata.get('head_moves', ''),
+            'tail_moves': metadata.get('tail_moves', ''),
+            'mouth_mutes': metadata.get('mouth_mutes', ''),
+            'mouth_articulation': metadata.get('mouth_articulation', ''),
+            'led_color': metadata.get('led_color', ''),
             'half_tempo_tail_flap': str(metadata.get('half_tempo_tail_flap', False)),
+            'enabled': str(metadata.get('enabled', True)),
         }
 
         try:
@@ -204,8 +235,93 @@ class SongManager:
             logger.error(f"Failed to delete song {song_name}: {e}")
             return False
 
-    def save_audio_file(self, song_name: str, file_type: str, file_data: bytes) -> bool:
-        """Save an audio file for a song (full.wav, vocals.wav, or drums.wav) in custom_songs."""
+    # The only files a song bundle ever contains - import only ever writes
+    # these exact basenames regardless of what a zip's central directory
+    # claims, which sidesteps path-traversal (ZipSlip) entirely rather than
+    # trying to sanitize arbitrary member paths.
+    SONG_BUNDLE_FILES = ("metadata.ini", "full.wav", "vocals.wav", "drums.wav")
+
+    def export_song_zip(self, song_name: str) -> Optional[bytes]:
+        """Bundle a custom song's metadata + whichever audio files it has
+        into an in-memory zip. Only custom songs are exportable (examples
+        ship with the app already, same restriction as delete_song)."""
+        import io
+        import zipfile
+
+        song_path = self.custom_songs_dir / song_name
+        if not song_path.exists():
+            return None
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for filename in self.SONG_BUNDLE_FILES:
+                file_path = song_path / filename
+                if file_path.exists():
+                    zf.write(file_path, arcname=filename)
+        return buffer.getvalue()
+
+    def import_song_zip(self, song_name: str, zip_bytes: bytes) -> tuple[bool, str]:
+        """Extract a song bundle zip into custom_songs/<song_name>, creating
+        it (or overwriting an existing custom song of the same name)."""
+        import io
+        import zipfile
+
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+        except zipfile.BadZipFile:
+            return False, "Not a valid zip file"
+
+        names = set(zf.namelist())
+        if "metadata.ini" not in names:
+            return False, "Zip is missing metadata.ini - not a valid song bundle"
+
+        metadata_text = zf.read("metadata.ini").decode("utf-8", errors="replace")
+        config = configparser.ConfigParser()
+        try:
+            config.read_string(metadata_text)
+        except configparser.Error:
+            return False, "metadata.ini is not valid"
+        if not config.has_section("SONG"):
+            return (
+                False,
+                "metadata.ini is missing the [SONG] section - not a valid song bundle",
+            )
+
+        song_path = self.custom_songs_dir / song_name
+        song_path.mkdir(parents=True, exist_ok=True)
+
+        for filename in self.SONG_BUNDLE_FILES:
+            if filename in names:
+                with open(song_path / filename, "wb") as f:
+                    f.write(zf.read(filename))
+
+        logger.info(f"Imported song: {song_name}", "📦")
+        return True, f"Imported song '{song_name}'"
+
+    # Formats accepted on upload in addition to WAV; transcoded to WAV on the
+    # way in so the playback engine only ever has to deal with one format.
+    TRANSCODABLE_EXTENSIONS = {".mp3", ".m4a"}
+
+    def save_audio_file(
+        self,
+        song_name: str,
+        file_type: str,
+        file_data: bytes,
+        original_filename: Optional[str] = None,
+    ) -> bool:
+        """Save an audio file for a song (full.wav, vocals.wav, or drums.wav) in custom_songs.
+
+        Args:
+            song_name: Name of the song
+            file_type: One of 'full', 'vocals', 'drums'
+            file_data: Raw bytes of the uploaded file
+            original_filename: Original upload filename, used to detect MP3/M4A
+                so they can be transcoded to WAV before saving. A WAV upload is
+                also inspected and normalized if it isn't already 16-bit PCM
+                stereo at 24kHz/48kHz (e.g. DAW exports using 32-bit float
+                samples, which Python's `wave` module - and therefore
+                play_song() - cannot read at all).
+        """
         if file_type not in ['full', 'vocals', 'drums']:
             logger.error(f"Invalid file type: {file_type}")
             return False
@@ -216,7 +332,21 @@ class SongManager:
 
         audio_file = song_path / f"{file_type}.wav"
 
+        source_ext = Path(original_filename).suffix.lower() if original_filename else ""
+
         try:
+            if source_ext in self.TRANSCODABLE_EXTENSIONS:
+                file_data = self._transcode_to_wav(file_data, source_ext)
+            elif source_ext in ("", ".wav") and not self._is_playback_ready_wav(
+                file_data
+            ):
+                logger.info(
+                    f"Normalizing non-standard WAV for {file_type}.wav "
+                    f"(song: {song_name}) to 16-bit PCM/stereo/24kHz",
+                    "🎛️",
+                )
+                file_data = self._transcode_to_wav(file_data, ".wav")
+
             with open(audio_file, 'wb') as f:
                 f.write(file_data)
             logger.info(f"Saved {file_type}.wav for song: {song_name}", "🎵")
@@ -224,6 +354,47 @@ class SongManager:
         except Exception as e:
             logger.error(f"Failed to save {file_type}.wav for {song_name}: {e}")
             return False
+
+    def _is_playback_ready_wav(self, file_data: bytes) -> bool:
+        """Check whether WAV bytes already match what play_song() expects:
+        16-bit PCM, stereo, 24kHz or 48kHz. Anything else - float/24-bit
+        samples, mono, an odd sample rate, or a header the stdlib `wave`
+        module can't even parse (e.g. DAW exports using IEEE float, which
+        raises "unknown format: 3") - needs transcoding first.
+        """
+        import io
+        import wave as wave_module
+
+        try:
+            with wave_module.open(io.BytesIO(file_data), 'rb') as wf:
+                return (
+                    wf.getsampwidth() == 2
+                    and wf.getnchannels() == 2
+                    and wf.getframerate() in (24000, 48000)
+                )
+        except Exception:
+            return False
+
+    def _transcode_to_wav(self, file_data: bytes, source_ext: str) -> bytes:
+        """Decode MP3/M4A/WAV bytes and re-encode to the WAV format play_song()
+        expects (16-bit PCM, stereo, 24kHz)."""
+        import io
+
+        from pydub import AudioSegment
+
+        from .config import FFMPEG_BIN
+
+        AudioSegment.converter = FFMPEG_BIN
+
+        pydub_format = (
+            "mp4" if source_ext == ".m4a" else source_ext.lstrip(".") or "wav"
+        )
+        audio = AudioSegment.from_file(io.BytesIO(file_data), format=pydub_format)
+        audio = audio.set_frame_rate(24000).set_channels(2).set_sample_width(2)
+
+        out = io.BytesIO()
+        audio.export(out, format="wav")
+        return out.getvalue()
 
     def get_audio_file_path(self, song_name: str, file_type: str) -> Optional[Path]:
         """Get the path to an audio file for a song.
@@ -284,9 +455,61 @@ class SongManager:
             logger.error(f"Failed to copy example song: {e}")
             return False
 
+    def get_last_song(self) -> Optional[str]:
+        """Return the name of the last song Billy played, if known."""
+        try:
+            data = json.loads(self.last_song_path.read_text())
+            return data.get("name") or None
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+
+    def set_last_song(self, song_name: str) -> None:
+        """Persist the last played song and publish it over MQTT (retained)."""
+        try:
+            self.last_song_path.write_text(
+                json.dumps({"name": song_name, "played_at": time.time()})
+            )
+        except OSError as e:
+            logger.warning(f"Failed to save last song state: {e}")
+
+        try:
+            from .mqtt import mqtt_publish
+
+            mqtt_publish("billy/song/last", song_name, retain=True)
+        except Exception as e:
+            logger.verbose(f"Skipping last-song MQTT publish: {e}", "🎵")
+
+    def pick_random_song(self, avoid_last: bool = True) -> Optional[str]:
+        """Pick a random song name, avoiding an immediate repeat when possible.
+
+        Only considers songs actually copied to custom_songs - examples are
+        just a template gallery until explicitly added, so they're never
+        eligible for Billy to pick on its own. A song toggled off (enabled=False)
+        stays in custom_songs but is skipped, the same way a disabled example
+        would be if it were copied in - lets a song be paused without deleting
+        its files/settings.
+        """
+        names = [
+            song["name"]
+            for song in self.list_songs()
+            if song.get("is_custom") and song.get("enabled", True)
+        ]
+        if not names:
+            return None
+
+        if avoid_last and len(names) > 1:
+            last = self.get_last_song()
+            if last in names:
+                names = [name for name in names if name != last]
+
+        return random.choice(names)
+
     def get_dynamic_tool_description(self) -> str:
         """Generate dynamic tool description based on available songs."""
-        songs = self.list_songs()
+        # A disabled song is meant to be fully paused, not just excluded from
+        # random rotation - leave it out of what the assistant is told it can
+        # offer/play by name too.
+        songs = [s for s in self.list_songs() if s.get("enabled", True)]
 
         if not songs:
             return "Plays a special Billy song. No songs are currently available."

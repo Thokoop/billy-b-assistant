@@ -83,9 +83,12 @@ const MainPageRouter = (() => {
             SettingsForm.handleSettingsSave();
             SettingsForm.saveDropdownSelections();
             SettingsForm.populateDropdowns(cfg);
+            SettingsForm.initBooleanToggles();
+            SettingsForm.initShowTooltipsToggle();
             await SettingsForm.initHostFields();
             SettingsForm.initMouthArticulationSlider();
             SettingsForm.initStatusLedBrightnessSlider();
+            SettingsForm.initMouthBoostSlider();
             SettingsForm.bindFactoryReset();
             SettingsForm.bindEnvEditorCard();
             SettingsForm.bindNewsSources();
@@ -101,7 +104,7 @@ const MainPageRouter = (() => {
                 setTimeout(() => window.AudioPanel?.updateDeviceLabels?.(), 3000);
             }
             window.ServiceStatus?.fetchStatus?.();
-            window.LogPanel?.hideSupportPanelIfDisabled?.(cfg);
+            window.LogPanel?.bindUI?.(cfg);
             window.BillyVersionUI?.refresh();
             window.ReleaseNotes?.refresh();
             window.MobileSplitView?.bindAll();
@@ -201,6 +204,30 @@ const MainPageRouter = (() => {
             }
         });
     };
+
+    // A tab left open across a Pi reboot/service restart won't automatically
+    // recover its data once the backend comes back - the websocket reconnects
+    // (see websocket.js), but nothing re-fetches whatever the current page
+    // loaded on its own initial render. Re-run that page's init logic (the
+    // same one every SPA navigation already uses) once the connection is
+    // confirmed back after a real drop, instead of requiring a manual refresh.
+    let sawDisconnect = false;
+
+    window.addEventListener("billy:websocket:disconnected", () => {
+        sawDisconnect = true;
+    });
+
+    window.addEventListener("billy:websocket:connected", () => {
+        if (!sawDisconnect) return;
+        sawDisconnect = false;
+        // A UI-initiated restart already has its own full-reload flow (see
+        // LoadingOverlay.waitForReload) - don't race it with a soft refresh.
+        if (window.LoadingOverlay?.shouldReloadOnReconnect?.()) return;
+        const pageName = getPageNameFromPath(window.location.pathname);
+        if (pageName) {
+            initializePage(pageName);
+        }
+    });
 
     return {
         bindUI,

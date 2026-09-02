@@ -24,7 +24,10 @@ const Sections = (() => {
             }
 
             const id = section.id;
-            const collapsed = localStorage.getItem('collapse_' + id) === 'closed';
+            const storedState = localStorage.getItem('collapse_' + id);
+            const collapsed = storedState
+                ? storedState === 'closed'
+                : section.dataset.defaultCollapsed === 'true';
             section.classList.toggle('collapsed', collapsed);
             icon.classList.toggle('rotate-180', !collapsed);
             icon.classList.toggle('rotate-0', collapsed);

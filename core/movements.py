@@ -7,7 +7,7 @@ from threading import Lock, Thread
 
 import numpy as np
 
-from .config import BILLY_PINS, MOCKFISH, is_classic_billy
+from .config import BILLY_PINS, MOCKFISH, MOUTH_BOOST, is_classic_billy
 from .logger import logger
 
 
@@ -152,6 +152,11 @@ head_out = False
 # === PWM tracking (so watchdog can see PWM activity) ===
 _pwm = {pin: {"duty": 0, "since": None} for pin in motor_pins}
 
+# Pending "stop" timer per pin, so a new run_motor_async() call for a pin
+# that's already active can cancel the earlier call's stop timer instead of
+# racing it - see run_motor_async() for why this matters.
+_pin_stop_timers: dict[int, threading.Timer] = {}
+
 
 def set_pwm(pin: int, duty: int):
     """Start/adjust PWM on pin and remember when it went active."""
@@ -220,12 +225,25 @@ def run_motor_async(pwm_pin, low_pin=None, speed_percent=100, duration=0.3, brak
         except (lgpio.error, Exception):
             _gpio_active = False
             return
+
+    # A pin can be re-triggered (e.g. mouth flaps during a sustained loud
+    # note) before its previous call's stop timer has fired. Without this,
+    # that earlier, shorter-duration timer still fires on schedule and cuts
+    # power mid-hold, even though this newer call means to keep it open
+    # longer - the motor visibly flickers/jitters instead of holding steady.
+    # Only the most recent call should get to decide when the pin stops.
+    pending = _pin_stop_timers.get(pwm_pin)
+    if pending is not None:
+        pending.cancel()
+
     set_pwm(pwm_pin, int(speed_percent))
     if brake:
-        threading.Timer(duration, lambda: brake_motor(pwm_pin, low_pin)).start()
+        timer = threading.Timer(duration, lambda: brake_motor(pwm_pin, low_pin))
     else:
         # still auto-close after duration, but just clear PWM (no active brake)
-        threading.Timer(duration, lambda: clear_pwm(pwm_pin)).start()
+        timer = threading.Timer(duration, lambda: clear_pwm(pwm_pin))
+    _pin_stop_timers[pwm_pin] = timer
+    timer.start()
 
 
 # === Movement Functions (keep signatures/behavior) ===
@@ -290,8 +308,22 @@ def move_tail_async(duration=0.3):
     threading.Thread(target=move_tail, args=(duration,), daemon=True).start()
 
 
+def _articulation_level_to_multiplier(level):
+    """Map a 0-10 articulation level to the actual flap-duration multiplier.
+
+    Used to map 1:1 (multiplier == level), which made the top of the range
+    feel exaggerated once run_motor_async() stopped letting a stale timer
+    cut a flap short (see its _pin_stop_timers) - a flap now actually holds
+    for its full requested duration instead of sometimes getting cut off
+    early. This compresses the range so the same felt intensity now sits
+    roughly 1.5-2 levels higher than it used to (e.g. level 8 here feels
+    about like the old level 5).
+    """
+    return 1 + max(0.0, min(10.0, float(level))) * 0.5
+
+
 def _articulation_multiplier():
-    """Return direct articulation multiplier (1 = normal, higher = slower)."""
+    """Return the current persona's articulation level (0-10, default 5)."""
     try:
         # Try to get mouth articulation from current persona
         from .persona_manager import persona_manager
@@ -312,7 +344,12 @@ def _articulation_multiplier():
 
 # === Mouth Sync ===
 def flap_from_pcm_chunk(
-    audio, threshold=1500, min_flap_gap=0.15, chunk_ms=40, sample_rate=24000
+    audio,
+    threshold=1500,
+    min_flap_gap=0.15,
+    chunk_ms=40,
+    sample_rate=24000,
+    articulation_override=None,
 ):
     global _last_flap, _mouth_open_until, _last_rms
     now = time.time()
@@ -343,12 +380,22 @@ def flap_from_pcm_chunk(
 
     # Flap speed and duration scaling
     speed = int(np.clip(np.interp(normalized, [0.005, 0.15], [25, 100]), 25, 100))
+    # Compensates for mechanical variability between units - some mouth
+    # mechanisms (especially newer, not-yet-broken-in ones) need more torque
+    # than a quiet moment's computed speed to overcome static friction, even
+    # though the same hardware moves fine at full power (see Mouth Test).
+    speed = int(np.clip(speed * MOUTH_BOOST, 25, 100))
     duration_ms = np.interp(normalized, [0.005, 0.15], [15, 70])
 
     duration_ms = np.clip(duration_ms, 15, chunk_ms)
     duration = duration_ms / 1000.0
 
-    duration *= _articulation_multiplier()
+    articulation_level = (
+        articulation_override
+        if articulation_override is not None
+        else _articulation_multiplier()
+    )
+    duration *= _articulation_level_to_multiplier(articulation_level)
 
     _last_flap = now
     _mouth_open_until = now + duration
@@ -442,8 +489,12 @@ def _pin_is_active(pin: int) -> bool:
 
 
 def stop_all_motors():
-    global _gpio_active
+    global _gpio_active, head_out
     logger.info("Stopping all motors", "🛑")
+    # Reset regardless of GPIO state - a stale True here (e.g. from a manual
+    # head move that never got its own "off" tick) would wrongly defer tail
+    # flaps on the next song even though the head is no longer actually out.
+    head_out = False
     if not _gpio_active:
         return  # GPIO handle already closed, skip
     for pin in motor_pins:
