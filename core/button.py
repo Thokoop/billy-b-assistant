@@ -487,6 +487,17 @@ def trigger_session_start(source: str = "button"):
                     session_instance = BillySession(interrupt_event=interrupt_event)
                     session_instance.last_activity[0] = time.time()
                     asyncio.run(session_instance.start())
+                except ValueError as e:
+                    if "Realtime AI provider" in str(e) and "not found" in str(e):
+                        logger.error(
+                            f"Session error: {e} - no API key configured for this "
+                            "provider (check OPENAI_API_KEY/XAI_API_KEY in .env)"
+                        )
+                        from .session.error_handler import play_standalone_error_sound
+
+                        asyncio.run(play_standalone_error_sound("error", str(e)))
+                    else:
+                        logger.error(f"Session error: {e}")
                 except Exception as e:
                     logger.error(f"Session error: {e}")
                 finally:

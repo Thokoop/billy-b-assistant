@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.5.0] — 2026-08-30
+## [2.5.0] — 2026-09-02
 
 ### Added
 - **Custom Song Manager Improvements**: A full waveform-based editor and several quality-of-life features for managing custom songs
@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
   - A song session that couldn't be stopped in time (e.g. rapid button presses) could keep running and corrupt or interrupt the next song
 - **Mouth Flap Jitter on Sustained Loud Audio**: A stale timer could cut a flap short mid-hold, causing visible jitter on sustained loud audio.
 - **Guest Profile Deletion**: The Guest profile could previously be deleted from the profile list; it's now protected in the Web UI and API.
-
+- **Empty API Key error**: Now playing the audible error message when there is no api key set
 ---
 
 ## [2.4.0] — 2026-08-11

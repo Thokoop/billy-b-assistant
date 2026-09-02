@@ -76,7 +76,8 @@ core/__pycache__/
 
 # PROJECT-SPECIFIC FILES
 .idea
-.env
+.env*
+!.env.example
 persona.ini
 versions.ini
 venv
