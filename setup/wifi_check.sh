@@ -121,10 +121,9 @@ if [ "$should_start_onboarding" -eq 0 ]; then
     sudo systemctl stop billy-wifi-setup.service
 else
     echo "[$LOG_TAG] No internet connection. Starting onboarding flow..."
-    touch "$ONBOARDING_FLAG"
     if [ "$WIFI_ONBOARDING_MODE" = "unified" ]; then
         remove_captive_portal_dnsmasq_conf
-        activate_unified_hotspot
+        activate_unified_hotspot || exit 1
         echo "[$LOG_TAG] Unified hotspot active via NetworkManager."
     else
         sudo systemctl unmask --runtime hostapd >/dev/null 2>&1 || true
@@ -145,13 +144,15 @@ else
         write_legacy_captive_portal_dnsmasq_conf
 
         # Restart services
-        sudo systemctl restart dnsmasq
-        sudo systemctl restart hostapd
+        sudo systemctl restart dnsmasq || exit 1
+        sudo systemctl restart hostapd || exit 1
 
         # Start the Flask onboarding app (in service)
         sudo systemctl restart billy-wifi-setup.service
         echo "[$LOG_TAG] Legacy onboarding Flask app launched."
     fi
+
+    touch "$ONBOARDING_FLAG"
 
     if [ "$WIFI_ONBOARDING_MODE" = "unified" ]; then
         sudo systemctl restart billy-webconfig.service

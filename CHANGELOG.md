@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.6.0] — 2026-??-??
+
+### Changed
+- **Wi-Fi Saving**: Connect to the saved network and exit setup mode without rebooting Billy.
+
+### Added
+- **Wi-Fi MAC Address**: Show Billy's wireless interface address in Internet Settings and the Wi-Fi setup dialog, even when disconnected.
+- **Button Wi-Fi Setup**: Hold the physical button for 10 seconds to force the Billy_Bassistant setup access point open. The status LED blinks cyan while opening and pulses cyan during setup.
+
 ## [2.5.0] — 2026-09-02
 
 ### Added

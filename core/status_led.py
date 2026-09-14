@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import config
 from .logger import logger
+from .wifi_setup import ONBOARDING_FLAG
 
 
 try:
@@ -51,6 +52,8 @@ class StatusLed:
 
     _STATE_CONFIG: dict[str, dict[str, object]] = {
         "starting": {"mode": "pulse", "color": (0, 96, 255), "period": 1.4},
+        "wifi_setup_starting": {"mode": "blink", "color": (0, 180, 255), "period": 0.3},
+        "wifi_setup": {"mode": "pulse", "color": (0, 180, 255), "period": 1.8},
         "idle": {"mode": "pulse", "color": (0, 32, 12), "period": 2.8},
         "listening": {"mode": "solid", "color": (0, 180, 24)},
         "speaking": {"mode": "pulse", "color": (255, 110, 0), "period": 0.9},
@@ -68,6 +71,9 @@ class StatusLed:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._state = "off"
+        self._wifi_setup_starting = False
+        self._wifi_setup_active = False
+        self._wifi_setup_checked_at = -1.0
         self._transient_state: str | None = None
         self._transient_until = 0.0
         self._timeout_progress: float | None = None
@@ -216,9 +222,25 @@ class StatusLed:
         except ValueError:
             return None
 
+    def set_wifi_setup_starting(self, starting: bool):
+        with self._lock:
+            self._wifi_setup_starting = starting
+            self._wifi_setup_checked_at = -1.0
+
     def _animation_state(self, now: float) -> str:
         """Return a transient animation state without replacing logical state."""
         with self._lock:
+            if now - self._wifi_setup_checked_at >= 1.0:
+                self._wifi_setup_active = ONBOARDING_FLAG.exists()
+                self._wifi_setup_checked_at = now
+            if self._state in {"stopping", "off"}:
+                return self._state
+            if self._transient_state == "error" and now < self._transient_until:
+                return "error"
+            if self._wifi_setup_starting:
+                return "wifi_setup_starting"
+            if self._wifi_setup_active:
+                return "wifi_setup"
             if self._transient_state and now < self._transient_until:
                 return self._transient_state
             self._transient_state = None

@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 from core.env_utils import set_env_key
 from core.news_manager import load_news_sources, save_news_sources
 from core.vision import describe_scene, detect_rpi_camera_available
+from core.wifi_setup import wifi_mac_address
 
 from ..core_imports import core_config, voice_provider_registry
 from ..state import (
@@ -996,11 +997,6 @@ def _restart_billy_service_gracefully():
     subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=False)
 
 
-def delayed_system_reboot():
-    time.sleep(2.0)
-    subprocess.Popen(["sudo", "shutdown", "-r", "now"])
-
-
 def _config_value_for_ui(key: str, config_module=None) -> str:
     config_module = config_module or core_config
     value = getattr(config_module, key, "")
@@ -1352,6 +1348,7 @@ def wifi_status():
     active_name = str(active.get("name") or "") if active else ""
     hotspot_active = active_name == WIFI_UNIFIED_HOTSPOT_CON_NAME
     return jsonify({
+        "mac_address": wifi_mac_address(active.get("device") if active else "wlan0"),
         "connected": bool(active),
         "ssid": active.get("name") if active else "",
         "device": active.get("device") if active else "",
@@ -1587,13 +1584,12 @@ def wifi_save():
         _set_wifi_country(country)
         _cleanup_test_wifi_connections()
         stop_errors = _stop_wifi_onboarding_services()
-        threading.Thread(target=delayed_system_reboot, daemon=True).start()
         return jsonify({
             "ok": True,
             "ssid": ssid,
             "country": country,
             "onboarding_stopped": True,
-            "rebooting": True,
+            "rebooting": False,
             "warnings": stop_errors + finalize_warnings,
         })
     except Exception as exc:
