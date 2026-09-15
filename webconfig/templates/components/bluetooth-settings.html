@@ -8,12 +8,13 @@
         <p id="bt-setup" role="status" aria-live="polite">Checking Bluetooth installation…</p>
         <button type="button" id="bt-setup-retry" data-action="setup-retry" class="secondary-action p-2" hidden>Retry Bluetooth setup</button>
     <section class="border border-zinc-700 rounded-xl p-4 space-y-3">
-        <h2 class="text-lg font-semibold">Pair your phone</h2>
-        <p>Select Billy Bass in your phone’s Bluetooth settings, then confirm the request here.</p>
+        <h2 class="text-lg font-semibold">Devices</h2>
+        <ul id="bt-devices" class="space-y-3"></ul>
         <p id="bt-status" role="status" aria-live="polite">Checking Bluetooth…</p>
+        <p id="bt-pair-hint" hidden>Select Billy Bass in your device’s Bluetooth settings, then confirm the request here.</p>
         <div class="flex flex-wrap gap-3">
             <button type="button" data-action="pair" class="secondary-action p-2">Pair new device</button>
-            <button type="button" data-action="pair-stop" class="secondary-action p-2">Stop pairing</button>
+            <button type="button" id="bt-pair-stop" data-action="pair-stop" class="secondary-action p-2" hidden>Stop pairing</button>
         </div>
         <div id="bt-pending" hidden class="border border-emerald-500 rounded-lg p-3 space-y-3">
             <p id="bt-request"></p>
@@ -22,13 +23,9 @@
         </div>
     </section>
     <section class="border border-zinc-700 rounded-xl p-4 space-y-3">
-        <h2 class="text-lg font-semibold">Devices</h2>
-        <ul id="bt-devices" class="space-y-3"></ul>
-    </section>
-    <section class="border border-zinc-700 rounded-xl p-4 space-y-3">
         <h2 class="text-lg font-semibold">Bluetooth audio test</h2>
         <p>Start the test to use Billy for music and calls. The AI pauses until you select
-           “Return to AI”. Keep one phone connected and answer calls on your phone.</p>
+           “Return to AI”. Keep one device connected and answer calls on your phone.</p>
         <p>Automatic switching and call buttons are coming in a later phase.</p>
         <p id="bt-audio" role="status" aria-live="polite"></p>
         <div class="flex flex-wrap gap-3">

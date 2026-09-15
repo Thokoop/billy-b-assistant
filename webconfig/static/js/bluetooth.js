@@ -49,6 +49,7 @@ window.BluetoothSettings = (() => {
                 if (!response.ok) throw new Error(state.error || 'Bluetooth unavailable');
                 const setup = state.setup || {};
                 el('bt-setup').textContent = setup.message || '';
+                el('bt-setup').hidden = setup.state === 'ready';
                 el('bt-setup-retry').hidden = setup.state !== 'error';
                 root.querySelectorAll('button').forEach((button) => {
                     button.disabled = setup.state !== 'ready' && button.id !== 'bt-setup-retry'
@@ -57,12 +58,19 @@ window.BluetoothSettings = (() => {
                 if (setup.state !== 'ready') {
                     el('bt-status').textContent = 'Bluetooth will be available when setup completes.';
                     el('bt-pending').hidden = true;
+                    el('bt-pair-hint').hidden = true;
+                    el('bt-pair-stop').hidden = true;
                     pending = null;
                     return;
                 }
+                // Stopping pairing and the "go to your device's settings" hint
+                // only mean anything while the pairing window is open.
+                const pairing = state.pairing_seconds > 0;
                 el('bt-status').textContent = !state.adapter ? 'No Bluetooth adapter found.'
-                    : state.pairing_seconds > 0 ? `Visible as Billy Bass for ${state.pairing_seconds} seconds`
-                    : state.adapter.Powered ? 'Bluetooth ready. Pairing closed.' : 'Bluetooth is off.';
+                    : pairing ? `Visible as Billy Bass for ${state.pairing_seconds} seconds`
+                    : state.adapter.Powered ? 'Ready to pair.' : 'Bluetooth is off.';
+                el('bt-pair-hint').hidden = !pairing;
+                el('bt-pair-stop').hidden = !pairing;
                 pending = state.pending;
                 el('bt-pending').hidden = !pending;
                 if (pending) el('bt-request').textContent = pending.passkey
@@ -71,21 +79,43 @@ window.BluetoothSettings = (() => {
                 const list = el('bt-devices');
                 list.replaceChildren();
                 for (const device of state.devices.filter((d) => d.Paired || d.Connected)) {
+                    const connected = Boolean(device.Connected);
+                    const state_label = connected ? 'Connected' : 'Disconnected';
                     const item = document.createElement('li');
-                    const label = document.createElement('p');
-                    label.textContent = `${device.Alias || device.Address} — ${device.Connected ? 'Connected' : 'Paired'}`;
-                    item.append(label);
-                    for (const action of [device.Connected ? 'disconnect' : 'connect', 'forget']) {
+                    item.className = 'flex items-center gap-3';
+
+                    const orb = document.createElement('span');
+                    // Written as whole class names so Tailwind's scan finds
+                    // them, and only ones already in the built styles.css, so
+                    // this needs no CSS rebuild.
+                    orb.className = 'inline-block h-3 w-3 shrink-0 rounded-full '
+                        + (connected ? 'bg-emerald-500' : 'bg-zinc-500');
+                    // Colour alone must not be the only carrier of the state.
+                    orb.setAttribute('role', 'img');
+                    orb.setAttribute('aria-label', state_label);
+                    orb.title = state_label;
+                    item.append(orb);
+
+                    const name = document.createElement('span');
+                    name.className = 'grow truncate';
+                    name.textContent = device.Alias || device.Address;
+                    item.append(name);
+
+                    for (const action of [connected ? 'disconnect' : 'connect', 'forget']) {
                         const button = document.createElement('button');
                         button.type = 'button';
-                        button.className = 'secondary-action p-2 mr-2';
+                        button.className = 'secondary-action p-2 shrink-0';
                         button.textContent = action[0].toUpperCase() + action.slice(1);
                         button.addEventListener('click', () => act(action, { address: device.Address }));
                         item.append(button);
                     }
                     list.append(item);
                 }
-                if (!list.children.length) list.textContent = 'No paired devices yet.';
+                if (!list.children.length) {
+                    const empty = document.createElement('li');
+                    empty.textContent = 'No devices paired yet.';
+                    list.append(empty);
+                }
                 const audio = state.audio || {};
                 // Report what the runtime actually did, not what call audio
                 // usually does: echo cancellation can be turned off.
