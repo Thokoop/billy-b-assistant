@@ -23,6 +23,7 @@ onnxruntime
 pypdf
 openpyxl
 Pillow
+dbus-next==0.2.3
 # Use Billy's prebuilt AEC wheels on 64-bit Raspberry Pi OS so installs and
 # upgrades do not compile WebRTC locally. Other platforms keep the upstream
 # package fallback.

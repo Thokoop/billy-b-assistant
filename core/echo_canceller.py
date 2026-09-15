@@ -89,6 +89,11 @@ class EchoCanceller:
         return self._processor is not None
 
     @property
+    def healthy(self) -> bool:
+        """Whether capture processing can be used without a raw-audio fallback."""
+        return self.active and not self._processing_failure_logged
+
+    @property
     def engine_name(self) -> str:
         return "WebRTC AEC3"
 

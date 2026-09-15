@@ -30,6 +30,7 @@ def create_app() -> Flask:
     from . import websocket
     from .routes.audio import apply_configured_mic_gain
     from .routes.audio import bp as audio_bp
+    from .routes.bluetooth import bp as bluetooth_bp
     from .routes.knowledge import knowledge_bp
     from .routes.misc import bp as misc_bp
     from .routes.persona import bp as persona_bp
@@ -43,6 +44,7 @@ def create_app() -> Flask:
     app.register_blueprint(persona_bp)
     app.register_blueprint(profiles_bp)
     app.register_blueprint(audio_bp)
+    app.register_blueprint(bluetooth_bp)
     app.register_blueprint(knowledge_bp)
     app.register_blueprint(misc_bp)
     app.register_blueprint(songs_bp)
@@ -93,4 +95,7 @@ def create_app() -> Flask:
         daemon=True,
     ).start()
 
+    from core.bluetooth.provisioning import start_setup
+
+    start_setup()
     return app

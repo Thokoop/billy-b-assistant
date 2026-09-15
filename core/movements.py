@@ -7,7 +7,13 @@ from threading import Lock, Thread
 
 import numpy as np
 
-from .config import BILLY_PINS, MOCKFISH, MOUTH_BOOST, is_classic_billy
+from .config import (
+    BILLY_PINS,
+    MOCKFISH,
+    MOUTH_ARTICULATION,
+    MOUTH_BOOST,
+    is_classic_billy,
+)
 from .logger import logger
 
 
@@ -147,6 +153,11 @@ _motor_watchdog_running = False
 _last_flap = 0
 _mouth_open_until = 0
 _last_rms = 0
+# Whether the mouth channel is already braked. Braking is four lgpio calls, and
+# the quiet branch of flap_from_pcm_chunk runs on every audio frame - 50 times a
+# second on a silent stream. That much GPIO traffic starves the microphone
+# callback in the same process, so only act on the transition.
+_mouth_braked = True
 head_out = False
 
 # === PWM tracking (so watchdog can see PWM activity) ===
@@ -248,11 +259,18 @@ def run_motor_async(pwm_pin, low_pin=None, speed_percent=100, duration=0.3, brak
 
 # === Movement Functions (keep signatures/behavior) ===
 def move_mouth(speed_percent, duration, brake=False):
+    global _mouth_braked
+    _mouth_braked = False
     run_motor_async(MOUTH, GND_1, speed_percent, duration, brake)
 
 
-def stop_mouth():
+def stop_mouth(force=False):
+    """Brake the mouth channel. Skipped when already braked, unless forced."""
+    global _mouth_braked
+    if _mouth_braked and not force:
+        return
     brake_motor(MOUTH, GND_1)
+    _mouth_braked = True
 
 
 def move_head(state="on"):
@@ -322,10 +340,22 @@ def _articulation_level_to_multiplier(level):
     return 1 + max(0.0, min(10.0, float(level))) * 0.5
 
 
-def _articulation_multiplier():
-    """Return the current persona's articulation level (0-10, default 5)."""
+def _global_articulation():
+    """MOUTH_ARTICULATION from the environment, clamped, with a safe default."""
     try:
-        # Try to get mouth articulation from current persona
+        return max(0.0, min(10.0, float(MOUTH_ARTICULATION)))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+def _articulation_multiplier():
+    """Articulation level (0-10): the persona's own value, else the global one.
+
+    A persona only overrides when it actually sets meta.mouth_articulation;
+    everything else falls through to MOUTH_ARTICULATION so the setting works
+    globally (it previously fell back to a hardcoded 5 and was inert).
+    """
+    try:
         from .persona_manager import persona_manager
 
         current_persona_data = persona_manager.get_current_persona_data()
@@ -335,11 +365,9 @@ def _articulation_multiplier():
         ):
             persona_articulation = current_persona_data['meta']['mouth_articulation']
             return max(0, min(10, float(persona_articulation)))
-        # Fall back to global setting
-        return 5
-    except Exception as e:
-        # Fall back to global setting on error
-        return 5
+    except Exception:
+        logger.warning("Could not read persona articulation; using global setting.")
+    return _global_articulation()
 
 
 # === Mouth Sync ===
@@ -351,7 +379,7 @@ def flap_from_pcm_chunk(
     sample_rate=24000,
     articulation_override=None,
 ):
-    global _last_flap, _mouth_open_until, _last_rms
+    global _last_flap, _mouth_open_until, _last_rms, _mouth_braked
     now = time.time()
 
     if audio.size == 0:

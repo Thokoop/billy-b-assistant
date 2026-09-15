@@ -1,0 +1,16 @@
+[Unit]
+Description=Billy Bluetooth audio prototype
+After=bluetooth.service billy.service user@@UID@.service
+Requires=bluetooth.service user@@UID@.service
+Conflicts=billy.service
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
+ExecStart=@ROOT@/venv/bin/python -m core.bluetooth.runtime
+TimeoutStopSec=8
+KillMode=control-group
+Restart=no

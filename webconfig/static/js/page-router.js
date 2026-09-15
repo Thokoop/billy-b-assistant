@@ -34,6 +34,7 @@ const MainPageRouter = (() => {
     };
 
     const initializePage = async (pageName) => {
+        window.BluetoothSettings?.init();
         window.MobileSplitView?.bindAll();
         Sections.collapsible();
 

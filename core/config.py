@@ -170,6 +170,11 @@ def _resolve_silence_threshold():
 SILENCE_THRESHOLD = _resolve_silence_threshold()
 CHUNK_MS = int(os.getenv("CHUNK_MS", "40"))
 AEC_ENABLED = os.getenv("AEC_ENABLED", "false").lower() == "true"
+# Separate from AEC_ENABLED, which governs the AI path and defaults off.
+# A Bluetooth call plays the far end through Billy's own speaker into his
+# own microphone, so cancellation is required there by default. Turn this
+# off only to test whether the AEC is responsible for an audio artefact.
+BLUETOOTH_CALL_AEC = os.getenv("BLUETOOTH_CALL_AEC", "true").lower() == "true"
 try:
     AEC_BARGE_IN_SNR_DB = max(
         3.0, min(20.0, float(os.getenv("AEC_BARGE_IN_SNR_DB", "9")))

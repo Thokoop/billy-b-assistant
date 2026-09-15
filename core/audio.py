@@ -15,7 +15,7 @@ from queue import Queue
 
 import numpy as np
 import sounddevice as sd
-from scipy.signal import resample, resample_poly
+from scipy.signal import butter, resample, resample_poly, sosfilt
 
 from . import movements
 from .config import (
@@ -258,6 +258,55 @@ def detect_devices(debug=False):
     if MIC_DEVICE_INDEX is None or (OUTPUT_DEVICE_INDEX is None and not TEXT_ONLY_MODE):
         logger.error("No suitable input/output devices found.")
         sys.exit(1)
+
+
+# === External PCM mouth driver ===
+# Songs flap the mouth from an isolated vocals stem. Bluetooth media is a full
+# mix, so a raw envelope flaps on bass and kick as hard as on voice. Restricting
+# the flap signal to the speech band is the closest real-time equivalent: it
+# leaves speech essentially untouched and drops the low end music flaps on.
+VOICE_BAND_HZ = (300.0, 3400.0)
+_voice_band_sos = None
+_voice_band_state = None
+
+
+def reset_voice_band():
+    """Drop filter history so a new stream never inherits the previous tail."""
+    global _voice_band_state
+    _voice_band_state = None
+
+
+def voice_band(mono):
+    global _voice_band_sos, _voice_band_state
+    if _voice_band_sos is None:
+        _voice_band_sos = butter(
+            4, VOICE_BAND_HZ, btype="band", fs=48000, output="sos"
+        )
+    if _voice_band_state is None:
+        _voice_band_state = np.zeros((_voice_band_sos.shape[0], 2))
+    filtered, _voice_band_state = sosfilt(
+        _voice_band_sos, mono.astype(np.float32), zi=_voice_band_state
+    )
+    return np.clip(filtered, -32768, 32767).astype(np.int16)
+
+
+def render_external_pcm(stream, mono, canceller):
+    """Render 48 kHz external PCM with Billy's AEC reference and mouth driver.
+
+    The isolated Bluetooth prototype owns the physical output stream. Keep this
+    path free of AI generation and song side effects so it can later be used by
+    the central mode manager.
+    """
+    mono = np.clip(np.asarray(mono, dtype=np.float32) * PLAYBACK_VOLUME,
+                   -32768, 32767).astype(np.int16)
+    stereo = np.repeat(mono[:, None], 2, axis=1)
+    canceller.feed_render(mono, 48000)
+    # CHUNK_MS, not the 20 ms frame length, so flap duration can reach the
+    # same ceiling as the song path instead of being clamped shorter.
+    flap_from_pcm_chunk(voice_band(mono), sample_rate=48000, chunk_ms=CHUNK_MS)
+    started = time.monotonic()
+    stream.write(stereo)
+    canceller.mark_render_written(len(mono), 48000, write_started_at=started)
 
 
 def playback_worker(chunk_ms):

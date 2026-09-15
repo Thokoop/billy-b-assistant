@@ -1,0 +1,41 @@
+<div id="section-bluetooth" class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section">
+    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+        <span class="material-icons">bluetooth</span>
+        Bluetooth
+        <span class="material-icons transition-transform duration-200 ml-2">expand_more</span>
+    </h3>
+    <div id="bluetooth-settings" data-token="{{ bluetooth_token }}" class="space-y-4">
+        <p id="bt-setup" role="status" aria-live="polite">Checking Bluetooth installation…</p>
+        <button type="button" id="bt-setup-retry" data-action="setup-retry" class="secondary-action p-2" hidden>Retry Bluetooth setup</button>
+    <section class="border border-zinc-700 rounded-xl p-4 space-y-3">
+        <h2 class="text-lg font-semibold">Pair your phone</h2>
+        <p>Select Billy Bass in your phone’s Bluetooth settings, then confirm the request here.</p>
+        <p id="bt-status" role="status" aria-live="polite">Checking Bluetooth…</p>
+        <div class="flex flex-wrap gap-3">
+            <button type="button" data-action="pair" class="secondary-action p-2">Pair new device</button>
+            <button type="button" data-action="pair-stop" class="secondary-action p-2">Stop pairing</button>
+        </div>
+        <div id="bt-pending" hidden class="border border-emerald-500 rounded-lg p-3 space-y-3">
+            <p id="bt-request"></p>
+            <button type="button" id="bt-accept" class="secondary-action p-2">Accept</button>
+            <button type="button" id="bt-reject" class="secondary-action p-2">Reject</button>
+        </div>
+    </section>
+    <section class="border border-zinc-700 rounded-xl p-4 space-y-3">
+        <h2 class="text-lg font-semibold">Devices</h2>
+        <ul id="bt-devices" class="space-y-3"></ul>
+    </section>
+    <section class="border border-zinc-700 rounded-xl p-4 space-y-3">
+        <h2 class="text-lg font-semibold">Bluetooth audio test</h2>
+        <p>Start the test to use Billy for music and calls. The AI pauses until you select
+           “Return to AI”. Keep one phone connected and answer calls on your phone.</p>
+        <p>Automatic switching and call buttons are coming in a later phase.</p>
+        <p id="bt-audio" role="status" aria-live="polite"></p>
+        <div class="flex flex-wrap gap-3">
+            <button type="button" data-action="test-start" class="secondary-action p-2">Start audio test</button>
+            <button type="button" data-action="test-stop" class="secondary-action p-2">Return to AI</button>
+        </div>
+    </section>
+    <p id="bt-error" role="alert" class="text-rose-400"></p>
+    </div>
+</div>
