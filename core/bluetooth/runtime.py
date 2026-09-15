@@ -72,13 +72,13 @@ def stop_process(process):
             process.wait(timeout=2)
 
 
-def write_pcm(process, data):
+def write_pcm(process, data, stop=STOP):
     """Never accumulate delayed microphone audio if Bluetooth stops consuming."""
     view = memoryview(data)
     deadline = time.monotonic() + 0.1
     while view:
         remaining = deadline - time.monotonic()
-        if STOP.is_set() or remaining <= 0 or process.poll() is not None:
+        if stop.is_set() or remaining <= 0 or process.poll() is not None:
             raise TransportGone("Bluetooth microphone transport stopped")
         if not select.select([], [process.stdin], [], remaining)[1]:
             raise TransportGone("Bluetooth microphone transport stalled")
@@ -89,18 +89,25 @@ def write_pcm(process, data):
         view = view[written:]
 
 
-def session(route, endpoints=None):
+def session(route, endpoints=None, stop=None):
     """Run one Bluetooth audio session over an already-discovered route.
 
     endpoints supplies the speaker, microphone and echo canceller; see
     endpoints.py for why this loop must not open them itself. Defaults to the
     standalone service's own hardware.
+
+    stop ends the session. The standalone service has exactly one session at a
+    time and sets the module-level STOP from its signal handlers, which is the
+    default. Inside billy.service there is no signal to key off and a session
+    must be endable on its own - the route vanished, a takeover finished - so
+    the caller passes a fresh Event per session instead.
     """
     import numpy as np
     from scipy.signal import resample_poly
 
     from core.config import BLUETOOTH_CALL_AEC
 
+    stop = STOP if stop is None else stop
     source, sink = route
     if endpoints is None:
         # On by default: a call needs cancellation. BLUETOOTH_CALL_AEC=false
@@ -163,7 +170,7 @@ def session(route, endpoints=None):
                 frames, which the far end hears as stutter.
                 """
                 try:
-                    while not (STOP.is_set() or session_stop.is_set()):
+                    while not (stop.is_set() or session_stop.is_set()):
                         try:
                             samples = mic_queue.get(timeout=0.05)
                         except queue.Empty:
@@ -203,7 +210,7 @@ def session(route, endpoints=None):
                             # attributed to the microphone or to processing.
                             captures[0].write(samples.astype(np.int16).tobytes())
                             captures[1].write(payload)
-                        write_pcm(outgoing, payload)
+                        write_pcm(outgoing, payload, stop)
                         mic_stats["sent"] += 1
                 except BaseException as exc:  # re-raised by the render loop
                     mic_error.append(exc)
@@ -230,7 +237,7 @@ def session(route, endpoints=None):
             warmed = False
             ticks = 0
             mouth_moving = False
-            while not STOP.is_set():
+            while not stop.is_set():
                 if incoming.poll() is not None or (
                     outgoing and outgoing.poll() is not None
                 ):
@@ -260,7 +267,7 @@ def session(route, endpoints=None):
                 if mic_error:
                     failure = mic_error[0]
                     if isinstance(failure, TransportGone) and (
-                        STOP.is_set() or select_route(discover()) != route
+                        stop.is_set() or select_route(discover()) != route
                     ):
                         return
                     raise failure

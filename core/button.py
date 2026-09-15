@@ -492,6 +492,7 @@ def trigger_session_start(source: str = "button"):
 
             def run_session():
                 global session_instance, is_active, _button_interrupt_armed
+                my_thread = threading.current_thread()
                 try:
                     session_instance = BillySession(interrupt_event=interrupt_event)
                     session_instance.last_activity[0] = time.time()
@@ -510,6 +511,23 @@ def trigger_session_start(source: str = "button"):
                 except Exception as e:
                     logger.error(f"Session error: {e}")
                 finally:
+                    # A detached thread - one that trigger_session_start() or a
+                    # takeover gave up waiting for, and cleared/reassigned the
+                    # session_thread global to move on from - must not run this
+                    # cleanup. Arriving late, it would clear the *successor's*
+                    # is_active flag, reset the status LED out from under it,
+                    # resume the wake-word listener on top of whatever now owns
+                    # the microphone, and release a start lock it no longer
+                    # holds. The song path above has guarded this since song
+                    # mode landed; this path never did, and a Bluetooth
+                    # takeover makes the window routine rather than rare.
+                    if session_thread is not my_thread:
+                        logger.info(
+                            "Detached session finished; skipping cleanup "
+                            "(something newer owns the audio path)",
+                            "🧹",
+                        )
+                        return
                     move_head("off")
                     is_active = False
                     _button_interrupt_armed = False
