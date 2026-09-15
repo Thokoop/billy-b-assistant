@@ -267,6 +267,79 @@ def _stop_active_session():
     is_active = False  # Ensure this is always set after stopping
 
 
+def stop_for_takeover(reason: str = "bluetooth"):
+    """Hand the audio path to another mode as fast as the session allows.
+
+    _stop_active_session() on its own is not enough here. It can spend five
+    seconds on stop_session(), another three on the force-close branch and two
+    more joining the thread, which on an incoming call is that much dead air;
+    and it returns while the thread may still be running, so the thread's
+    cleanup can land in the middle of whatever took over.
+
+    So pre-empt first and detach afterwards. request_stop() clears
+    session_active and closes the websocket with a 0.5 s timeout, which makes
+    run_stream break out of its loop and reach its own mic_manager.stop() -
+    that is what actually frees the microphone, and it is the only part the
+    caller is waiting for.
+
+    Returns True if there was something to stop.
+    """
+    global session_thread, session_instance
+
+    logger.info(f"Handing the audio path to {reason}...", "🔀")
+    # First, and unconditionally: when Billy is idle it is the wake-word
+    # listener that holds the capture device, and idle is the usual state for
+    # an incoming call to interrupt. The listener would stand down on its own
+    # once the mode flag is set, but only after it next checks, and this waits
+    # for it to actually let go of the device.
+    _pause_wakeword_listener()
+
+    if not (is_active or bool(session_thread and session_thread.is_alive())):
+        return False
+
+    session = session_instance
+    if session is not None and session.loop is not None:
+        with contextlib.suppress(Exception):
+            future = asyncio.run_coroutine_threadsafe(
+                session.request_stop(), session.loop
+            )
+            future.result(timeout=1.0)
+
+    _stop_active_session()
+
+    if session_thread and session_thread.is_alive():
+        # Detach it: its finally sees the global has moved on and skips the
+        # cleanup that would otherwise land mid-call. The two things that
+        # cleanup does which still need doing are done here instead, since
+        # nothing else is going to do them.
+        logger.info(f"Detaching session thread for {reason} takeover.", "🧹")
+        session_thread = None
+        session_instance = None
+        move_head("off")
+        _force_release_session_start_lock(f"{reason} takeover")
+    return True
+
+
+def resume_after_takeover():
+    """Return to idle once another mode is done with the audio path.
+
+    The mirror of stop_for_takeover(). Call it while the other mode still owns
+    the hardware: the wake-word listener re-checks _is_wakeword_paused() before
+    it touches the capture device, so re-arming early is safe and re-arming
+    late would leave a window where neither mode is listening.
+    """
+    state = get_status_led_state()
+    if state in {"stopping", "off"}:
+        # The process is shutting down and stop_background_services() is what
+        # called the other mode home. Re-arming anything now would open the
+        # microphone on the way out.
+        return
+    if state != "error":
+        set_status_led_state("idle")
+    _resume_wakeword_listener()
+    logger.info("Waiting for button press...", "🕐")
+
+
 def _handle_active_session_button_press(force_stop: bool = False):
     global _button_interrupt_armed
 
@@ -645,6 +718,11 @@ def _monitor_setup_hold():
 
 def stop_background_services():
     global wakeword_listener
+    from .bluetooth import watcher as bluetooth_watcher
+
+    # Before the playback worker is retired: a live session would otherwise
+    # keep handing frames to a queue nothing is draining.
+    bluetooth_watcher.stop()
     _setup_monitor_stop.set()
     if wakeword_listener:
         wakeword_listener.stop()

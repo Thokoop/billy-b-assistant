@@ -38,6 +38,7 @@ from pathlib import Path
 
 import core.button
 from core.audio import playback_queue
+from core.bluetooth import watcher as bluetooth_watcher
 
 # --- Reload logger level after environment is loaded ---
 from core.logger import reload_log_level
@@ -81,6 +82,7 @@ def main():
 
     threading.Thread(target=start_mqtt, daemon=True).start()
     start_motor_watchdog()
+    bluetooth_watcher.start()
     core.button.start_loop()
 
 

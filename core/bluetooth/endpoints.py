@@ -32,6 +32,13 @@ MIC_QUEUE_BLOCKS = 8
 # exactly one block, so audio lost is block duration x stall rate: measured
 # 1.8% at 40 ms against 1.0% at 10 ms. 10 ms is also the AEC's own frame size.
 MIC_BLOCK_MS = 10
+# Inside billy.service a session opens the microphone moments after the AI
+# session was stopped, and ALSA does not always have the capture handle back
+# yet - core/button.py sleeps 0.3 s before reopening for the same reason.
+# Failing the session over a handle that is about to become free would drop a
+# call. The standalone service shares this path and never sees the error.
+MIC_OPEN_ATTEMPTS = 6
+MIC_OPEN_RETRY_SECONDS = 0.2
 
 
 class _Endpoints:
@@ -78,17 +85,36 @@ class _Endpoints:
 
         # Channel count follows the device, as core.mic and the webconfig
         # level test do. Block size deliberately does not: see MIC_BLOCK_MS.
-        microphone = stack.enter_context(
-            sd.InputStream(
-                device=audio.MIC_DEVICE_INDEX,
-                samplerate=audio.MIC_RATE,
-                channels=audio.MIC_CHANNELS,
-                dtype="int16",
-                blocksize=self._block_frames,
-                callback=self._captured,
-            )
-        )
+        microphone = self._open_capture_stream(stack, sd, audio)
         self.aec.set_capture_latency(microphone.latency)
+
+    def _open_capture_stream(self, stack, sd, audio):
+        import sys
+        import time
+
+        for attempt in range(MIC_OPEN_ATTEMPTS):
+            try:
+                return stack.enter_context(
+                    sd.InputStream(
+                        device=audio.MIC_DEVICE_INDEX,
+                        samplerate=audio.MIC_RATE,
+                        channels=audio.MIC_CHANNELS,
+                        dtype="int16",
+                        blocksize=self._block_frames,
+                        callback=self._captured,
+                    )
+                )
+            except Exception as exc:
+                if attempt == MIC_OPEN_ATTEMPTS - 1:
+                    raise
+                print(
+                    f"bluetooth mic: capture device busy ({exc}); "
+                    f"retry {attempt + 1}/{MIC_OPEN_ATTEMPTS - 1}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                time.sleep(MIC_OPEN_RETRY_SECONDS)
+        raise RuntimeError("unreachable")
 
     def _captured(self, data, frames, timing, flags):
         # Drop the oldest block rather than refuse the newest: the phone should

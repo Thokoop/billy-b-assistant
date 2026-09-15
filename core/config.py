@@ -175,6 +175,10 @@ AEC_ENABLED = os.getenv("AEC_ENABLED", "false").lower() == "true"
 # own microphone, so cancellation is required there by default. Turn this
 # off only to test whether the AEC is responsible for an audio artefact.
 BLUETOOTH_CALL_AEC = os.getenv("BLUETOOTH_CALL_AEC", "true").lower() == "true"
+# The route watcher inside billy.service: a phone that starts streaming or
+# takes a call pre-empts whatever Billy was doing, and Billy returns to idle
+# when it stops. Off leaves Bluetooth to the manual audio test alone.
+BLUETOOTH_AUTO_SWITCH = os.getenv("BLUETOOTH_AUTO_SWITCH", "true").lower() == "true"
 try:
     AEC_BARGE_IN_SNR_DB = max(
         3.0, min(20.0, float(os.getenv("AEC_BARGE_IN_SNR_DB", "9")))

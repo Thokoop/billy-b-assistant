@@ -26,7 +26,8 @@ for the difference between these configuration formats.
 The internal `billy-bluetooth.service` is installed automatically. Its conflict
 with `billy.service` enforces exclusive audio/motor ownership during the manual
 audio test. It is not enabled at boot. Return to AI stops it before starting
-Billy. Automatic media/call switching remains outside this prototype.
+Billy. The manual audio test is on its way out now that switching is automatic;
+see below.
 
 A successful setup stores a fingerprint in `state/bluetooth-setup.json`. Unchanged
 installations skip setup on subsequent starts; changed installer assets trigger
@@ -96,6 +97,42 @@ Wrong direction, presenting as the phone side:
 
 The adapter UUID list is live and updates on a `wireplumber` restart without
 restarting `bluetoothd`, so this is a fast feedback loop.
+
+## Automatic switching
+
+`billy.service` watches for a Bluetooth transport and runs the session itself,
+so no button press is involved and no second service has to start. A phone that
+begins streaming music, or takes a call, pre-empts whatever Billy was doing; a
+call always wins, the way a ringing phone interrupts music.
+
+**When the call or the music stops, Billy returns to idle.** An interrupted
+conversation does not resume. A session already ends itself after
+`MIC_TIMEOUT_SECONDS` (5) of silence, so there would be nothing left to return
+to after a call of any length; the wake word is re-armed instead, which is how
+you pick the conversation back up.
+
+What counts as a transport worth taking the speaker for: a phone that is merely
+connected exposes no PipeWire node at all - nodes appear when a transport
+starts, and both a stream and a call then report `state: running`. The watcher
+requires that state, which also keeps it off a freshly configured A2DP node
+during the window before AVDTP Open/Start completes. A call is distinguished
+from media by the presence of a sink node, exactly as the audio test does it,
+and only a call opens the microphone.
+
+The watcher polls `pw-dump` every two seconds. On the Pi that costs ~14 ms of
+subprocess time and ~2 ms of JSON parse per poll, and only the parse holds the
+GIL, so it is about one part in a thousand of the interpreter's time - well
+under what disturbs the microphone callback.
+
+`BLUETOOTH_AUTO_SWITCH=false` turns the watcher off and leaves Bluetooth to the
+manual audio test alone.
+
+The handover is the delicate part. Taking the audio path stops the AI session,
+waits for the microphone, and detaches the session thread if it will not finish
+in time; giving it back re-arms the wake word. The takeover lines are in
+`journalctl -u billy`:
+
+    sudo journalctl -u billy -f | grep -E 'audio path|Bluetooth|Detaching'
 
 ## Transport
 
@@ -174,7 +211,10 @@ loses the output):
 Restart touches only `billy.service`, plus `billy-webconfig.service` on the full
 restart. It does not restart `wireplumber` or `billy-bluetooth.service`, so it
 never picks up audio configuration changes, and it ends a running audio test
-because of the `Conflicts=billy.service`.
+because of the `Conflicts=billy.service`. Now that Bluetooth audio runs inside
+`billy.service`, a restart also drops a call or a music stream in progress; the
+watcher picks the transport up again within a couple of seconds if the phone is
+still streaming.
 
 Retry in the Bluetooth section re-runs `install-bluetooth.sh`, which reinstalls
 the configuration fragments **from the repository checkout on the Pi** and
