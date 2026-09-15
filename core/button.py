@@ -8,6 +8,7 @@ import time
 from concurrent.futures import CancelledError
 
 from . import audio, config
+from .bluetooth import mode as bluetooth_mode
 from .logger import logger
 from .movements import move_head, move_tail
 from .status_led import (
@@ -156,6 +157,12 @@ def is_billy_speaking():
 
 def _is_wakeword_paused() -> bool:
     """Return True whenever wake-word should NOT touch the mic device."""
+    if bluetooth_mode.active():
+        # A Bluetooth session owns the microphone. The listener re-checks this
+        # before opening the device on every cycle, so a resume arriving from a
+        # session thread that is still tearing down idles here instead of
+        # colliding on ALSA (-9985).
+        return True
     if is_active:
         return True
     if _session_start_lock.locked():
@@ -328,6 +335,18 @@ def trigger_session_start(source: str = "button"):
         interrupt_event, \
         session_instance, \
         _button_interrupt_armed
+
+    if bluetooth_mode.active():
+        # Above the is_active branch on purpose: during a Bluetooth session
+        # there is no BillySession to interrupt, and routing the press into
+        # _handle_active_session_button_press() would call is_assistant_turn()
+        # on None. The button's meaning during a call is answer/hang-up, which
+        # phase 4d builds here.
+        logger.info(
+            f"Ignoring {source} trigger: Bluetooth audio owns the speaker and mic.",
+            "🔕",
+        )
+        return False
 
     if is_active:
         if source == "button":

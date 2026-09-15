@@ -20,10 +20,22 @@ def _classify_kind(text: str) -> tuple[Literal["prompt", "literal", "raw"], str]
 async def say(text: str, *, interactive: Optional[bool] = None):
     # 🔁 Lazy import to avoid: session -> mqtt -> say -> session
     from . import audio
+    from .bluetooth import mode as bluetooth_mode
     from .config import CHUNK_MS, REALTIME_AI_PROVIDER, TEXT_ONLY_MODE
     from .persona_manager import persona_manager
     from .realtime_ai_provider import voice_provider_registry
     from .session_manager import BillySession
+
+    if bluetooth_mode.active():
+        # Both branches below reach the audio hardware: the literal fast path
+        # puts a clip straight onto the playback queue a call is rendering
+        # through, and the conversational path opens the microphone a call is
+        # holding. This is the entry point furthest from core.button, and the
+        # easiest to forget.
+        from .logger import logger
+
+        logger.info("Ignoring SAY: Bluetooth audio owns the speaker and mic.", "🔕")
+        return
 
     kind, cleaned = _classify_kind(text)
 

@@ -373,6 +373,13 @@ def mqtt_start_listening():
     import time
 
     from . import button as button_mod
+    from .bluetooth import mode as bluetooth_mode
+
+    if bluetooth_mode.active():
+        logger.info(
+            "Ignoring MQTT start: Bluetooth audio owns the speaker and mic.", "🔕"
+        )
+        return
 
     if button_mod.is_active:
         return
@@ -641,6 +648,16 @@ def on_message(client, userdata, msg):
                 return
 
             from .audio import enqueue_wav_to_playback, ensure_playback_worker_started
+            from .bluetooth import mode as bluetooth_mode
+
+            if bluetooth_mode.active():
+                # The playback queue is carrying a call; a preview clip would
+                # play into it.
+                logger.info(
+                    "Ignoring MQTT wakeup preview: Bluetooth audio owns the speaker.",
+                    "🔕",
+                )
+                return
 
             ensure_playback_worker_started(CHUNK_MS)
             enqueue_wav_to_playback(sound_path)
