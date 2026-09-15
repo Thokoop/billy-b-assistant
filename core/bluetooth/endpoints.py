@@ -34,8 +34,16 @@ MIC_QUEUE_BLOCKS = 8
 MIC_BLOCK_MS = 10
 
 
-class ServiceEndpoints:
-    """Hardware owned outright by the standalone billy-bluetooth service."""
+class _Endpoints:
+    """Microphone and echo canceller handling common to both placements.
+
+    The microphone is safe to open in either: the standalone service runs
+    only when billy.service is stopped, and inside billy.service a call
+    stops the AI session first, which closes it. The echo canceller is always
+    this session's own - core.audio's is built from AEC_ENABLED, which
+    governs the AI path and is off by default, while a call needs
+    cancellation regardless of how the assistant is configured.
+    """
 
     def __init__(self, *, want_aec, want_microphone):
         self._want_aec = want_aec
@@ -47,9 +55,7 @@ class ServiceEndpoints:
         self.blocks_per_second = 1
         self._speaker = None
 
-    def open(self, stack):
-        import sounddevice as sd
-
+    def _prepare(self):
         from core import audio
         from core.echo_canceller import EchoCanceller
 
@@ -57,36 +63,32 @@ class ServiceEndpoints:
         self.aec = EchoCanceller(self._want_aec)
         if self._want_aec and not self.aec.initialize():
             raise RuntimeError("Calling unavailable: WebRTC AEC3 could not start")
-
         self.mic_rate = audio.MIC_RATE
-        block_frames = max(1, int(audio.MIC_RATE * MIC_BLOCK_MS / 1000))
-        self.blocks_per_second = max(1, round(float(audio.MIC_RATE) / block_frames))
+        self._block_frames = max(1, int(audio.MIC_RATE * MIC_BLOCK_MS / 1000))
+        self.blocks_per_second = max(
+            1, round(float(audio.MIC_RATE) / self._block_frames)
+        )
 
-        self._speaker = stack.enter_context(
-            sd.OutputStream(
-                device=audio.OUTPUT_DEVICE_INDEX,
-                samplerate=48000,
-                channels=2,
+    def _open_microphone(self, stack):
+        if not self._want_microphone:
+            return
+        import sounddevice as sd
+
+        from core import audio
+
+        # Channel count follows the device, as core.mic and the webconfig
+        # level test do. Block size deliberately does not: see MIC_BLOCK_MS.
+        microphone = stack.enter_context(
+            sd.InputStream(
+                device=audio.MIC_DEVICE_INDEX,
+                samplerate=audio.MIC_RATE,
+                channels=audio.MIC_CHANNELS,
                 dtype="int16",
-                latency="low",
+                blocksize=self._block_frames,
+                callback=self._captured,
             )
         )
-        self.aec.set_render_latency(self._speaker.latency)
-
-        if self._want_microphone:
-            # Channel count follows the device, as core.mic and the webconfig
-            # level test do. Block size deliberately does not: see MIC_BLOCK_MS.
-            microphone = stack.enter_context(
-                sd.InputStream(
-                    device=audio.MIC_DEVICE_INDEX,
-                    samplerate=audio.MIC_RATE,
-                    channels=audio.MIC_CHANNELS,
-                    dtype="int16",
-                    blocksize=block_frames,
-                    callback=self._captured,
-                )
-            )
-            self.aec.set_capture_latency(microphone.latency)
+        self.aec.set_capture_latency(microphone.latency)
 
     def _captured(self, data, frames, timing, flags):
         # Drop the oldest block rather than refuse the newest: the phone should
@@ -104,11 +106,6 @@ class ServiceEndpoints:
             with contextlib.suppress(queue.Full):
                 self.blocks.put_nowait(data[:, 0].copy())
 
-    def render(self, mono):
-        from core import audio
-
-        audio.render_external_pcm(self._speaker, mono, self.aec)
-
     def stop_mouth(self):
         from core import movements
 
@@ -118,3 +115,64 @@ class ServiceEndpoints:
         from core import movements
 
         movements.stop_all_motors()
+
+
+class ServiceEndpoints(_Endpoints):
+    """Hardware owned outright by the standalone billy-bluetooth service.
+
+    Nothing else is running, so this opens the speaker directly.
+    """
+
+    def open(self, stack):
+        import sounddevice as sd
+
+        from core import audio
+
+        self._prepare()
+        self._speaker = stack.enter_context(
+            sd.OutputStream(
+                device=audio.OUTPUT_DEVICE_INDEX,
+                samplerate=48000,
+                channels=2,
+                dtype="int16",
+                latency="low",
+            )
+        )
+        self.aec.set_render_latency(self._speaker.latency)
+        self._open_microphone(stack)
+
+    def render(self, mono):
+        from core import audio
+
+        audio.render_external_pcm(self._speaker, mono, self.aec)
+
+
+class SharedEndpoints(_Endpoints):
+    """Endpoints for a session running inside billy.service.
+
+    The playback worker holds the process's only OutputStream for its whole
+    life, so rendering goes through its queue rather than opening a second
+    one. The queue item carries this session's canceller, so the worker feeds
+    the right render reference and drives mouth articulation exactly as it
+    does for songs and speech.
+    """
+
+    def open(self, stack):
+        from core import audio
+        from core.config import CHUNK_MS
+
+        self._prepare()
+        audio.ensure_playback_worker_started(CHUNK_MS)
+        # The worker publishes the real figure once its stream is open; before
+        # that zero is the honest answer rather than a guess.
+        self.aec.set_render_latency(
+            getattr(audio, "_playback_output_latency_seconds", 0.0)
+        )
+        self._open_microphone(stack)
+
+    def render(self, mono):
+        from core import audio
+
+        # The incoming transport paces this at real time, so the queue stays
+        # shallow; it is a handoff to the speaker's owner, not a buffer.
+        audio.playback_queue.put(("bluetooth", mono.tobytes(), self.aec))

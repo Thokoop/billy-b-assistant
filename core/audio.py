@@ -428,6 +428,16 @@ def playback_worker(chunk_ms):
                         mono = np.frombuffer(audio_chunk, dtype=np.int16)
                         stream.write(_resample_24k_mono_to_48k_stereo(mono))
 
+                    elif mode == "bluetooth":
+                        # 48 kHz mono already, and carrying its own canceller:
+                        # the module-level one is built from AEC_ENABLED, which
+                        # governs the AI path and is off by default, while a
+                        # call needs cancellation either way.
+                        chunk, canceller = item[1], item[2]
+                        render_external_pcm(
+                            stream, np.frombuffer(chunk, dtype=np.int16), canceller
+                        )
+
                     elif mode == "tts":
                         chunk = item[1]
                         generation = item[2] if len(item) > 2 else None
