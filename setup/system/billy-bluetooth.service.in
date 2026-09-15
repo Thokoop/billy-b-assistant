@@ -7,6 +7,13 @@ Conflicts=billy.service
 [Service]
 Type=simple
 User=@USER@
+# PortAudio raises its capture callback thread to real-time priority, but a
+# systemd unit cannot unless the limits allow it. Without these the same
+# microphone that records cleanly from a shell glitches inside this service -
+# measured at ~0.7 dropouts per second of speech versus ~0.04 standalone -
+# and PortAudio never reports an overflow, so nothing in the logs shows it.
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
 WorkingDirectory=@ROOT@
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus

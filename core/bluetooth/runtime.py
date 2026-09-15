@@ -36,6 +36,11 @@ MIC_QUEUE_BLOCKS = 8
 # therefore block duration x stall rate, so keep blocks short: measured 1.8% at
 # 40 ms versus 1.0% at 10 ms. 10 ms is also the AEC's own frame size.
 MIC_BLOCK_MS = 10
+# Diagnostic: set BLUETOOTH_UPLINK_CAPTURE to a path prefix and each session
+# writes what the microphone produced and what was actually sent to the phone,
+# as raw mono s16. Lets an uplink complaint be checked against the bytes that
+# left Billy instead of against what the far end's client did with them.
+UPLINK_CAPTURE = os.environ.get("BLUETOOTH_UPLINK_CAPTURE")
 # pw-dump is a subprocess plus a large JSON parse, and it holds the GIL long
 # enough to starve the mic pump. pw-cat exiting already signals a vanished node,
 # so the periodic sweep is only a slow safety net, not the primary detector.
@@ -178,6 +183,18 @@ def session(route):
                     )
                 )
                 aec.set_capture_latency(mic.latency)
+            captures = None
+            if UPLINK_CAPTURE and outgoing:
+                captures = (
+                    stack.enter_context(open(f"{UPLINK_CAPTURE}.mic.s16", "wb")),
+                    stack.enter_context(open(f"{UPLINK_CAPTURE}.sent.s16", "wb")),
+                )
+                print(
+                    f"bluetooth mic: capturing to {UPLINK_CAPTURE}.mic.s16 "
+                    f"({int(audio.MIC_RATE)} Hz) and .sent.s16 (48000 Hz)",
+                    file=sys.stderr,
+                    flush=True,
+                )
             mic_error = []
             session_stop = threading.Event()
             last_frame = [time.monotonic()]
@@ -216,13 +233,18 @@ def session(route):
                                 48000 // divisor,
                                 int(audio.MIC_RATE) // divisor,
                             )
-                        write_pcm(
-                            outgoing,
+                        payload = (
                             np
                             .clip(converted, -32768, 32767)
                             .astype(np.int16)
-                            .tobytes(),
+                            .tobytes()
                         )
+                        if captures:
+                            # Before AEC and after, so an artefact can be
+                            # attributed to the microphone or to processing.
+                            captures[0].write(samples.astype(np.int16).tobytes())
+                            captures[1].write(payload)
+                        write_pcm(outgoing, payload)
                         mic_stats["sent"] += 1
                 except BaseException as exc:  # re-raised by the render loop
                     mic_error.append(exc)

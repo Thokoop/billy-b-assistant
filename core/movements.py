@@ -163,15 +163,67 @@ head_out = False
 # === PWM tracking (so watchdog can see PWM activity) ===
 _pwm = {pin: {"duty": 0, "since": None} for pin in motor_pins}
 
-# Pending "stop" timer per pin, so a new run_motor_async() call for a pin
-# that's already active can cancel the earlier call's stop timer instead of
-# racing it - see run_motor_async() for why this matters.
-_pin_stop_timers: dict[int, threading.Timer] = {}
+class _StopScheduler:
+    """One thread for every pending motor stop.
+
+    run_motor_async() used to create a threading.Timer - a whole thread - per
+    call. Mouth flaps fire up to about seven times a second, so that was a
+    thread created and destroyed per flap. GPIO and thread churn in this
+    process starves the audio callbacks sharing it: braking on every quiet
+    frame alone cost ~1.7% of captured microphone audio before it was made
+    transition-only.
+
+    Scheduling a pin that is already pending replaces its deadline, so only
+    the most recent call decides when that pin stops. Without that, an
+    earlier, shorter call's stop still fires on schedule and cuts power
+    mid-hold, and the motor visibly jitters instead of holding steady.
+    """
+
+    def __init__(self):
+        self._deadlines: dict[int, tuple[float, object]] = {}
+        self._condition = threading.Condition()
+        self._thread = None
+
+    def schedule(self, pin, delay, action):
+        with self._condition:
+            self._deadlines[pin] = (time.monotonic() + delay, action)
+            if self._thread is None:
+                self._thread = threading.Thread(
+                    target=self._run, name="motor-stop-scheduler", daemon=True
+                )
+                self._thread.start()
+            self._condition.notify()
+
+    def cancel(self, pin):
+        with self._condition:
+            self._deadlines.pop(pin, None)
+            self._condition.notify()
+
+    def _run(self):
+        while True:
+            with self._condition:
+                while not self._deadlines:
+                    self._condition.wait()
+                pin, (deadline, action) = min(
+                    self._deadlines.items(), key=lambda item: item[1][0]
+                )
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    # A sooner deadline may arrive while waiting; notify()
+                    # wakes us and the next pass re-picks the earliest.
+                    self._condition.wait(timeout=remaining)
+                    continue
+                del self._deadlines[pin]
+            # Outside the lock: the action touches GPIO and may block.
+            action()
+
+
+_stop_scheduler = _StopScheduler()
 
 
 def set_pwm(pin: int, duty: int):
     """Start/adjust PWM on pin and remember when it went active."""
-    global _gpio_active
+    global _gpio_active, _mouth_braked
     if not _gpio_active:
         return  # GPIO handle already closed, skip
     try:
@@ -181,6 +233,8 @@ def set_pwm(pin: int, duty: int):
         _gpio_active = False
         return
     if duty > 0:
+        if MOUTH is not None and pin == MOUTH:
+            _mouth_braked = False
         _pwm[pin]["duty"] = int(duty)
         _pwm[pin]["since"] = (
             time.time() if _pwm[pin]["since"] is None else _pwm[pin]["since"]
@@ -208,7 +262,7 @@ def clear_pwm(pin: int):
 # === Motor Helpers ===
 def brake_motor(pin1, pin2=None):
     """Actively stop the channel: zero PWM and drive LOW."""
-    global _gpio_active
+    global _gpio_active, _mouth_braked
     if not _gpio_active:
         return  # GPIO handle already closed, skip
     clear_pwm(pin1)
@@ -224,6 +278,8 @@ def brake_motor(pin1, pin2=None):
     except (lgpio.error, Exception):
         _gpio_active = False
         return
+    if MOUTH is not None and pin1 == MOUTH:
+        _mouth_braked = True
 
 
 def run_motor_async(pwm_pin, low_pin=None, speed_percent=100, duration=0.3, brake=True):
@@ -237,30 +293,22 @@ def run_motor_async(pwm_pin, low_pin=None, speed_percent=100, duration=0.3, brak
             _gpio_active = False
             return
 
-    # A pin can be re-triggered (e.g. mouth flaps during a sustained loud
-    # note) before its previous call's stop timer has fired. Without this,
-    # that earlier, shorter-duration timer still fires on schedule and cuts
-    # power mid-hold, even though this newer call means to keep it open
-    # longer - the motor visibly flickers/jitters instead of holding steady.
-    # Only the most recent call should get to decide when the pin stops.
-    pending = _pin_stop_timers.get(pwm_pin)
-    if pending is not None:
-        pending.cancel()
-
     set_pwm(pwm_pin, int(speed_percent))
     if brake:
-        timer = threading.Timer(duration, lambda: brake_motor(pwm_pin, low_pin))
+        def stop():
+            brake_motor(pwm_pin, low_pin)
     else:
-        # still auto-close after duration, but just clear PWM (no active brake)
-        timer = threading.Timer(duration, lambda: clear_pwm(pwm_pin))
-    _pin_stop_timers[pwm_pin] = timer
-    timer.start()
+        def stop():
+            # still auto-close after duration, but just clear PWM (no brake)
+            clear_pwm(pwm_pin)
+
+    # Re-scheduling the same pin replaces any pending stop, so a flap that
+    # arrives mid-hold extends it rather than racing the earlier deadline.
+    _stop_scheduler.schedule(pwm_pin, duration, stop)
 
 
 # === Movement Functions (keep signatures/behavior) ===
 def move_mouth(speed_percent, duration, brake=False):
-    global _mouth_braked
-    _mouth_braked = False
     run_motor_async(MOUTH, GND_1, speed_percent, duration, brake)
 
 
@@ -331,7 +379,7 @@ def _articulation_level_to_multiplier(level):
 
     Used to map 1:1 (multiplier == level), which made the top of the range
     feel exaggerated once run_motor_async() stopped letting a stale timer
-    cut a flap short (see its _pin_stop_timers) - a flap now actually holds
+    cut a flap short (see _StopScheduler) - a flap now actually holds
     for its full requested duration instead of sometimes getting cut off
     early. This compresses the range so the same felt intensity now sits
     roughly 1.5-2 levels higher than it used to (e.g. level 8 here feels
@@ -379,7 +427,7 @@ def flap_from_pcm_chunk(
     sample_rate=24000,
     articulation_override=None,
 ):
-    global _last_flap, _mouth_open_until, _last_rms, _mouth_braked
+    global _last_flap, _mouth_open_until, _last_rms
     now = time.time()
 
     if audio.size == 0:
