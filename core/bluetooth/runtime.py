@@ -15,6 +15,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .endpoints import ServiceEndpoints
 from .transport import PCMFrames, command, discover, select_route
 
 
@@ -29,13 +30,6 @@ MAX_CONSECUTIVE_RESTARTS = 5
 # A late block is normal under load and is dropped; only a sustained fraction
 # of loss means the microphone is actually broken.
 MAX_MIC_DROP_FRACTION = 0.4
-# The pump drains continuously, so this only has to absorb scheduler jitter.
-MIC_QUEUE_BLOCKS = 8
-# Something on this Pi stalls capture once or twice a second regardless of how
-# the stream is opened, and each stall costs exactly one block. Audio lost is
-# therefore block duration x stall rate, so keep blocks short: measured 1.8% at
-# 40 ms versus 1.0% at 10 ms. 10 ms is also the AEC's own frame size.
-MIC_BLOCK_MS = 10
 # Diagnostic: set BLUETOOTH_UPLINK_CAPTURE to a path prefix and each session
 # writes what the microphone produced and what was actually sent to the phone,
 # as raw mono s16. Lets an uplink complaint be checked against the bytes that
@@ -95,53 +89,37 @@ def write_pcm(process, data):
         view = view[written:]
 
 
-def session(route):
+def session(route, endpoints=None):
+    """Run one Bluetooth audio session over an already-discovered route.
+
+    endpoints supplies the speaker, microphone and echo canceller; see
+    endpoints.py for why this loop must not open them itself. Defaults to the
+    standalone service's own hardware.
+    """
     import numpy as np
-    import sounddevice as sd
     from scipy.signal import resample_poly
 
-    from core import audio, movements
     from core.config import BLUETOOTH_CALL_AEC
-    from core.echo_canceller import EchoCanceller
 
     source, sink = route
-    audio.reset_voice_band()
-    # On by default: a call needs cancellation. Setting BLUETOOTH_CALL_AEC=false
-    # makes process_capture() pass the microphone through untouched, which is
-    # how to tell AEC artefacts apart from transport loss.
-    use_aec = bool(sink) and BLUETOOTH_CALL_AEC
-    aec = EchoCanceller(use_aec)
-    if use_aec and not aec.initialize():
-        raise RuntimeError("Calling unavailable: WebRTC AEC3 could not start")
-    # Channel count follows the device, as core.mic and the webconfig level
-    # test do; forcing mono pushed ALSA through a conversion layer neither of
-    # those touches. Block size deliberately does NOT follow them: see
-    # MIC_BLOCK_MS above.
-    block_frames = max(1, int(audio.MIC_RATE * MIC_BLOCK_MS / 1000))
-    blocks_per_second = max(1, round(float(audio.MIC_RATE) / block_frames))
-    mic_queue = queue.Queue(maxsize=MIC_QUEUE_BLOCKS)
-    # overflow: lost by PortAudio before we saw it (capture side too slow).
-    # full: our pump could not keep up. They need opposite fixes, so count
-    # them apart rather than as one "drops" number.
-    mic_stats = {"overflow": 0, "full": 0, "sent": 0}
-
-    def capture(data, frames, timing, flags):
-        # Drop the oldest frame rather than refuse the newest: the phone should
-        # hear live audio, not a queue that has grown into a delay.
-        if flags.input_overflow:
-            mic_stats["overflow"] += 1
-        try:
-            mic_queue.put_nowait(data[:, 0].copy())
-        except queue.Full:
-            mic_stats["full"] += 1
-            with contextlib.suppress(queue.Empty):
-                mic_queue.get_nowait()
-            with contextlib.suppress(queue.Full):
-                mic_queue.put_nowait(data[:, 0].copy())
+    if endpoints is None:
+        # On by default: a call needs cancellation. BLUETOOTH_CALL_AEC=false
+        # makes process_capture() pass the microphone through untouched, which
+        # is how to tell AEC artefacts apart from transport loss.
+        endpoints = ServiceEndpoints(
+            want_aec=bool(sink) and BLUETOOTH_CALL_AEC,
+            want_microphone=bool(sink),
+        )
 
     framer = PCMFrames()
     try:
         with contextlib.ExitStack() as stack:
+            endpoints.open(stack)
+            aec = endpoints.aec
+            mic_queue = endpoints.blocks
+            mic_stats = endpoints.stats
+            mic_rate = endpoints.mic_rate
+            blocks_per_second = endpoints.blocks_per_second
             incoming = subprocess.Popen(
                 command(source, record=True),
                 stdout=subprocess.PIPE,
@@ -161,28 +139,6 @@ def session(route):
                 stack.callback(stop_process, outgoing)
                 stack.callback(outgoing.stdin.close)
                 os.set_blocking(outgoing.stdin.fileno(), False)
-            speaker = stack.enter_context(
-                sd.OutputStream(
-                    device=audio.OUTPUT_DEVICE_INDEX,
-                    samplerate=48000,
-                    channels=2,
-                    dtype="int16",
-                    latency="low",
-                )
-            )
-            aec.set_render_latency(speaker.latency)
-            if sink:
-                mic = stack.enter_context(
-                    sd.InputStream(
-                        device=audio.MIC_DEVICE_INDEX,
-                        samplerate=audio.MIC_RATE,
-                        channels=audio.MIC_CHANNELS,
-                        dtype="int16",
-                        blocksize=block_frames,
-                        callback=capture,
-                    )
-                )
-                aec.set_capture_latency(mic.latency)
             captures = None
             if UPLINK_CAPTURE and outgoing:
                 captures = (
@@ -191,7 +147,7 @@ def session(route):
                 )
                 print(
                     f"bluetooth mic: capturing to {UPLINK_CAPTURE}.mic.s16 "
-                    f"({int(audio.MIC_RATE)} Hz) and .sent.s16 (48000 Hz)",
+                    f"({int(mic_rate)} Hz) and .sent.s16 (48000 Hz)",
                     file=sys.stderr,
                     flush=True,
                 )
@@ -214,24 +170,27 @@ def session(route):
                             continue
                         cleaned = aec.process_capture(
                             samples,
-                            audio.MIC_RATE,
+                            mic_rate,
                             render_active=time.monotonic() - last_frame[0] < 0.15,
                         )
-                        if use_aec and not aec.healthy:
+                        # active is false when cancellation was never wanted,
+                        # in which case process_capture passes audio through
+                        # and healthy has nothing to say about it.
+                        if aec.active and not aec.healthy:
                             raise RuntimeError(
                                 "AEC processing failed; microphone transport stopped"
                             )
-                        if int(audio.MIC_RATE) == 48000:
+                        if int(mic_rate) == 48000:
                             # Already at the transport rate; resample_poly(1, 1)
                             # burns a polyphase filter per 10 ms frame to do
                             # nothing.
                             converted = cleaned.astype(np.float32)
                         else:
-                            divisor = math.gcd(int(audio.MIC_RATE), 48000)
+                            divisor = math.gcd(int(mic_rate), 48000)
                             converted = resample_poly(
                                 cleaned.astype(np.float32),
                                 48000 // divisor,
-                                int(audio.MIC_RATE) // divisor,
+                                int(mic_rate) // divisor,
                             )
                         payload = (
                             np
@@ -286,7 +245,7 @@ def session(route):
                         return
                     for frame in framer.feed(chunk):
                         mono = np.frombuffer(frame, dtype=np.int16)
-                        audio.render_external_pcm(speaker, mono, aec)
+                        endpoints.render(mono)
                         last_frame[0] = time.monotonic()
                         mouth_moving = True
                 if mouth_moving and time.monotonic() - last_frame[0] > 0.15:
@@ -296,7 +255,7 @@ def session(route):
                     # (any voice memo, and the silent half of a call) it never
                     # stopped. The webconfig level test records cleanly because
                     # that process touches no GPIO at all.
-                    movements.stop_mouth()
+                    endpoints.stop_mouth()
                     mouth_moving = False
                 if mic_error:
                     failure = mic_error[0]
@@ -335,7 +294,7 @@ def session(route):
                     ):
                         return
     finally:
-        movements.stop_all_motors()
+        endpoints.stop_motors()
 
 
 def main():
