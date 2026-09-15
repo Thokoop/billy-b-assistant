@@ -33,6 +33,18 @@ if ! dpkg --compare-versions "${billy_wp_version:-0}" ge 0.4; then
 fi
 billy_tmp="$(mktemp -d)"
 trap 'rm -rf "$billy_tmp"' EXIT
+# billy.service on devices already in the field cannot be rewritten, so grant
+# the audio stack real-time scheduling with a drop-in instead of editing the
+# unit. PortAudio raises its capture callback thread to real-time priority and
+# a systemd unit cannot unless LimitRTPRIO allows it; without this the
+# microphone loses about 0.7 frames per second of speech under load, and
+# PortAudio reports no overflow, so nothing in the logs shows it. Additive and
+# safe on any existing install; takes effect on the next billy.service start.
+printf '[Service]\nLimitRTPRIO=95\nLimitMEMLOCK=infinity\n' > "$billy_tmp/realtime"
+sudo -n mkdir -p /etc/systemd/system/billy.service.d
+sudo -n install -m 644 "$billy_tmp/realtime" \
+    /etc/systemd/system/billy.service.d/10-billy-realtime.conf
+
 sed -e "s|@ROOT@|$billy_root|g" -e "s|@USER@|$billy_user|g" -e "s|@UID@|$billy_uid|g" \
     "$billy_root/setup/system/billy-bluetooth.service.in" > "$billy_tmp/unit"
 sudo -n install -m 644 "$billy_tmp/unit" /etc/systemd/system/billy-bluetooth.service
