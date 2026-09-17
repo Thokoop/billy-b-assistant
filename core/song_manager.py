@@ -377,24 +377,67 @@ class SongManager:
 
     def _transcode_to_wav(self, file_data: bytes, source_ext: str) -> bytes:
         """Decode MP3/M4A/WAV bytes and re-encode to the WAV format play_song()
-        expects (16-bit PCM, stereo, 24kHz)."""
-        import io
+        expects (16-bit PCM, stereo, 24kHz).
 
-        from pydub import AudioSegment
+        Calls ffmpeg directly rather than going through pydub. pydub does its
+        decoding with ffmpeg anyway, but reaches for the standard library's
+        `audioop` module to change rate, channels and sample width - and
+        `audioop` was removed in Python 3.13 (PEP 594). On a 3.13 device every
+        upload that needs converting fails with "No module named 'pyaudioop'",
+        which is pydub's fallback import, and the only clue is the webconfig
+        log. Since ffmpeg can do the whole conversion in one pass, this drops
+        the dependency instead of pinning a backport of a removed module.
+
+        Temporary files rather than pipes on purpose: an M4A keeps its moov
+        atom at the end of the file, so ffmpeg cannot demux one from a
+        non-seekable stdin.
+        """
+        import subprocess
+        import tempfile
 
         from .config import FFMPEG_BIN
 
-        AudioSegment.converter = FFMPEG_BIN
-
-        pydub_format = (
-            "mp4" if source_ext == ".m4a" else source_ext.lstrip(".") or "wav"
-        )
-        audio = AudioSegment.from_file(io.BytesIO(file_data), format=pydub_format)
-        audio = audio.set_frame_rate(24000).set_channels(2).set_sample_width(2)
-
-        out = io.BytesIO()
-        audio.export(out, format="wav")
-        return out.getvalue()
+        suffix = source_ext or ".wav"
+        with tempfile.TemporaryDirectory() as workspace:
+            source = Path(workspace) / f"source{suffix}"
+            destination = Path(workspace) / "converted.wav"
+            source.write_bytes(file_data)
+            try:
+                subprocess.run(
+                    [
+                        FFMPEG_BIN,
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-i",
+                        str(source),
+                        "-map_metadata",
+                        "-1",
+                        "-acodec",
+                        "pcm_s16le",
+                        "-ac",
+                        "2",
+                        "-ar",
+                        "24000",
+                        str(destination),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=300,
+                )
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    f"ffmpeg not found at '{FFMPEG_BIN}'. Install ffmpeg, or set "
+                    "FFMPEG_BIN to its path, to upload audio that needs "
+                    "converting."
+                ) from exc
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or b"").decode("utf-8", "replace").strip()
+                raise RuntimeError(
+                    f"ffmpeg could not convert this file: {detail or exc}"
+                ) from exc
+            return destination.read_bytes()
 
     def get_audio_file_path(self, song_name: str, file_type: str) -> Optional[Path]:
         """Get the path to an audio file for a song.

@@ -118,7 +118,15 @@ if [ "$should_start_onboarding" -eq 0 ]; then
     echo "[$LOG_TAG] Connectivity check passed."
     remove_captive_portal_dnsmasq_conf
     rm -f "$ONBOARDING_FLAG"
-    sudo systemctl stop billy-wifi-setup.service
+    # Not every installation has the onboarding unit, and systemctl exits 5 for
+    # a unit that was never installed. As the last command of this branch that
+    # became the script's exit status, so systemd saw the check fail, and
+    # Restart=on-failure plus the unit's 15 second ExecStartPre sleep put a
+    # perfectly healthy online device into a restart loop: a sudo session and
+    # five journal lines every 15 seconds, indefinitely. Stopping something
+    # that is already not running is success as far as this script is
+    # concerned.
+    sudo systemctl stop billy-wifi-setup.service || true
 else
     echo "[$LOG_TAG] No internet connection. Starting onboarding flow..."
     if [ "$WIFI_ONBOARDING_MODE" = "unified" ]; then
@@ -156,7 +164,9 @@ else
 
     if [ "$WIFI_ONBOARDING_MODE" = "unified" ]; then
         sudo systemctl restart billy-webconfig.service
-        sudo systemctl stop billy-wifi-setup.service
+        sudo systemctl stop billy-wifi-setup.service || true
         echo "[$LOG_TAG] Unified onboarding UI launched on the main web interface."
     fi
 fi
+
+exit 0
