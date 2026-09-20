@@ -1,4 +1,15 @@
-"""Isolated phase 1/2 audio service. AI service must be stopped by systemd first."""
+"""A Bluetooth audio session, and a standalone way to run one.
+
+session() is what billy.service runs in-process. main() drives it from a shell
+with its own speaker, microphone and echo canceller, which is how this path was
+first brought up on hardware and still the way to exercise it on its own:
+
+    sudo systemctl stop billy
+    venv/bin/python -m core.bluetooth.runtime
+
+billy.service has to be stopped for that, because two processes cannot hold the
+same microphone and motor pins. There is no systemd unit for it any more.
+"""
 
 import contextlib
 import json
@@ -16,7 +27,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .endpoints import ServiceEndpoints
-from .transport import PCMFrames, command, discover, select_route
+from .transport import (
+    PCMFrames,
+    command,
+    discover,
+    pipewire_env,
+    select_route,
+)
 
 
 STATUS_PATH = (
@@ -132,6 +149,7 @@ def session(route, endpoints=None, stop=None):
                 stdout=subprocess.PIPE,
                 stderr=None,
                 bufsize=0,
+                env=pipewire_env(),
             )
             stack.callback(stop_process, incoming)
             stack.callback(incoming.stdout.close)
@@ -142,6 +160,7 @@ def session(route, endpoints=None, stop=None):
                     stdin=subprocess.PIPE,
                     stderr=None,
                     bufsize=0,
+                    env=pipewire_env(),
                 )
                 stack.callback(stop_process, outgoing)
                 stack.callback(outgoing.stdin.close)
@@ -200,10 +219,7 @@ def session(route, endpoints=None, stop=None):
                                 int(mic_rate) // divisor,
                             )
                         payload = (
-                            np
-                            .clip(converted, -32768, 32767)
-                            .astype(np.int16)
-                            .tobytes()
+                            np.clip(converted, -32768, 32767).astype(np.int16).tobytes()
                         )
                         if captures:
                             # Before AEC and after, so an artefact can be

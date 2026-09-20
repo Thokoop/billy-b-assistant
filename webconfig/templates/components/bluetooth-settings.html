@@ -6,33 +6,35 @@
     </h3>
     <div id="bluetooth-settings" data-token="{{ bluetooth_token }}" class="space-y-4">
         <p id="bt-setup" role="status" aria-live="polite">Checking Bluetooth installation…</p>
-        <button type="button" id="bt-setup-retry" data-action="setup-retry" class="secondary-action p-2" hidden>Retry Bluetooth setup</button>
-    <section class="border border-zinc-700 rounded-xl p-4 space-y-3">
-        <h2 class="text-lg font-semibold">Devices</h2>
+        <button type="button" id="bt-setup-retry" data-action="setup-retry" class="secondary-action secondary-action--hover--cyan h-11 px-3" hidden>
+            <span class="material-icons text-base" aria-hidden="true">refresh</span>
+            Retry Bluetooth setup
+        </button>
+        <p id="bt-audio" role="status" aria-live="polite" class="text-slate-400">Checking Bluetooth…</p>
+        <h2 id="bt-devices-title" class="text-lg font-semibold" hidden>Devices</h2>
         <ul id="bt-devices" class="space-y-3"></ul>
-        <p id="bt-status" role="status" aria-live="polite">Checking Bluetooth…</p>
         <p id="bt-pair-hint" hidden>Select Billy Bass in your device’s Bluetooth settings, then confirm the request here.</p>
         <div class="flex flex-wrap gap-3">
-            <button type="button" data-action="pair" class="secondary-action p-2">Pair new device</button>
-            <button type="button" id="bt-pair-stop" data-action="pair-stop" class="secondary-action p-2" hidden>Stop pairing</button>
+            <button type="button" data-action="pair" id="bt-pair" class="secondary-action secondary-action--hover--cyan h-11 px-3">
+                <span class="material-icons text-base" aria-hidden="true">bluetooth_searching</span>
+                Pair new device
+            </button>
+            <button type="button" id="bt-pair-stop" data-action="pair-stop" class="secondary-action secondary-action--hover--amber h-11 px-3" hidden>
+                <span class="material-icons text-base" aria-hidden="true">close</span>
+                Stop pairing
+            </button>
         </div>
         <div id="bt-pending" hidden class="border border-emerald-500 rounded-lg p-3 space-y-3">
             <p id="bt-request"></p>
-            <button type="button" id="bt-accept" class="secondary-action p-2">Accept</button>
-            <button type="button" id="bt-reject" class="secondary-action p-2">Reject</button>
+            <button type="button" id="bt-accept" class="secondary-action secondary-action--hover--emerald h-11 px-3">
+                <span class="material-icons text-base" aria-hidden="true">check</span>
+                Accept
+            </button>
+            <button type="button" id="bt-reject" class="secondary-action secondary-action--hover--rose h-11 px-3">
+                <span class="material-icons text-base" aria-hidden="true">close</span>
+                Reject
+            </button>
         </div>
-    </section>
-    <section class="border border-zinc-700 rounded-xl p-4 space-y-3">
-        <h2 class="text-lg font-semibold">Bluetooth audio test</h2>
-        <p>Start the test to use Billy for music and calls. The AI pauses until you select
-           “Return to AI”. Keep one device connected and answer calls on your phone.</p>
-        <p>Automatic switching and call buttons are coming in a later phase.</p>
-        <p id="bt-audio" role="status" aria-live="polite"></p>
-        <div class="flex flex-wrap gap-3">
-            <button type="button" data-action="test-start" class="secondary-action p-2">Start audio test</button>
-            <button type="button" data-action="test-stop" class="secondary-action p-2">Return to AI</button>
-        </div>
-    </section>
-    <p id="bt-error" role="alert" class="text-rose-400"></p>
+        <p id="bt-error" role="alert" class="text-rose-400"></p>
     </div>
 </div>

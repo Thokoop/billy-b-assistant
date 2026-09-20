@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.6.0] — 2026-??-??
+
+### Added
+- **Bluetooth Audio**: Billy works as a Bluetooth speaker and a hands-free headset — audio from a paired phone plays through his speaker with the mouth moving to it, and calls are two-way with echo cancellation
+  - Automatic switching: a phone that starts playing or takes a call takes over Billy's audio by itself, interrupting a conversation or a song the way a ringing phone interrupts music. When the call or the music stops, Billy returns to idle and the wake word is listening again — an interrupted conversation does not resume, since a session already ends itself after a few seconds of silence. `BLUETOOTH_AUTO_SWITCH=false` turns this off
+  - A Bluetooth section in System Settings for pairing, confirming a pairing request, and connecting, disconnecting or forgetting a saved device, with a live line saying what Billy's audio path is doing and which phone owns it
+  - Blue on the status LED while Bluetooth owns the audio — pulsing for media, steady during a call — published to `billy/state` as `bt_media` and `in_call` alongside the existing states
+  - Mouth movement for media: music is a full mix rather than an isolated vocals stem, so a speech-band filter drives the mouth from the part of the music that sounds like singing instead of flapping on every bass note
+  - Installed by a software update, which sets up the audio stack. 
+
+### Changed
+- **Idle LED Colour**: The idle pulse is now plain green. It previously carried a little blue, which was hard to tell from the blue that now means Bluetooth.
+- **Restart and Bluetooth**: Restarting Billy from the web interface now also drops a call or a music stream in progress, because Bluetooth audio runs inside the same service. The stream is picked up again within a couple of seconds if the phone is still playing.
+
+### Fixed
+- **Microphone Dropouts in the Service**: Billy's own service captured measurably worse audio than the same microphone recorded from a shell — about 0.68 attenuated 10 ms frames per second of speech against 0.04 — with PortAudio reporting no overflow, so nothing in the logs showed it. PortAudio raises its capture thread to real-time priority and a systemd unit cannot unless `LimitRTPRIO` allows it; both units shipped with it at 0. Granting it brings capture back to the microphone's own floor. Installed as a drop-in, so devices already in the field get it on their next software update.
+- **Thread Per Mouth Flap**: Each mouth movement created and destroyed a timer thread in the same process as the audio callbacks, several times a second. One scheduler thread now handles every motor stop.
+
 ## [2.5.1] — 2026-09-16
 
 ### Added

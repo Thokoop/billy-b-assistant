@@ -45,14 +45,14 @@ sudo -n mkdir -p /etc/systemd/system/billy.service.d
 sudo -n install -m 644 "$billy_tmp/realtime" \
     /etc/systemd/system/billy.service.d/10-billy-realtime.conf
 
-sed -e "s|@ROOT@|$billy_root|g" -e "s|@USER@|$billy_user|g" -e "s|@UID@|$billy_uid|g" \
-    "$billy_root/setup/system/billy-bluetooth.service.in" > "$billy_tmp/unit"
-sudo -n install -m 644 "$billy_tmp/unit" /etc/systemd/system/billy-bluetooth.service
-billy_systemctl="$(command -v systemctl)"
-printf '%s ALL=(root) NOPASSWD: %s start billy-bluetooth.service, %s stop billy-bluetooth.service, %s start billy.service\n' \
-    "$billy_user" "$billy_systemctl" "$billy_systemctl" "$billy_systemctl" > "$billy_tmp/sudoers"
-sudo -n visudo -cf "$billy_tmp/sudoers"
-sudo -n install -m 440 "$billy_tmp/sudoers" /etc/sudoers.d/billy-bluetooth
+# Bluetooth audio runs inside billy.service, so there is no second unit to
+# install and nothing for the web interface to start or stop. Remove both if an
+# earlier version of this script left them behind: without its Conflicts=
+# directive that unit would no longer stop billy.service, so starting it would
+# put two processes on the same microphone, PipeWire nodes and motor pins. The
+# sudoers grant existed only for those buttons.
+sudo -n systemctl disable --now billy-bluetooth.service 2>/dev/null || true
+sudo -n rm -f /etc/systemd/system/billy-bluetooth.service /etc/sudoers.d/billy-bluetooth
 # A user-specific policy works in the already-running web process, without
 # requiring logout or a reboot to acquire new supplementary groups.
 cat > "$billy_tmp/dbus" <<EOF

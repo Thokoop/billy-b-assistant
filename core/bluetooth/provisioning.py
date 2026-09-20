@@ -22,7 +22,6 @@ ASSETS = (
     'install-bluetooth.sh',
     '51-billy-bluetooth.conf',
     '51-billy-bluetooth.lua',
-    'billy-bluetooth.service.in',
 )
 _lock = threading.Lock()
 _thread = None
@@ -59,10 +58,14 @@ def _provision(force=False):
                 installed = json.loads(marker.read_text())
             except (OSError, ValueError):
                 installed = {}
+            # The D-Bus policy stands in for "the system side is still
+            # installed". It used to be the prototype's systemd unit, which no
+            # longer exists; this one is installed by the same script, lives at
+            # a fixed path, and is what lets webconfig talk to BlueZ at all.
             if (
                 not force
                 and installed.get('revision') == revision
-                and Path('/etc/systemd/system/billy-bluetooth.service').exists()
+                and Path('/etc/dbus-1/system.d/billy-bluetooth.conf').exists()
             ):
                 _set_status('ready', 'Bluetooth is installed.')
                 return

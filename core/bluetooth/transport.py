@@ -1,6 +1,7 @@
 """PipeWire node discovery and framed PCM transport (no hardware imports)."""
 
 import json
+import os
 import subprocess
 
 
@@ -52,9 +53,36 @@ def bluetooth_nodes(objects):
     return result
 
 
+def pipewire_env():
+    """The environment pw-dump and pw-cat need to find PipeWire's socket.
+
+    They connect to $XDG_RUNTIME_DIR/pipewire-0, and a systemd service
+    inherits no user session. The prototype's own unit set the variable
+    itself; billy.service does not, so inside it every PipeWire call exits 255
+    with nothing on stdout - which surfaces as "Bluetooth route discovery
+    skipped" on every poll and a mode that can never start.
+
+    Filled in here rather than in the unit because billy.service is a plain
+    file, not a template, so it cannot interpolate the uid - and because a
+    code fix ships with the software update that brings the watcher, while a
+    unit change would need provisioning to reach devices already installed.
+    """
+    env = dict(os.environ)
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    env.setdefault(
+        "DBUS_SESSION_BUS_ADDRESS", f"unix:path={env['XDG_RUNTIME_DIR']}/bus"
+    )
+    return env
+
+
 def discover():
     result = subprocess.run(
-        ["pw-dump"], capture_output=True, text=True, check=True, timeout=5
+        ["pw-dump"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=5,
+        env=pipewire_env(),
     )
     return bluetooth_nodes(json.loads(result.stdout))
 

@@ -335,7 +335,12 @@ def resume_after_takeover():
         # microphone on the way out.
         return
     if state != "error":
-        set_status_led_state("idle")
+        # Published rather than set directly, so the LED and any MQTT listener
+        # both learn the mode ended - the Bluetooth session announced itself
+        # the same way when it took over.
+        from .mqtt import mqtt_publish
+
+        mqtt_publish("billy/state", "idle")
     _resume_wakeword_listener()
     logger.info("Waiting for button press...", "🕐")
 

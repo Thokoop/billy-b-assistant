@@ -1,10 +1,10 @@
 """What a Bluetooth session needs from Billy's audio hardware.
 
-The standalone billy-bluetooth service owns the speaker, the microphone and
-the echo canceller outright, because systemd guarantees billy.service is not
-running at the same time. Inside billy.service all three already exist and
-are shared with the AI path, so a session there must be handed them rather
-than open its own.
+Run standalone from a shell (see runtime.main()), a session owns the speaker,
+the microphone and the echo canceller outright, because billy.service has to
+be stopped for it. Inside billy.service all three already exist and are
+shared with the AI path, so a session there must be handed them rather than
+open its own.
 
 Keeping sounddevice and EchoCanceller out of the session loop is what makes
 that swap possible without rewriting the loop. An implementation provides:
@@ -44,9 +44,9 @@ MIC_OPEN_RETRY_SECONDS = 0.2
 class _Endpoints:
     """Microphone and echo canceller handling common to both placements.
 
-    The microphone is safe to open in either: the standalone service runs
-    only when billy.service is stopped, and inside billy.service a call
-    stops the AI session first, which closes it. The echo canceller is always
+    The microphone is safe to open in either: a standalone run requires
+    billy.service to be stopped, and inside billy.service a call stops the
+    AI session first, which closes it. The echo canceller is always
     this session's own - core.audio's is built from AEC_ENABLED, which
     governs the AI path and is off by default, while a call needs
     cancellation regardless of how the assistant is configured.
@@ -144,9 +144,10 @@ class _Endpoints:
 
 
 class ServiceEndpoints(_Endpoints):
-    """Hardware owned outright by the standalone billy-bluetooth service.
+    """Hardware owned outright by a session running on its own.
 
-    Nothing else is running, so this opens the speaker directly.
+    billy.service is stopped, so nothing else holds the speaker and this opens
+    it directly. See runtime.main().
     """
 
     def open(self, stack):

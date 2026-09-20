@@ -54,11 +54,23 @@ class StatusLed:
         "starting": {"mode": "pulse", "color": (0, 96, 255), "period": 1.4},
         "wifi_setup_starting": {"mode": "blink", "color": (0, 180, 255), "period": 0.3},
         "wifi_setup": {"mode": "pulse", "color": (0, 180, 255), "period": 1.8},
-        "idle": {"mode": "pulse", "color": (0, 32, 12), "period": 2.8},
+        # Idle is a plain dim green: the blue it used to carry is now what
+        # says Bluetooth, and the two were hard to tell apart at this
+        # brightness.
+        "idle": {"mode": "pulse", "color": (0, 40, 0), "period": 2.8},
         "listening": {"mode": "solid", "color": (0, 180, 24)},
         "speaking": {"mode": "pulse", "color": (255, 110, 0), "period": 0.9},
         "interrupted": {"mode": "blink", "color": (255, 28, 0), "period": 0.12},
         "playing_song": {"mode": "rainbow", "period": 1.2},
+        # Bluetooth audio keeps to the blue family, so a glance says the phone
+        # owns the speaker rather than the AI. The motion follows the same
+        # grammar as the rest: pulsing while something plays, steady while a
+        # call is up (as listening is steady), blinking for something that
+        # wants an answer. Kept off wifi_setup's cyan (0, 180, 255) so setup
+        # and Bluetooth are not mistaken for each other.
+        "bt_media": {"mode": "pulse", "color": (0, 90, 255), "period": 1.2},
+        "in_call": {"mode": "solid", "color": (0, 60, 200)},
+        "ringing": {"mode": "blink", "color": (0, 140, 255), "period": 0.35},
         "error": {"mode": "blink", "color": (255, 0, 0), "period": 0.45},
         "stopping": {"mode": "blink", "color": (255, 48, 0), "period": 0.8},
         "off": {"mode": "solid", "color": (0, 0, 0)},

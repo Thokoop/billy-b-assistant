@@ -1,10 +1,8 @@
-"""Basic pairing UI and explicit prototype-service controls."""
+"""Pairing UI, and what the Bluetooth audio path is currently doing."""
 
 import json
 import os
 import secrets
-import subprocess
-import sys
 import threading
 from pathlib import Path
 
@@ -14,7 +12,6 @@ from flask import Blueprint, jsonify, redirect, request
 bp = Blueprint('bluetooth', __name__)
 _controller = None
 _lock = threading.Lock()
-_service_lock = threading.Lock()
 _csrf = secrets.token_urlsafe(32)
 
 
@@ -28,11 +25,22 @@ def controller():
     return _controller
 
 
-def service_state(name):
-    result = subprocess.run(
-        ['systemctl', 'is-active', name], capture_output=True, text=True, timeout=3
-    )
-    return result.stdout.strip()
+AUDIO_STATUS_PATH = Path(f'/run/user/{os.getuid()}/billy-bluetooth.json')
+PLAYING_STATES = {'media_audio', 'call_audio'}
+
+
+def audio_status():
+    """What the Bluetooth session last reported about the audio path.
+
+    The session runs inside billy.service, a different process from this one,
+    so a file in the runtime directory is how it says what it is doing. It is
+    written on every transition, including back to idle when a session ends and
+    at startup, so a missing or unreadable file means nothing is playing.
+    """
+    try:
+        return json.loads(AUDIO_STATUS_PATH.read_text())
+    except (OSError, ValueError):
+        return {}
 
 
 @bp.before_app_request
@@ -45,17 +53,12 @@ def guard_audio_tests():
         '/test-motor',
         '/wakeup/play',
     }
-    if (
-        request.path in protected
-        and Path('/etc/systemd/system/billy-bluetooth.service').exists()
-    ):
-        try:
-            if service_state('billy-bluetooth.service') in {'active', 'activating'}:
-                return jsonify(
-                    error='Bluetooth audio is in use. Return to AI before testing.'
-                ), 409
-        except (OSError, subprocess.TimeoutExpired):
-            return jsonify(error='Cannot verify audio ownership; try again.'), 503
+    # Asked of the audio path rather than of systemd: Bluetooth audio is a mode
+    # inside billy.service now, so there is no separate unit to be active.
+    if request.path in protected and audio_status().get('state') in PLAYING_STATES:
+        return jsonify(
+            error='Bluetooth audio is in use. Stop playback or end the call first.'
+        ), 409
     return None
 
 
@@ -80,10 +83,7 @@ def get_status():
         manager = controller()
         result = manager.run(manager.status())
         result['setup'] = setup
-        result['service'] = service_state('billy-bluetooth.service')
-        path = Path(f'/run/user/{os.getuid()}/billy-bluetooth.json')
-        if path.exists():
-            result['audio'] = json.loads(path.read_text())
+        result['audio'] = audio_status()
         return jsonify(result)
     except Exception as exc:
         return jsonify(error=str(exc), available=False), 503
@@ -101,38 +101,9 @@ def action(action):
     if action == 'setup-retry':
         start_setup(force=True)
         return jsonify(ok=True), 202
-    if action != 'test-stop' and setup_status()['state'] != 'ready':
+    if setup_status()['state'] != 'ready':
         return jsonify(error='Bluetooth setup is not complete'), 409
     try:
-        if action in {'test-start', 'test-stop'}:
-            with _service_lock:
-                if action == 'test-start':
-                    audio_routes = sys.modules.get('webconfig.app.routes.audio')
-                    if audio_routes:
-                        recording = getattr(audio_routes, 'mic_recording_thread', None)
-                        if getattr(audio_routes, 'mic_check_running', False) or (
-                            recording and recording.is_alive()
-                        ):
-                            return jsonify(
-                                error='Stop the microphone test before starting Bluetooth.'
-                            ), 409
-                operation = 'start' if action == 'test-start' else 'stop'
-                subprocess.run(
-                    ['sudo', '-n', 'systemctl', operation, 'billy-bluetooth.service'],
-                    check=True,
-                    timeout=20,
-                    capture_output=True,
-                    text=True,
-                )
-                if action == 'test-stop':
-                    subprocess.run(
-                        ['sudo', '-n', 'systemctl', 'start', 'billy.service'],
-                        check=True,
-                        timeout=20,
-                        capture_output=True,
-                        text=True,
-                    )
-            return jsonify(ok=True)
         manager = controller()
         if action == 'pair':
             result = manager.run(manager.start_pairing())
@@ -149,7 +120,5 @@ def action(action):
         return jsonify(result)
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
-    except subprocess.CalledProcessError as exc:
-        return jsonify(error=exc.stderr.strip() or 'Service control failed'), 503
     except Exception as exc:
         return jsonify(error=str(exc)), 503
