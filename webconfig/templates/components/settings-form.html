@@ -222,45 +222,56 @@
                 <div class="relative">
                     <div data-tooltip>
                         Recommended order:<br>
-                        <strong>gpt-realtime-2</strong> newest flagship model.<br>
-                        <strong>gpt-realtime-1.5</strong> previous flagship model.<br>
-                        <strong>gpt-realtime</strong> older flagship model.<br>
-                        <strong>gpt-realtime-mini</strong> lower-cost realtime model.<br>
-                        <strong>gpt-4o-mini-realtime-preview</strong> legacy preview model.<br>
+                        <strong>gpt-realtime-2.1</strong> newest flagship model.<br>
+                        <strong>gpt-realtime-2.1-mini</strong> newest lower-cost model (default).<br>
+                        <strong>gpt-realtime-2</strong> previous flagship model.<br>
+                        <strong>gpt-realtime-1.5</strong> older flagship model.<br>
+                        <strong>gpt-realtime</strong> original flagship model.<br>
+                        <strong>gpt-realtime-mini</strong> previous lower-cost model.<br>
                         <br>
-                        Pricing note: OpenAI currently lists <strong>gpt-realtime-1.5</strong> and <strong>gpt-realtime</strong> at the same token prices, so 1.5 is generally the better default when available.<br>
-                        <strong>gpt-realtime-mini</strong> is cheaper, but may follow instructions less consistently in some edge cases.<br>
+                        Pricing note: OpenAI lists <strong>gpt-realtime-2.1-mini</strong> at the same price as <strong>gpt-realtime-mini</strong>, but it adds reasoning and better tool use, so it is the better low-cost choice.<br>
+                        The flagship models cost more, but follow instructions more consistently in edge cases.<br>
                         <br><br>
-                        Legacy preview models are kept for compatibility.<br><br>
+                        Deprecated preview models are shown only so existing configurations still display, and can no longer be selected.<br><br>
                         See <a href="https://openai.com/api/pricing/" target="_blank" class="underline hover:text-cyan-400">OpenAI Realtime API Pricing</a> for details .
                     </div>
 
                     <select id="OPENAI_MODEL" name="OPENAI_MODEL"
                             class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        <option value="gpt-realtime-2.1"
+                                {% if config.get(
+                        'OPENAI_MODEL') == 'gpt-realtime-2.1' %}selected{% endif %}>
+                        gpt-realtime-2.1 (newest flagship model)
+                        </option>
+                        <option value="gpt-realtime-2.1-mini"
+                                {% if config.get(
+                        'OPENAI_MODEL') == 'gpt-realtime-2.1-mini' %}selected{% endif %}>
+                        gpt-realtime-2.1-mini (newest lower-cost model, default)
+                        </option>
                         <option value="gpt-realtime-2"
                                 {% if config.get(
                         'OPENAI_MODEL') == 'gpt-realtime-2' %}selected{% endif %}>
-                        gpt-realtime-2 (newest flagship model)
+                        gpt-realtime-2 (previous flagship model)
                         </option>
                         <option value="gpt-realtime-1.5"
                                 {% if config.get(
                         'OPENAI_MODEL') == 'gpt-realtime-1.5' %}selected{% endif %}>
-                        gpt-realtime-1.5 (previous flagship model)
+                        gpt-realtime-1.5 (older flagship model)
                         </option>
                         <option value="gpt-realtime"
                                 {% if config.get(
                         'OPENAI_MODEL') == 'gpt-realtime' %}selected{% endif %}>
-                        gpt-realtime (older flagship model)
+                        gpt-realtime (original flagship model)
                         </option>
                         <option value="gpt-realtime-mini"
                                 {% if config.get(
                         'OPENAI_MODEL') == 'gpt-realtime-mini' %}selected{% endif %}>
-                        gpt-realtime-mini
+                        gpt-realtime-mini (previous lower-cost model)
                         </option>
-                        <option value="gpt-4o-mini-realtime-preview"
+                        <option value="gpt-4o-mini-realtime-preview" disabled
                                 {% if config.get(
                         'OPENAI_MODEL') == 'gpt-4o-mini-realtime-preview' %}selected{% endif %}>
-                        gpt-4o-mini-realtime-preview
+                        gpt-4o-mini-realtime-preview (deprecated)
                         </option>
                         <option value="gpt-4o-realtime-preview" disabled
                                 {% if config.get(

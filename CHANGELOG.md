@@ -4,14 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.5.1] — 2026-09-16
+## [2.5.1] — 2026-09-20
 
 ### Added
 - **Wi-Fi MAC Address**: Show Billy's wireless interface address in Internet Settings and the Wi-Fi setup dialog, even when disconnected.
 - **Button Wi-Fi Setup**: Hold the physical button for 10 seconds to force the Billy_Bassistant setup access point open. The status LED blinks cyan while opening and pulses cyan during setup.
+- **gpt-realtime-2.1 Support**: Added `gpt-realtime-2.1` and `gpt-realtime-2.1-mini` to the OpenAI Realtime API Model dropdown in API Settings. Both are included in the conversation-state-enabled model set.
 
 ### Changed
 - **Wi-Fi Saving**: Connect to the saved network and exit setup mode without rebooting Billy.
+- **Default OpenAI Model**: `gpt-realtime-2.1-mini` is now the default when `OPENAI_MODEL` is not set. It costs the same as `gpt-realtime-mini` but adds reasoning and better tool use. Builds with a model saved in `.env` keep their selection.
+- **Model Labels**: Updated the model dropdown labels and help tooltip to reflect the new lineup.
+- **Deprecated gpt-4o-mini-realtime-preview**: The model is now marked deprecated and can no longer be selected in the Web UI. Builds already configured with it keep using it until another model is picked.
 
 ### Fixed
 - **Song Stem Uploads on Python 3.13**: Uploading an audio file that needed converting failed with "No module named 'pyaudioop'". Python 3.13 removed `audioop` from the standard library, and pydub needs it to change sample rate, channels or sample width. Conversion now calls ffmpeg directly in a single pass instead of going through pydub, so it no longer depends on a removed module and works on any Python version. ffmpeg missing or refusing a file is now reported as such. Note that ffmpeg must be installed — it is part of the README's prerequisites and is not installed automatically.

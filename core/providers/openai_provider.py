@@ -8,7 +8,7 @@ class OpenAIProvider(RealtimeAIProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = "gpt-realtime-mini",
+        model: str = "gpt-realtime-2.1-mini",
         voice: Optional[str] = None,
     ):
         self.api_key = api_key
