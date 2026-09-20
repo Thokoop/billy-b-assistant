@@ -1403,6 +1403,9 @@ const SettingsForm = (() => {
                     setSettingsConnectionStatus(data.error || "Failed to load Wi-Fi status", false);
                     return;
                 }
+                document.querySelectorAll("[data-wifi-mac-address]").forEach(el => {
+                    el.textContent = data.mac_address || "Unavailable";
+                });
                 const hotspotActiveNow = Boolean(data.hotspot_active);
                 if (hotspotActiveNow) {
                     setSettingsConnectionStatus(
@@ -1514,8 +1517,8 @@ const SettingsForm = (() => {
                 editToggleLabel.textContent = onboardingUi ? "Wi-Fi setup" : "Edit connection";
             }
             wifiModalDescription.textContent = onboardingUi
-                ? "Connect Billy to your home Wi-Fi to finish setup. Saving a new network will reboot Billy to switch over."
-                : "Choose your Wi-Fi network and save the connection for Billy. Saving a new network will reboot Billy.";
+                ? "Connect Billy to your home Wi-Fi to finish setup. The setup hotspot will close when Billy connects. Reconnect your device to your home Wi-Fi and open Billy’s web interface again."
+                : "Choose your Wi-Fi network and save the connection for Billy. Billy will connect immediately; your browser may briefly disconnect.";
         };
 
         const invalidateSuccessfulTest = () => {
@@ -1717,6 +1720,9 @@ const SettingsForm = (() => {
                     }
                     return;
                 }
+                document.querySelectorAll("[data-wifi-mac-address]").forEach(el => {
+                    el.textContent = data.mac_address || "Unavailable";
+                });
                 hotspotActive = Boolean(data.hotspot_active);
                 syncOnboardingUiState();
                 if (hotspotActive) {
@@ -1858,25 +1864,13 @@ const SettingsForm = (() => {
                     showNotification(errorMessage, "error", 4000);
                     return;
                 }
-                showTestResult(
-                    data.rebooting
-                        ? `Saved Wi-Fi for ${ssid}. Billy is rebooting now to switch over to the new network.`
-                        : `Saved Wi-Fi for ${ssid}.`
-                );
-                showNotification(
-                    data.rebooting
-                        ? "Wi-Fi saved. Billy is rebooting now."
-                        : "Wi-Fi saved",
-                    "success",
-                    4500
-                );
+                showTestResult(`Saved Wi-Fi for ${ssid}. Billy is connected. If you were using the setup hotspot, reconnect your device to your home Wi-Fi and open Billy’s web interface again.`);
+                showNotification("Wi-Fi saved and connected", "success", 4500);
                 savedFingerprint = currentFingerprint();
                 syncSaveButton();
-                if (!data.rebooting) {
-                    await loadStatus();
-                    if (!shouldAutoOpenEditor()) {
-                        closeWifiModal();
-                    }
+                await loadStatus();
+                if (!shouldAutoOpenEditor()) {
+                    closeWifiModal();
                 }
                 if (onboardingActive) {
                     setTimeout(() => {

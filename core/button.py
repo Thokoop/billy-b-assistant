@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import subprocess
 import threading
 import time
 from concurrent.futures import CancelledError
@@ -9,7 +10,13 @@ from concurrent.futures import CancelledError
 from . import audio, config
 from .logger import logger
 from .movements import move_head, move_tail
-from .status_led import get_status_led_state, set_status_led_state
+from .status_led import (
+    flash_status_led_state,
+    get_status_led_state,
+    set_status_led_state,
+    status_led,
+)
+from .wifi_setup import PROJECT_ROOT, SetupHoldGesture
 
 
 try:
@@ -80,6 +87,8 @@ SONG_MODE_WAKEWORD_RESUME_DELAY = 1.5  # let room echo/reverb decay before re-ar
 _button_rearm_required = False
 _button_released_since = 0.0
 _button_state_lock = threading.Lock()
+_setup_monitor_stop = threading.Event()
+_setup_monitor_thread = None
 _session_start_lock = threading.Lock()  # Lock to prevent concurrent session starts
 
 # Setup hardware button
@@ -558,15 +567,66 @@ def on_button(source: str = "gpio-edge"):
     trigger_session_start(source="button")
 
 
+def _force_wifi_setup():
+    """Reuse the installed onboarding flow without waiting for a reboot."""
+    _require_button_release()
+    logger.info("Button held for 10 seconds. Opening Wi-Fi setup hotspot.", "📶")
+    status_led.set_wifi_setup_starting(True)
+    try:
+        subprocess.run(
+            [
+                "sudo",
+                "-n",
+                "bash",
+                str(PROJECT_ROOT / "setup" / "wifi_check.sh"),
+                "--force-offline",
+            ],
+            cwd=PROJECT_ROOT,
+            check=True,
+            timeout=120,
+        )
+        logger.success("Wi-Fi setup hotspot opened: Billy_Bassistant", "📶")
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.error(f"Could not open Wi-Fi setup hotspot: {exc}")
+        flash_status_led_state("error", 5.0)
+    finally:
+        status_led.set_wifi_setup_starting(False)
+
+
+def _monitor_setup_hold():
+    # A separate worker keeps the gesture available even while a normal button
+    # callback is waiting for session startup or cleanup.
+    gesture = SetupHoldGesture()
+    while not _setup_monitor_stop.is_set():
+        try:
+            if gesture.observe(bool(button.is_pressed), time.monotonic()):
+                _force_wifi_setup()
+        except Exception as exc:
+            logger.verbose(f"Wi-Fi setup button monitoring skipped: {exc}", "ℹ️")
+        _setup_monitor_stop.wait(0.05)
+
+
 def stop_background_services():
     global wakeword_listener
+    _setup_monitor_stop.set()
     if wakeword_listener:
         wakeword_listener.stop()
         wakeword_listener = None
 
 
 def start_loop():
-    global wakeword_listener, _button_was_pressed
+    global wakeword_listener, _button_was_pressed, _setup_monitor_thread
+
+    if (
+        not config.MOCKFISH
+        and gpiozero_available
+        and (_setup_monitor_thread is None or not _setup_monitor_thread.is_alive())
+    ):
+        _setup_monitor_stop.clear()
+        _setup_monitor_thread = threading.Thread(
+            target=_monitor_setup_hold, daemon=True
+        )
+        _setup_monitor_thread.start()
 
     audio.detect_devices(debug=True)
     _ensure_button_hold_thread()

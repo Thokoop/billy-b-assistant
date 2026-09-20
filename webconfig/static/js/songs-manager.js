@@ -575,7 +575,8 @@ const SongsManager = (() => {
 
     const uploadAudioFiles = async (songName) => {
         const fileTypes = ['full', 'vocals', 'drums'];
-        
+        const failures = [];
+
         for (const fileType of fileTypes) {
             const fileInput = document.getElementById(`${fileType}-file`);
             if (fileInput.files.length > 0) {
@@ -598,9 +599,21 @@ const SongsManager = (() => {
                     updateFileStatus(fileType, true);
                 } catch (error) {
                     debugLog('ERROR', `Failed to upload ${fileType}.wav:`, error);
-                    showNotification(`Failed to upload ${fileType}.wav: ${error.message}`, 'error');
+                    failures.push(`${fileType}.wav (${error.message})`);
                 }
             }
+        }
+
+        // Thrown, not just shown. The caller announces "saved successfully"
+        // the moment this returns, and its own error notification lands after
+        // any shown here - so a stem that never reached the Pi was being
+        // reported as saved, and only looked missing after the reload. Every
+        // file is still attempted before giving up, and the message says the
+        // metadata did save, because it did.
+        if (failures.length) {
+            throw new Error(
+                `Song metadata saved, but could not upload ${failures.join(', ')}`
+            );
         }
     };
 

@@ -740,6 +740,19 @@ Behind the scenes:
 
 ---
 
+# Wi-Fi setup from the physical button
+
+Hold Billy's button continuously for **10 seconds** to open the
+**Billy_Bassistant** setup access point, even when Billy is already connected to
+Wi-Fi. This switches Billy away from the current wireless connection. Connect
+your phone or computer to Billy_Bassistant and complete Wi-Fi setup as usual.
+Saving Wi-Fi connects Billy to the network and closes setup mode without rebooting.
+Reconnect your phone or computer to your home Wi-Fi to open Billy’s web interface again.
+Saved network credentials remain available until you change them in setup.
+Short presses retain their normal session controls.
+
+---
+
 # Future Ideas & Bug report
 
 Have a feature request or found a bug?  
