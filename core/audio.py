@@ -121,6 +121,10 @@ def aec_voice_detected() -> bool | None:
     return echo_canceller.voice_detected
 
 
+def aec_playback_reference_level() -> float | None:
+    return echo_canceller.playback_reference_level()
+
+
 def aec_playback_similarity() -> float | None:
     """Return gain-independent similarity of cleaned mic to Billy's playback."""
     return echo_canceller.playback_similarity

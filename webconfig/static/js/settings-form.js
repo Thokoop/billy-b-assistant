@@ -17,6 +17,7 @@ const SettingsForm = (() => {
     // derives and submits it from STATUS_LED_BRIGHTNESS on every save instead.
     const BOOLEAN_SELECT_IDS = new Set([
         'AEC_ENABLED',
+        'WEB_SEARCH_ENABLED',
         'WAKE_WORD_ENABLED',
         'MIC_TIMEOUT_TAIL_FLAP',
         'MOOD_INSTRUCTIONS_ENABLED',
@@ -63,19 +64,51 @@ const SettingsForm = (() => {
         if (toggle) toggle.checked = selectElement.value === 'true';
     };
 
+    // Same idea for the few selects drawn as a stepped slider: the select is
+    // the form control, the slider is the picture of it, and population and
+    // refresh set the select without firing 'change'.
+    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB']);
+
+    const syncStepSlider = (selectElement) => {
+        if (!selectElement || !STEP_SLIDER_SELECT_IDS.has(selectElement.id)) return;
+        const bar = document.getElementById(`${selectElement.id}-bar`);
+        const fill = document.getElementById(`${selectElement.id}-fill`);
+        const label = document.getElementById(`${selectElement.id}-label`);
+        if (!bar || !fill) return;
+        const count = selectElement.options.length;
+        const index = Math.max(0, selectElement.selectedIndex);
+        const percent = count > 1 ? (index / (count - 1)) * 100 : 100;
+        fill.style.width = `${percent}%`;
+        fill.dataset.value = selectElement.value;
+        if (label) label.textContent = selectElement.options[index]?.text || '';
+        bar.setAttribute('aria-valuemin', '1');
+        bar.setAttribute('aria-valuemax', String(count));
+        bar.setAttribute('aria-valuenow', String(index + 1));
+        bar.setAttribute('aria-valuetext', selectElement.options[index]?.text || '');
+        bar.querySelectorAll('[data-step-dot]').forEach((dot, dotIndex) => {
+            // Dots sit on both the filled and unfilled part of the track, so
+            // they are drawn dark rather than tinted to match either side.
+            dot.classList.toggle('bg-zinc-900', dotIndex <= index);
+            dot.classList.toggle('bg-zinc-500', dotIndex > index);
+        });
+    };
+
     const ensureSelectHasValue = (element, preferredValue, fallbackValue = null) => {
         if (!element) return false;
         if (setSelectValueSafely(element, preferredValue)) {
             syncBooleanToggle(element);
+            syncStepSlider(element);
             return true;
         }
         if (setSelectValueSafely(element, fallbackValue)) {
             syncBooleanToggle(element);
+            syncStepSlider(element);
             return true;
         }
         if (element.options.length > 0) {
             element.value = element.options[0].value;
             syncBooleanToggle(element);
+            syncStepSlider(element);
             return true;
         }
         return false;
@@ -112,12 +145,15 @@ const SettingsForm = (() => {
         };
 
         try {
-            const response = await fetch("/camera/devices");
-            if (!response.ok) {
-                console.error(`Camera discovery returned HTTP ${response.status}`);
-                return;
+            let data = await window.BootstrapData?.take("camera");
+            if (!data) {
+                const response = await fetch("/camera/devices");
+                if (!response.ok) {
+                    console.error(`Camera discovery returned HTTP ${response.status}`);
+                    return;
+                }
+                data = await response.json();
             }
-            const data = await response.json();
             renderOptions(data.options);
 
             const savedSelection = localStorage.getItem("dropdown_CAMERA_HARDWARE");
@@ -247,8 +283,10 @@ const SettingsForm = (() => {
             { id: 'CAMERA_HARDWARE', key: 'CAMERA_HARDWARE' },
             { id: 'BILLY_PINS_SELECT', key: 'BILLY_PINS' },
             { id: 'HA_LANG', key: 'HA_LANG' },
+            { id: 'HA_AGENT_ID', key: 'HA_AGENT_ID' },
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
             { id: 'AEC_ENABLED', key: 'AEC_ENABLED' },
+            { id: 'WEB_SEARCH_ENABLED', key: 'WEB_SEARCH_ENABLED' },
             { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
             { id: 'MIC_TIMEOUT_TAIL_FLAP', key: 'MIC_TIMEOUT_TAIL_FLAP' },
             { id: 'MOOD_INSTRUCTIONS_ENABLED', key: 'MOOD_INSTRUCTIONS_ENABLED' },
@@ -272,6 +310,7 @@ const SettingsForm = (() => {
                 // System-controlled selectors prefer .env/config over localStorage.
                 const preferConfigValue = id === 'OPENAI_MODEL'
                     || id === 'XAI_MODEL'
+                    || id === 'WEB_SEARCH_ENABLED'
                     || id === 'WAKE_WORD_BACKEND'
                     || id === 'REALTIME_AI_PROVIDER'
                     || id === 'AEC_BARGE_IN_SNR_DB'
@@ -396,6 +435,10 @@ const SettingsForm = (() => {
             const oldHostname = (hostnameInput.getAttribute("data-original") || hostnameInput.defaultValue || "").trim();
             const newHostname = (formData.get("hostname") || "").trim();
 
+            const timezoneInput = document.getElementById("timezone");
+            const oldTimezone = (timezoneInput?.getAttribute("data-original") || "").trim();
+            const newTimezone = (formData.get("timezone") || "").trim();
+
             const pinSelect = document.getElementById("BILLY_PINS_SELECT");
             if (pinSelect) {
                 payload.BILLY_PINS = pinSelect.value; // "new" | "legacy"
@@ -461,15 +504,13 @@ const SettingsForm = (() => {
 
             let hostnameChanged = false;
 
-            const saveResponse = await fetch("/save", {
+            const saveResult = await requestJson("/save", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify(payload),
+                accept: (data, res) => res.ok && data?.status === "ok",
+                error: "The settings could not be saved",
             });
-            const saveResult = await saveResponse.json();
-            if (!saveResponse.ok || saveResult.status !== "ok") {
-                throw new Error(saveResult.error || "The settings could not be saved");
-            }
             const portChanged = saveResult.port_changed || (oldPort !== newPort);
 
             // Re-read the saved .env through webconfig so controls stay aligned
@@ -483,6 +524,29 @@ const SettingsForm = (() => {
                 // Saving succeeded; a control-refresh failure must not be
                 // reported as if writing .env failed.
                 console.error("Settings saved, but form refresh failed:", refreshError);
+            }
+
+            if (timezoneInput && newTimezone && newTimezone !== oldTimezone) {
+                try {
+                    const tzResult = await requestJson("/timezone", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({timezone: newTimezone}),
+                        // A body that did not arrive, or that names an
+                        // error, means the zone was not changed - whatever the
+                        // status code says.
+                        accept: (data, res) => res.ok && data && !data.error,
+                        error: "The timezone could not be changed",
+                    });
+                    timezoneInput.setAttribute("data-original", tzResult.timezone);
+                    startDeviceClock(tzResult.now, tzResult.timezone);
+                    showNotification(`Timezone set to ${tzResult.timezone}`, "success", 5000);
+                } catch (error) {
+                    // The rest of the settings did save; say what did not.
+                    console.error("Failed to set timezone:", error);
+                    timezoneInput.value = oldTimezone;
+                    showNotification(`Settings saved, but the timezone could not be changed: ${error.message}`, "warning", 6000);
+                }
             }
 
             if (newHostname && newHostname !== oldHostname) {
@@ -709,6 +773,132 @@ const SettingsForm = (() => {
         }
     };
 
+    // Billy has no battery-backed clock, so its time can differ from this
+    // browser's. Tick from the offset measured once against the device's own
+    // reading rather than from the browser clock, so a wrong device clock shows
+    // up here instead of being papered over.
+    let deviceClockTimer = null;
+
+    // The address is only shown when the device actually has one: on the setup
+    // hotspot, or with no lease yet, there is nothing useful to print.
+    const setWifiIpAddress = (address) => {
+        const value = String(address || "").trim();
+        document.querySelectorAll("[data-wifi-ip-address]").forEach(el => {
+            el.textContent = value;
+        });
+        document.querySelectorAll("[data-wifi-ip-row]").forEach(el => {
+            el.classList.toggle("hidden", !value);
+        });
+    };
+
+    const startDeviceClock = (deviceNow, deviceTimezone) => {
+        const label = document.getElementById("device-time");
+        const dateLabel = document.getElementById("device-time-date");
+        if (!label) return;
+        const parsed = deviceNow ? Date.parse(deviceNow) : NaN;
+        if (Number.isNaN(parsed)) {
+            label.textContent = "--:--:--";
+            if (dateLabel) dateLabel.textContent = "Unavailable";
+            return;
+        }
+        const skewMs = parsed - Date.now();
+        let formatter;
+        let dateFormatter = null;
+        try {
+            formatter = new Intl.DateTimeFormat(undefined, {
+                timeZone: deviceTimezone || undefined,
+                hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+            });
+            dateFormatter = new Intl.DateTimeFormat(undefined, {
+                timeZone: deviceTimezone || undefined,
+                day: "numeric", month: "short", year: "numeric",
+                timeZoneName: "short",
+            });
+        } catch (error) {
+            // An IANA name this browser does not know: fall back to the
+            // device's own offset so the reading is still right.
+            formatter = null;
+        }
+        const offsetMatch = /([+-]\d{2}):?(\d{2})$/.exec(deviceNow.trim());
+        const offsetMinutes = offsetMatch
+            ? (offsetMatch[1].startsWith("-") ? -1 : 1)
+              * (Math.abs(parseInt(offsetMatch[1], 10)) * 60 + parseInt(offsetMatch[2], 10))
+            : 0;
+        const sign = offsetMinutes < 0 ? "-" : "+";
+        const pad = (value) => String(Math.floor(Math.abs(value))).padStart(2, "0");
+        const render = () => {
+            const deviceDate = new Date(Date.now() + skewMs);
+            if (formatter) {
+                label.textContent = formatter.format(deviceDate);
+                if (dateLabel) dateLabel.textContent = dateFormatter.format(deviceDate);
+                return;
+            }
+            // Shift the instant by the device's own offset and read it as UTC,
+            // so the clock still shows the device's local time.
+            const shifted = new Date(deviceDate.getTime() + offsetMinutes * 60000);
+            const iso = shifted.toISOString();
+            label.textContent = iso.slice(11, 19);
+            if (dateLabel) {
+                dateLabel.textContent = `${iso.slice(0, 10)} `
+                    + `UTC${sign}${pad(offsetMinutes / 60)}:${pad(offsetMinutes % 60)}`;
+            }
+        };
+        if (deviceClockTimer) clearInterval(deviceClockTimer);
+        render();
+        deviceClockTimer = setInterval(render, 1000);
+    };
+
+    // The assistant list comes from Home Assistant itself, so it can only be
+    // filled in after the page has loaded and only when HA is reachable.
+    const initHomeAssistantAgents = async () => {
+        const select = document.getElementById("HA_AGENT_ID");
+        const status = document.getElementById("HA_AGENT_ID-status");
+        if (!select) return;
+        const selected = select.value;
+        try {
+            const data = await window.BootstrapData?.take("ha_agents")
+                || await (await fetch("/ha/agents")).json();
+            const agents = Array.isArray(data.agents) ? data.agents : [];
+            if (!agents.length) {
+                if (status) {
+                    status.textContent = data.error
+                        ? "Could not reach Home Assistant, so its assistants are not listed."
+                        : "";
+                }
+                return;
+            }
+            const preferred = agents.find((agent) => agent.id === data.preferred);
+            const options = [
+                {
+                    id: "",
+                    name: preferred
+                        ? `Preferred in Home Assistant (${preferred.name})`
+                        : "Preferred in Home Assistant",
+                },
+                ...agents,
+            ];
+            select.replaceChildren(...options.map(({ id, name }) => {
+                const option = document.createElement("option");
+                option.value = id;
+                option.textContent = name;
+                return option;
+            }));
+            // A saved agent that no longer exists must stay visible rather than
+            // silently turning into the built-in one.
+            if (selected && !options.some((option) => option.id === selected)) {
+                const missing = document.createElement("option");
+                missing.value = selected;
+                missing.textContent = `${selected} (not found)`;
+                select.appendChild(missing);
+            }
+            select.value = selected;
+            if (status) status.textContent = "";
+        } catch (error) {
+            console.error("Failed to load Home Assistant assistants:", error);
+            if (status) status.textContent = "Could not reach Home Assistant, so its assistants are not listed.";
+        }
+    };
+
     const initHostFields = async () => {
         const hostnameInput = document.getElementById("hostname");
         const flaskPortInput = document.getElementById("FLASK_PORT");
@@ -717,11 +907,29 @@ const SettingsForm = (() => {
             flaskPortInput.setAttribute("data-original", flaskPortInput.value);
         }
 
+        const timezoneInput = document.getElementById("timezone");
+        if (timezoneInput) {
+            try {
+                const tzData = await window.BootstrapData?.take("timezone")
+                    || await (await fetch("/timezone")).json();
+                if (tzData.timezone) {
+                    timezoneInput.value = tzData.timezone;
+                    timezoneInput.setAttribute("data-original", tzData.timezone);
+                }
+                startDeviceClock(tzData.now, tzData.timezone);
+                if (Array.isArray(tzData.timezones)) {
+                    SearchableSelect.setOptions(timezoneInput, tzData.timezones);
+                }
+            } catch (error) {
+                console.error("Failed to load timezone:", error);
+            }
+        }
+
         if (!hostnameInput) return;
 
         try {
-            const res = await fetch("/hostname");
-            const data = await res.json();
+            const data = await window.BootstrapData?.take("hostname")
+                || await (await fetch("/hostname")).json();
             if (data.hostname) {
                 hostnameInput.value = data.hostname;
                 hostnameInput.setAttribute("data-original", data.hostname);
@@ -729,6 +937,78 @@ const SettingsForm = (() => {
         } catch (error) {
             console.error("Failed to load hostname:", error);
         }
+    };
+
+    // A select rendered as a slider with one stop per option: click, drag or
+    // arrow-key to a stop and the label underneath names it.
+    const initStepSliders = () => {
+        STEP_SLIDER_SELECT_IDS.forEach((id) => {
+            const select = document.getElementById(id);
+            const bar = document.getElementById(`${id}-bar`);
+            if (!select || !bar) return;
+
+            const dots = bar.querySelector('[data-step-dots]');
+            if (dots && !dots.childElementCount) {
+                const count = select.options.length;
+                for (let index = 0; index < count; index += 1) {
+                    const dot = document.createElement('span');
+                    dot.dataset.stepDot = String(index);
+                    dot.className = 'absolute top-1/2 w-2 h-2 rounded-full bg-zinc-500 pointer-events-none';
+                    // Nudged inwards at both ends so the outer dots are not
+                    // clipped by the track's rounded, overflow-hidden edges.
+                    const fraction = count > 1 ? index / (count - 1) : 0;
+                    dot.style.left = `calc(${fraction * 100}% + ${(0.5 - fraction) * 16}px)`;
+                    dot.style.transform = 'translate(-50%, -50%)';
+                    dots.appendChild(dot);
+                }
+            }
+
+            const selectIndex = (index) => {
+                const clamped = Math.min(select.options.length - 1, Math.max(0, index));
+                if (clamped === select.selectedIndex) {
+                    syncStepSlider(select);
+                    return;
+                }
+                select.selectedIndex = clamped;
+                syncStepSlider(select);
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+
+            if (bar.dataset.bound !== 'true') {
+                bar.dataset.bound = 'true';
+                let isDragging = false;
+                const indexFromPointer = (event) => {
+                    const rect = bar.getBoundingClientRect();
+                    if (!rect.width) return;
+                    const fraction = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
+                    selectIndex(Math.round(fraction * (select.options.length - 1)));
+                };
+                bar.addEventListener('mousedown', (event) => {
+                    isDragging = true;
+                    indexFromPointer(event);
+                });
+                document.addEventListener('mousemove', (event) => {
+                    if (isDragging) indexFromPointer(event);
+                });
+                document.addEventListener('mouseup', () => { isDragging = false; });
+                bar.addEventListener('keydown', (event) => {
+                    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                        selectIndex(select.selectedIndex - 1);
+                    } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                        selectIndex(select.selectedIndex + 1);
+                    } else if (event.key === 'Home') {
+                        selectIndex(0);
+                    } else if (event.key === 'End') {
+                        selectIndex(select.options.length - 1);
+                    } else {
+                        return;
+                    }
+                    event.preventDefault();
+                });
+                select.addEventListener('change', () => syncStepSlider(select));
+            }
+            syncStepSlider(select);
+        });
     };
 
     const initMouthArticulationSlider = () => {
@@ -826,7 +1106,7 @@ const SettingsForm = (() => {
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED',
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED', 'WEB_SEARCH_ENABLED',
             'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
         ];
         dropdowns.forEach(id => {
@@ -917,8 +1197,11 @@ const SettingsForm = (() => {
 
         const loadWakeWordOptions = async (preferredKeywordPath = null, preferredModelPath = null) => {
             try {
-                const response = await fetch("/wakeword/keywords");
-                const data = await response.json();
+                // Only the first, unprompted load can come from the bootstrap
+                // payload; an upload calls this again and must see the disk.
+                const data = (!preferredKeywordPath && !preferredModelPath
+                        && await window.BootstrapData?.take("wakeword_keywords"))
+                    || await (await fetch("/wakeword/keywords")).json();
                 const keywordOptions = Array.isArray(data.keywords)
                     ? data.keywords.map(normalizeWakeWordName).filter(Boolean)
                     : [];
@@ -1397,7 +1680,10 @@ const SettingsForm = (() => {
         const refreshSettingsWifiStatus = async () => {
             if (!statusEl) return;
             try {
-                const response = await fetch("/wifi/status");
+                const bootstrapped = await window.BootstrapData?.take("wifi");
+                const response = bootstrapped
+                    ? {ok: true, json: async () => bootstrapped}
+                    : await fetch("/wifi/status");
                 const data = await response.json();
                 if (!response.ok) {
                     setSettingsConnectionStatus(data.error || "Failed to load Wi-Fi status", false);
@@ -1406,6 +1692,7 @@ const SettingsForm = (() => {
                 document.querySelectorAll("[data-wifi-mac-address]").forEach(el => {
                     el.textContent = data.mac_address || "Unavailable";
                 });
+                setWifiIpAddress(data.ip_address);
                 const hotspotActiveNow = Boolean(data.hotspot_active);
                 if (hotspotActiveNow) {
                     setSettingsConnectionStatus(
@@ -1710,7 +1997,10 @@ const SettingsForm = (() => {
 
         const loadStatus = async () => {
             try {
-                const response = await fetch("/wifi/status");
+                const bootstrapped = await window.BootstrapData?.take("wifi");
+                const response = bootstrapped
+                    ? {ok: true, json: async () => bootstrapped}
+                    : await fetch("/wifi/status");
                 const data = await response.json();
                 if (!response.ok) {
                     setConnectionStatus(data.error || "Failed to load Wi-Fi status", false);
@@ -1723,6 +2013,7 @@ const SettingsForm = (() => {
                 document.querySelectorAll("[data-wifi-mac-address]").forEach(el => {
                     el.textContent = data.mac_address || "Unavailable";
                 });
+                setWifiIpAddress(data.ip_address);
                 hotspotActive = Boolean(data.hotspot_active);
                 syncOnboardingUiState();
                 if (hotspotActive) {
@@ -1903,6 +2194,7 @@ const SettingsForm = (() => {
         populateDropdowns,
         saveDropdownSelections,
         initBooleanToggles,
+        initStepSliders,
         initShowTooltipsToggle,
         initMouthArticulationSlider,
         initStatusLedBrightnessSlider,
@@ -1917,6 +2209,7 @@ const SettingsForm = (() => {
         bindWiFiSection,
         bindApiProviderFields,
         initHostFields,
+        initHomeAssistantAgents,
     };
 })();
 

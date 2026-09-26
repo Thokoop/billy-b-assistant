@@ -10,6 +10,10 @@ from ..config import CHUNK_MS, TEXT_ONLY_MODE
 from ..logger import logger
 
 
+# 24 kHz mono 16-bit PCM from the provider.
+_PROVIDER_OUTPUT_BYTES_PER_MS = audio.PROVIDER_OUTPUT_RATE * 2 / 1000
+
+
 class AudioHandler:
     """Handles audio input/output for the session."""
 
@@ -19,6 +23,12 @@ class AudioHandler:
         self._playback_generation = None
         self._playback_item_id = None
         self._playback_content_index = 0
+        # One response can speak through several items (for example a short
+        # "commentary" line and then the answer). Playback position is counted
+        # across the whole response, so remember where each item starts to
+        # report a position that belongs to the item being truncated.
+        self._playback_items: list[dict[str, Any]] = []
+        self._queued_output_bytes = 0
 
     def clear_buffer(self):
         """Clear the audio buffer."""
@@ -26,15 +36,36 @@ class AudioHandler:
         self._playback_generation = None
         self._playback_item_id = None
         self._playback_content_index = 0
+        self._playback_items = []
+        self._queued_output_bytes = 0
 
     def interruption_point(self):
         """Return the assistant item and audio position heard by the user."""
         if not self._playback_item_id or self._playback_generation is None:
             return None
+        heard_ms = int(audio.aec_heard_audio_ms(self._playback_generation) or 0)
+        item_id = self._playback_item_id
+        content_index = self._playback_content_index
+        start_ms = 0
+        end_ms = int(self._queued_output_bytes / _PROVIDER_OUTPUT_BYTES_PER_MS)
+        for index, entry in enumerate(self._playback_items):
+            if heard_ms < entry["start_ms"] and index > 0:
+                break
+            item_id = entry["item_id"]
+            content_index = entry["content_index"]
+            start_ms = entry["start_ms"]
+            end_ms = (
+                self._playback_items[index + 1]["start_ms"]
+                if index + 1 < len(self._playback_items)
+                else int(self._queued_output_bytes / _PROVIDER_OUTPUT_BYTES_PER_MS)
+            )
+        # Never report more audio than this item actually holds: the provider
+        # rejects a truncation past the item's own length.
+        position_ms = max(0, min(heard_ms, end_ms) - start_ms)
         return {
-            "item_id": self._playback_item_id,
-            "content_index": self._playback_content_index,
-            "audio_end_ms": audio.aec_heard_audio_ms(self._playback_generation),
+            "item_id": item_id,
+            "content_index": content_index,
+            "audio_end_ms": position_ms,
         }
 
     def on_audio_delta(self, data: dict[str, Any]):
@@ -54,11 +85,25 @@ class AudioHandler:
             audio.playback_done_event.clear()
         if self._playback_generation is None:
             self._playback_generation = audio.begin_aec_playback_generation()
-        if self._playback_item_id is None and data.get("item_id"):
-            self._playback_item_id = data.get("item_id")
-            self._playback_content_index = int(data.get("content_index") or 0)
+        item_id = data.get("item_id")
+        content_index = int(data.get("content_index") or 0)
+        if item_id and (
+            item_id != self._playback_item_id
+            or content_index != self._playback_content_index
+            or not self._playback_items
+        ):
+            self._playback_item_id = item_id
+            self._playback_content_index = content_index
+            self._playback_items.append({
+                "item_id": item_id,
+                "content_index": content_index,
+                "start_ms": int(
+                    self._queued_output_bytes / _PROVIDER_OUTPUT_BYTES_PER_MS
+                ),
+            })
 
         audio_chunk = base64.b64decode(audio_b64)
+        self._queued_output_bytes += len(audio_chunk)
         self.audio_buffer.extend(audio_chunk)
         self.session.last_activity[0] = time.time()
         audio.playback_queue.put(("tts", audio_chunk, self._playback_generation))

@@ -1,8 +1,11 @@
 import atexit
 import contextlib
+import os
 import random
+import subprocess
 import threading
 import time
+from pathlib import Path
 from threading import Lock, Thread
 
 import numpy as np
@@ -96,46 +99,230 @@ def _is_gpio_busy_error(exc: Exception) -> bool:
     return "busy" in str(exc).lower()
 
 
-def _release_claimed_pins(claimed_pins: list[int]):
-    for claimed_pin in reversed(claimed_pins):
+def _release_claimed_pins(claimed_pins: list[int] | None = None):
+    """Give back every motor pin, not just the ones we know we took.
+
+    gpio_claim_output can take the line in the kernel and still raise, so a
+    pin can be held without ever reaching the caller's list. Freeing only the
+    recorded ones leaves that pin claimed by this very process, and every
+    retry then fails as "busy" against our own claim - which is why the
+    kernel reported consumer "lg" with no other process holding the chip.
+    Freeing a pin we do not own fails harmlessly and is suppressed below.
+    """
+    for claimed_pin in reversed(motor_pins):
         with contextlib.suppress(lgpio.error, Exception):
             lgpio.gpio_write(h, claimed_pin, 0)
         with contextlib.suppress(lgpio.error, Exception):
             lgpio.gpio_free(h, claimed_pin)
 
 
-def _claim_motor_pins() -> bool:
+# Claiming happens at import, before the status LED, the personas or the
+# microphone exist, so every second spent here is a second Billy is not up.
+# The pins can legitimately be busy for a while after a restart - the previous
+# process has to release them first - so waiting is right, but waiting in the
+# foreground is not: it delays everything else Billy needs to do, and giving up
+# used to disable motor output for the rest of the session with no way back.
+# Four quick tries cover the ordinary case - the previous process releasing
+# the pins as it exits - and cost at most a second of startup. Anything longer
+# than that is somebody else's problem to finish, so it moves to the thread.
+_GPIO_FOREGROUND_ATTEMPTS = 4
+_GPIO_FOREGROUND_INTERVAL_SECONDS = 0.25
+_GPIO_BACKGROUND_INTERVAL_SECONDS = 1.0
+_GPIO_BACKGROUND_DEADLINE_SECONDS = 120.0
+
+_gpio_shutdown = threading.Event()
+_gpio_claim_thread: threading.Thread | None = None
+
+
+def _gpio_chip_holders() -> str:
+    """Which processes currently have the GPIO character device open.
+
+    lgpio only reports "busy"; it cannot say who by. Reading /proc turns a
+    guess into a fact: after a restart this names the process still holding
+    the pins, which is the difference between the previous Billy taking its
+    time to exit and something else on the system owning them.
+    """
+    holders: list[str] = []
+    unreadable = 0
+    try:
+        for proc in Path("/proc").iterdir():
+            if not proc.name.isdigit() or proc.name == str(os.getpid()):
+                continue
+            try:
+                for fd in (proc / "fd").iterdir():
+                    if not os.readlink(fd).startswith("/dev/gpiochip"):
+                        continue
+                    name = (proc / "comm").read_text().strip()
+                    try:
+                        cmdline = (proc / "cmdline").read_bytes()
+                        args = cmdline.decode(errors="replace").split("\x00")
+                        detail = " ".join(a for a in args if a)[:80] or name
+                    except OSError:
+                        detail = name
+                    holders.append(f"pid {proc.name} ({detail})")
+                    break
+            except (OSError, PermissionError):
+                # A process whose file descriptors we cannot read could be the
+                # holder. Saying "nobody else" while quietly skipping it would
+                # be a lie, so it is counted.
+                unreadable += 1
+                continue
+    except OSError:
+        return "unknown"
+    answer = ", ".join(holders) if holders else "no other process (this one excluded)"
+    if unreadable:
+        answer += f"; {unreadable} process(es) could not be inspected"
+    return answer
+
+
+def _gpio_line_consumers() -> str:
+    """What the kernel says is holding each motor line.
+
+    /proc only finds a live process with the chardev open. When it finds none
+    and the lines are still refused, the kernel itself is the only thing that
+    can say why - a driver, a device-tree hog, or a line not yet released.
+    """
+    readings: list[str] = []
+    line_info = getattr(lgpio, "gpio_get_line_info", None)
+    if line_info is not None:
+        for pin in motor_pins:
+            try:
+                info = line_info(h, pin)
+            except Exception as e:
+                readings.append(f"{pin}: unreadable ({e})")
+                continue
+            # The tuple shape has changed between lgpio releases, so report it
+            # as it comes rather than indexing into it and being wrong.
+            readings.append(f"{pin}: {info}")
+    if readings:
+        return "; ".join(readings)
+
+    # No line-info call in this lgpio build: fall back to libgpiod's tool.
+    try:
+        wanted = {str(pin) for pin in motor_pins}
+        out = subprocess.run(
+            ["gpioinfo"], capture_output=True, text=True, timeout=5, check=False
+        ).stdout
+        lines = [
+            line.strip()
+            for line in out.splitlines()
+            if any(
+                f"line {pin:>3}" in line or f"line {pin}:" in line for pin in motor_pins
+            )
+        ]
+        if lines:
+            return "; ".join(lines)
+        if wanted:
+            return "gpioinfo listed none of the motor lines"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "unavailable"
+
+
+def _try_claim_motor_pins_once() -> bool:
+    """Claim every motor pin, or release whatever was claimed and report busy."""
+    claimed_pins: list[int] = []
+    try:
+        for pin in motor_pins:
+            lgpio.gpio_claim_output(h, pin)
+            claimed_pins.append(pin)
+            lgpio.gpio_write(h, pin, 0)
+        return True
+    except lgpio.error as e:
+        _release_claimed_pins(claimed_pins)
+        if not _is_gpio_busy_error(e):
+            raise
+        return False
+
+
+def _reopen_gpio_chip() -> bool:
+    """Take a fresh handle on the GPIO chip, but only if the old one let go.
+
+    Opening a second handle while the first is still open leaves the first
+    holding the motor lines with nothing referencing it, so it can never be
+    closed again - the lines are then lost for the life of the process, and
+    repeating that once a second loses a new handle every time. If the close
+    fails, the old handle is still the one that owns the lines: keep it.
+    """
+    global h
+    try:
+        lgpio.gpiochip_close(h)
+    except Exception as e:
+        logger.warning(
+            f"Keeping the current GPIO handle: closing it failed ({e}).", "⚠️"
+        )
+        return False
+    try:
+        h = lgpio.gpiochip_open(0)
+    except Exception as e:
+        logger.warning(f"Could not reopen the GPIO chip: {e}", "⚠️")
+        return False
+    return True
+
+
+def _keep_claiming_motor_pins():
+    """Wait for the pins in the background and enable motors once they free up."""
     global _gpio_active
+
+    deadline = time.monotonic() + _GPIO_BACKGROUND_DEADLINE_SECONDS
+    while time.monotonic() < deadline:
+        if _gpio_shutdown.wait(_GPIO_BACKGROUND_INTERVAL_SECONDS):
+            return
+        try:
+            if not _try_claim_motor_pins_once():
+                _reopen_gpio_chip()
+                continue
+        except Exception as e:
+            logger.warning(f"Gave up claiming motor GPIO pins: {e}", "⚠️")
+            return
+        _gpio_active = True
+        waited = _GPIO_BACKGROUND_DEADLINE_SECONDS - (deadline - time.monotonic())
+        logger.info(
+            f"Motor GPIO pins came free after {waited:.1f}s; motor output is enabled.",
+            "🔧",
+        )
+        return
+
+    logger.error(
+        "Motor GPIO pins never came free (held by: "
+        f"{_gpio_chip_holders()}). Motor output stays disabled until Billy is "
+        "restarted.",
+        "❌",
+    )
+
+
+def _claim_motor_pins() -> bool:
+    global _gpio_active, _gpio_claim_thread
     if MOCKFISH or not lgpio_available:
         return True
 
-    max_attempts = 12
-    claimed_pins: list[int] = []
-    for attempt in range(1, max_attempts + 1):
-        claimed_pins.clear()
-        try:
-            for pin in motor_pins:
-                lgpio.gpio_claim_output(h, pin)
-                claimed_pins.append(pin)
-                lgpio.gpio_write(h, pin, 0)
+    for attempt in range(1, _GPIO_FOREGROUND_ATTEMPTS + 1):
+        if _try_claim_motor_pins_once():
             return True
-        except lgpio.error as e:
-            _release_claimed_pins(claimed_pins)
-            if not _is_gpio_busy_error(e):
-                raise
+        logger.warning(
+            f"GPIO pin is busy during motor setup (attempt {attempt}/"
+            f"{_GPIO_FOREGROUND_ATTEMPTS}); waiting "
+            f"{_GPIO_FOREGROUND_INTERVAL_SECONDS:.2f}s before retry.",
+            "⚠️",
+        )
+        time.sleep(_GPIO_FOREGROUND_INTERVAL_SECONDS)
 
-            wait_seconds = min(0.25 * attempt, 1.5)
-            logger.warning(
-                f"GPIO pin is busy during motor setup (attempt {attempt}/{max_attempts}); waiting {wait_seconds:.2f}s before retry.",
-                "⚠️",
-            )
-            time.sleep(wait_seconds)
-
-    logger.error(
-        "Motor GPIO pins are still busy after retrying. Disabling motor output so Billy can keep running.",
-        "❌",
-    )
+    # Start up without motors rather than hold everything else back, and keep
+    # trying: the pins usually belong to a process that is still shutting down.
     _gpio_active = False
+    logger.warning(
+        f"Motor GPIO pins are still busy. Processes holding the chip: "
+        f"{_gpio_chip_holders()}. Kernel line state: {_gpio_line_consumers()}. "
+        "Starting without motor output and retrying in the background.",
+        "⚠️",
+    )
+    if _gpio_claim_thread is None or not _gpio_claim_thread.is_alive():
+        _gpio_claim_thread = threading.Thread(
+            target=_keep_claiming_motor_pins,
+            name="gpio-claim",
+            daemon=True,
+        )
+        _gpio_claim_thread.start()
     return False
 
 
@@ -510,6 +697,9 @@ def stop_all_motors():
 def cleanup_gpio():
     """Close GPIO chip handle to prevent memory corruption on shutdown."""
     global _gpio_active
+    # Stop the background claim first: it must not re-enable motor output, or
+    # reclaim pins, while everything is being torn down.
+    _gpio_shutdown.set()
     try:
         stop_all_motors()
         _gpio_active = False

@@ -84,8 +84,10 @@ const MainPageRouter = (() => {
             SettingsForm.saveDropdownSelections();
             SettingsForm.populateDropdowns(cfg);
             SettingsForm.initBooleanToggles();
+            SettingsForm.initStepSliders();
             SettingsForm.initShowTooltipsToggle();
             await SettingsForm.initHostFields();
+            SettingsForm.initHomeAssistantAgents();
             SettingsForm.initMouthArticulationSlider();
             SettingsForm.initStatusLedBrightnessSlider();
             SettingsForm.initMouthBoostSlider();
@@ -99,9 +101,8 @@ const MainPageRouter = (() => {
             if (window.AudioPanel) {
                 window.AudioPanel.bindUI?.();
                 window.AudioPanel.loadMicGain?.();
+                // Resolves the labels itself; see init.js.
                 await window.AudioPanel.loadAudioDeviceSelectors?.();
-                window.AudioPanel.updateDeviceLabels?.();
-                setTimeout(() => window.AudioPanel?.updateDeviceLabels?.(), 3000);
             }
             window.ServiceStatus?.fetchStatus?.();
             window.LogPanel?.bindUI?.(cfg);
