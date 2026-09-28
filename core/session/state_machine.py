@@ -26,6 +26,11 @@ class SessionState:
         # Turn-level flags
         self._turn_announced = False
         self._saw_transcript_delta = False
+        # A response can speak through several items (a short preamble and then
+        # the answer). Remember per item whether deltas arrived and whether its
+        # text was already collected, so no item is dropped or counted twice.
+        self._transcript_delta_item_ids: set[str] = set()
+        self._transcript_done_item_ids: set[str] = set()
         self._turn_had_speech = False
         self._active_transcript_stream: str | None = None
         self._added_done_text = False
@@ -46,6 +51,12 @@ class SessionState:
         self._ignore_next_short_audio_response = False
         self._pending_input_audio_chunks = 0
         self._last_committed_audio_chunks = 0
+        # Chunks captured while Billy was audible. The provider can open a
+        # speech item without a speech_started event - clearing the input
+        # buffer mid-playback does exactly that - and such an item carries no
+        # "began during playback" tag, so the audio itself has to say so.
+        self._pending_during_playback_audio_chunks = 0
+        self._last_committed_during_playback_audio_chunks = 0
         self._pending_loud_audio_chunks = 0
         self._last_committed_loud_audio_chunks = 0
         self._pending_peak_rms = 0.0
@@ -65,6 +76,16 @@ class SessionState:
         self._last_committed_post_barge_in_loud_audio_chunks = 0
         self._last_committed_post_barge_in_evidence_chunks = 0
         self._last_committed_post_barge_in_peak_rms = 0.0
+        # Evidence captured only after Billy's playback finished. A provider
+        # item that began as echo during playback may only be answered if the
+        # user demonstrably kept talking once the speaker went quiet.
+        self._post_playback_counting_after = 0.0
+        self._post_playback_audio_chunks = 0
+        self._post_playback_loud_audio_chunks = 0
+        self._post_playback_peak_rms = 0.0
+        self._last_committed_post_playback_audio_chunks = 0
+        self._last_committed_post_playback_loud_audio_chunks = 0
+        self._last_committed_post_playback_peak_rms = 0.0
         self._head_retract_timer: threading.Timer | None = None
 
     def reset_for_new_session(self):
@@ -75,6 +96,11 @@ class SessionState:
         self.response_active = False
         self._turn_announced = False
         self._saw_transcript_delta = False
+        # A response can speak through several items (a short preamble and then
+        # the answer). Remember per item whether deltas arrived and whether its
+        # text was already collected, so no item is dropped or counted twice.
+        self._transcript_delta_item_ids: set[str] = set()
+        self._transcript_done_item_ids: set[str] = set()
         self._turn_had_speech = False
         self._active_transcript_stream = None
         self._added_done_text = False
@@ -91,6 +117,12 @@ class SessionState:
         self._ignore_next_short_audio_response = False
         self._pending_input_audio_chunks = 0
         self._last_committed_audio_chunks = 0
+        # Chunks captured while Billy was audible. The provider can open a
+        # speech item without a speech_started event - clearing the input
+        # buffer mid-playback does exactly that - and such an item carries no
+        # "began during playback" tag, so the audio itself has to say so.
+        self._pending_during_playback_audio_chunks = 0
+        self._last_committed_during_playback_audio_chunks = 0
         self._pending_loud_audio_chunks = 0
         self._last_committed_loud_audio_chunks = 0
         self._pending_peak_rms = 0.0
@@ -110,15 +142,33 @@ class SessionState:
         self._last_committed_post_barge_in_loud_audio_chunks = 0
         self._last_committed_post_barge_in_evidence_chunks = 0
         self._last_committed_post_barge_in_peak_rms = 0.0
+        self._post_playback_counting_after = 0.0
+        self._post_playback_audio_chunks = 0
+        self._post_playback_loud_audio_chunks = 0
+        self._post_playback_peak_rms = 0.0
+        self._last_committed_post_playback_audio_chunks = 0
+        self._last_committed_post_playback_loud_audio_chunks = 0
+        self._last_committed_post_playback_peak_rms = 0.0
         self._cancel_head_retract_timer()
 
     def on_response_created(self):
         """Handle response.created event."""
+        # Whatever was being collected after the last response stopped playing
+        # belongs to that response, not to this one.
+        self._post_playback_counting_after = 0.0
+        self._post_playback_audio_chunks = 0
+        self._post_playback_loud_audio_chunks = 0
+        self._post_playback_peak_rms = 0.0
         self.response_active = True
         self.assistant_speaking = True  # Block mic immediately when response starts
         self.full_response_text = ""
         self._turn_announced = False
         self._saw_transcript_delta = False
+        # A response can speak through several items (a short preamble and then
+        # the answer). Remember per item whether deltas arrived and whether its
+        # text was already collected, so no item is dropped or counted twice.
+        self._transcript_delta_item_ids: set[str] = set()
+        self._transcript_done_item_ids: set[str] = set()
         self._turn_had_speech = False
         self.follow_up_expected = False
         self.follow_up_prompt = None
@@ -156,6 +206,42 @@ class SessionState:
         self._post_barge_in_evidence_chunks = 0
         self._post_barge_in_peak_rms = 0.0
 
+    def begin_post_playback_window(self, settle_seconds: float = 0.0):
+        """Start counting mic evidence captured after assistant playback ended.
+
+        Chunks inside ``settle_seconds`` are skipped so the speaker's room tail
+        cannot count as the user continuing to talk.
+        """
+        self._post_playback_audio_chunks = 0
+        self._post_playback_loud_audio_chunks = 0
+        self._post_playback_peak_rms = 0.0
+        self._post_playback_counting_after = time.time() + max(
+            0.0, float(settle_seconds)
+        )
+
+    def _counting_post_playback(self) -> bool:
+        after = self._post_playback_counting_after
+        if after <= 0.0 or time.time() < after:
+            return False
+        # The window belongs to the response that just stopped playing. Once
+        # Billy is speaking again this is no longer "after playback": counting
+        # on would let his next answer's echo pose as the user still talking.
+        return not self._billy_audible()
+
+    def last_commit_has_speech_energy(self) -> bool:
+        """Whether the last committed item carries real loud/voiced content."""
+        loud = self._last_committed_loud_audio_chunks
+        peak = float(self._last_committed_peak_rms or 0.0)
+        local_speech_floor = max(300.0, SILENCE_THRESHOLD * 0.5)
+        return (loud >= 3 and peak >= local_speech_floor) or loud >= 4
+
+    def last_commit_continued_after_playback(self) -> bool:
+        """Whether the last committed item has real speech after playback."""
+        loud = self._last_committed_post_playback_loud_audio_chunks
+        peak = float(self._last_committed_post_playback_peak_rms or 0.0)
+        local_speech_floor = max(300.0, SILENCE_THRESHOLD * 0.5)
+        return (loud >= 3 and peak >= local_speech_floor) or loud >= 4
+
     def on_input_speech_stopped(self):
         """Handle input_audio_buffer.speech_stopped event."""
         self._server_input_speaking = False
@@ -168,6 +254,9 @@ class SessionState:
         # an earlier real turn make a later echo/noise item meaningful.
         self._last_user_turn_meaningful = False
         self._last_committed_audio_chunks = self._pending_input_audio_chunks
+        self._last_committed_during_playback_audio_chunks = (
+            self._pending_during_playback_audio_chunks
+        )
         self._last_committed_loud_audio_chunks = self._pending_loud_audio_chunks
         self._last_committed_peak_rms = self._pending_peak_rms
         self._last_committed_had_server_speech = self._current_input_had_server_speech
@@ -182,6 +271,19 @@ class SessionState:
             self._post_barge_in_evidence_chunks
         )
         self._last_committed_post_barge_in_peak_rms = self._post_barge_in_peak_rms
+        self._last_committed_post_playback_audio_chunks = (
+            self._post_playback_audio_chunks
+        )
+        self._last_committed_post_playback_loud_audio_chunks = (
+            self._post_playback_loud_audio_chunks
+        )
+        self._last_committed_post_playback_peak_rms = self._post_playback_peak_rms
+        # Post-playback evidence belongs to the item that was open when playback
+        # ended; once that item is committed there is nothing left to attribute.
+        self._post_playback_counting_after = 0.0
+        self._post_playback_audio_chunks = 0
+        self._post_playback_loud_audio_chunks = 0
+        self._post_playback_peak_rms = 0.0
         self._confirmed_barge_in_pending = False
         self._confirmed_barge_in_threshold = 0.0
         self._post_barge_in_audio_chunks = 0
@@ -189,6 +291,7 @@ class SessionState:
         self._post_barge_in_evidence_chunks = 0
         self._post_barge_in_peak_rms = 0.0
         self._pending_input_audio_chunks = 0
+        self._pending_during_playback_audio_chunks = 0
         self._pending_loud_audio_chunks = 0
         self._pending_peak_rms = 0.0
         self._current_input_had_server_speech = False
@@ -196,7 +299,8 @@ class SessionState:
         self.update_activity()
         logger.verbose(
             f"Committed audio turn with {self._last_committed_audio_chunks} chunks "
-            f"({self._last_committed_loud_audio_chunks} above threshold, "
+            f"({self._last_committed_during_playback_audio_chunks} over playback, "
+            f"{self._last_committed_loud_audio_chunks} above threshold, "
             f"peak_rms={self._last_committed_peak_rms:.1f}, "
             f"server_speech={self._last_committed_had_server_speech}, "
             f"post_barge_in={self._last_committed_post_barge_in_evidence_chunks}/"
@@ -272,6 +376,16 @@ class SessionState:
                     or (loud_chunks >= 2 and peak_rms >= local_speech_floor)
                 )
             )
+            if (
+                confirmed_barge_in_is_valid
+                and self._last_committed_post_barge_in_audio_chunks >= 10
+                and self._last_committed_post_barge_in_evidence_chunks == 0
+                and self._last_committed_post_barge_in_loud_audio_chunks == 0
+            ):
+                # Playback was stopped, and then the room went quiet. Nobody
+                # was talking over Billy: the confirmation was echo onset, so
+                # there is no user turn here to answer.
+                confirmed_barge_in_is_valid = False
             if client_managed_vad and self._last_committed_confirmed_barge_in:
                 # Once playback was cancelled, sustained continuation into the
                 # clean post-playback window is the strongest signal, but a
@@ -378,7 +492,9 @@ class SessionState:
         self._last_user_turn_meaningful = confirmed_meaningful_input
         return confirmed_meaningful_input
 
-    def on_transcript_delta(self, stream_type: str, delta: str):
+    def on_transcript_delta(
+        self, stream_type: str, delta: str, item_id: str | None = None
+    ):
         """Handle transcript delta events."""
         # Choose a single transcript stream per turn to avoid duplicates
         if stream_type.startswith(
@@ -395,6 +511,8 @@ class SessionState:
 
         self._turn_had_speech = True
         self._saw_transcript_delta = True
+        if item_id:
+            self._transcript_delta_item_ids.add(item_id)
         self.assistant_speaking = True
         self.allow_mic_input = False
 
@@ -408,10 +526,24 @@ class SessionState:
     def on_transcript_done(self, data: dict[str, Any]):
         """Handle transcript done events."""
         transcript = data.get("transcript") or data.get("text") or ""
-        if transcript and not self._saw_transcript_delta and not self._added_done_text:
+        item_id = data.get("item_id")
+        already_done = bool(item_id and item_id in self._transcript_done_item_ids)
+        streamed = (
+            item_id in self._transcript_delta_item_ids
+            if item_id
+            else self._saw_transcript_delta
+        )
+        if transcript and not streamed and not already_done:
+            # No deltas for this item, so its text only arrives here.
             self.full_response_text += transcript
             self._added_done_text = True
-        self.full_response_text += "\n\n"
+        if item_id:
+            self._transcript_done_item_ids.add(item_id)
+        # Keep spoken parts apart: without this the preamble runs straight into
+        # the answer ("...go through this.Alright, I'm here"), which then feeds
+        # the follow-up heuristic and the saved transcript as one sentence.
+        if self.full_response_text and not self.full_response_text.endswith("\n\n"):
+            self.full_response_text = self.full_response_text.rstrip() + "\n\n"
         logger.verbose(f"Transcript completed: {transcript!r}", "📝")
 
     def on_response_done(self):
@@ -495,22 +627,53 @@ class SessionState:
         self._head_retract_timer.daemon = True
         self._head_retract_timer.start()
 
+    def _billy_audible(self) -> bool:
+        """Whether Billy's own audio is playing right now."""
+        if self.assistant_speaking:
+            return True
+        try:
+            from .. import audio
+
+            return bool(audio.is_billy_speaking())
+        except Exception:
+            return False
+
+    def last_commit_overlapped_playback(self) -> bool:
+        """Whether the last commit is largely audio captured over Billy.
+
+        A few frames are normal when someone answers the moment he stops; a
+        turn that is mostly his own voice is echo.
+        """
+        total = self._last_committed_audio_chunks
+        during = self._last_committed_during_playback_audio_chunks
+        if total <= 0 or during < 5:
+            return False
+        return during >= total * 0.25
+
     def increment_mic_chunks(self):
         """Increment pending input audio chunks counter."""
         self._pending_input_audio_chunks += 1
+        if self._billy_audible():
+            self._pending_during_playback_audio_chunks += 1
         if self._confirmed_barge_in_pending:
             self._post_barge_in_audio_chunks += 1
+        if self._counting_post_playback():
+            self._post_playback_audio_chunks += 1
 
     def increment_loud_mic_chunks(self):
         """Increment pending audio chunks that are above local silence threshold."""
         self._pending_loud_audio_chunks += 1
         if self._confirmed_barge_in_pending:
             self._post_barge_in_loud_audio_chunks += 1
+        if self._counting_post_playback():
+            self._post_playback_loud_audio_chunks += 1
 
     def observe_rms(self, rms: float):
         """Track peak RMS for the current pending input turn."""
         if rms > self._pending_peak_rms:
             self._pending_peak_rms = float(rms)
+        if self._counting_post_playback() and rms > self._post_playback_peak_rms:
+            self._post_playback_peak_rms = float(rms)
         if self._confirmed_barge_in_pending:
             if rms > self._post_barge_in_peak_rms:
                 self._post_barge_in_peak_rms = float(rms)

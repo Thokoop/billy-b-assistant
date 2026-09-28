@@ -9,6 +9,46 @@ from .config import PERSONALITY
 from .song_manager import song_manager
 
 
+def _knowledge_topics_hint() -> str:
+    """Name the trigger topics of the uploaded knowledge folders."""
+    try:
+        from .knowledge_manager import knowledge_manager
+
+        topics: list[str] = []
+        for folder in knowledge_manager.list_folders():
+            for topic in folder.get("trigger_topics") or []:
+                topic = str(topic).strip()
+                if topic and topic not in topics:
+                    topics.append(topic)
+    except Exception:
+        return ""
+    if not topics:
+        return ""
+    return f"Uploaded topics: {', '.join(topics[:20])}. "
+
+
+def _configured_topics_hint() -> str:
+    """Name the topics this device actually has feeds for.
+
+    Without this the model has to guess whether a subject is covered, and it
+    guesses badly: a Bitcoin price went to a headlines feed that did not exist.
+    """
+    try:
+        from .news_manager import load_news_sources
+
+        topics: list[str] = []
+        for source in load_news_sources():
+            for topic in source.get("topics") or []:
+                topic = str(topic).strip()
+                if topic and topic not in topics:
+                    topics.append(topic)
+    except Exception:
+        return ""
+    if not topics:
+        return ""
+    return f"Configured topics: {', '.join(topics[:20])}. "
+
+
 def get_base_tools() -> list[dict[str, Any]]:
     """Get the base tools that work with any provider"""
     return [
@@ -48,7 +88,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "smart_home_command",
             "type": "function",
-            "description": "Send a DIRECT command to Home Assistant (e.g., 'Turn on lights', 'Set temperature to 72'). **CRITICAL: Only call this for DIRECT commands. If the user asks you to ASK/CHECK/CONFIRM first (e.g., 'ask if lights should be on'), do NOT call this function - just speak the question and wait for their answer.**",
+            "description": "Send a DIRECT command or question to Home Assistant, phrased the way you would say it to a voice assistant: short, plain, and using the name the device actually has (e.g., 'Turn on the kitchen lights', 'What is the energy meter'). Do not describe what you want in a long sentence and do not invent entity names. **CRITICAL: Only call this for DIRECT commands. If the user asks you to ASK/CHECK/CONFIRM first (e.g., 'ask if lights should be on'), do NOT call this function - just speak the question and wait for their answer.**",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -109,7 +149,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "conversation_state",
             "type": "function",
-            "description": "CRITICAL: YOU MUST CALL THIS FUNCTION AFTER EVERY SINGLE RESPONSE. This is NON-NEGOTIABLE and REQUIRED for the system to function. Call this INTERNAL FUNCTION (do not speak it) at the end of your turn to indicate conversation state. Set expects_follow_up=true if you asked a question or need user input, false for complete statements. Optionally set mood_event to one matching event if the user's message or the conversation meaningfully affected Billy's mood. NEVER call this as your ONLY response - you MUST generate spoken audio first, then call this function. NEVER include literal tool call text in speech/output (e.g., do not say or print 'conversation_state(...)'). If audio is unclear, say 'I didn't catch that' before calling this. FAILURE TO CALL THIS FUNCTION WILL BREAK THE SYSTEM.",
+            "description": "Silent end-of-turn signal. This is an internal API call, never speech: its name and arguments are never voiced, spelled out, read aloud or appended to your answer, and your spoken words end with your last real sentence. Required at the end of every turn: speak your answer first, then make this call. Set expects_follow_up=true if you asked a question or need user input, false for complete statements. Optionally set mood_event to one matching event if the user's message or the conversation meaningfully affected Billy's mood. Never make this call as your ONLY response - generate spoken audio first, then call this function. If audio is unclear, say 'I didn't catch that' before calling this. The system depends on this call arriving after every turn.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -166,7 +206,9 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "get_news_digest",
             "type": "function",
-            "description": "Fetch fresh headlines, weather forecasts, or sports results. Use this when users ask for news, local weather, regional updates, sports programs, or match results. IMPORTANT: for headlines, provide a concise subject keyword so the tool can choose matching configured sources by keywords. CRITICAL: Before calling this tool, acknowledge VERY briefly (max 2 words), preferably exactly 'Checking.' Prefer user-provided location/team, otherwise rely on defaults.",
+            "description": "Fetch fresh material from the feeds configured on this device. "
+            + _configured_topics_hint()
+            + "Use it whenever the subject matches one of those topics - that source may well cover it, prices and niche subjects included. If nothing configured covers the subject, do not call this: use web_search instead when it is available. IMPORTANT: for headlines, provide a concise subject keyword so the tool can choose matching configured sources by keywords. CRITICAL: Before calling this tool, acknowledge VERY briefly (max 2 words), preferably exactly 'Checking.' Prefer user-provided location/team, otherwise rely on defaults.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -214,6 +256,38 @@ def get_base_tools() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "web_search",
+            "type": "function",
+            "description": (
+                "Search the live internet and get a short spoken answer back. "
+                "Use this ONLY when the answer cannot come from what you already "
+                "know: something that happened or changed after your training, "
+                "today's events, a current price or score, who holds a role now, "
+                "a release date - or when the user asks you outright to look "
+                "something up, search, or check online. For headlines, weather "
+                "and sports call get_news_digest first and only search when that "
+                "returns nothing useful. NEVER search for chat, opinions, jokes, "
+                "general knowledge you already have, or anything about Billy, the "
+                "user, or this household. Searching costs money and takes several "
+                "seconds, so when in doubt, answer without it. Acknowledge VERY "
+                "briefly (max 2 words, preferably 'Checking.') before calling."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "What to search for, as a self-contained question. "
+                            "Resolve 'that' or 'he' from the conversation first, "
+                            "and include a year or 'today' when recency matters."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        {
             "name": "describe_scene",
             "type": "function",
             "description": "Capture one fresh image from Billy's camera. Use this when users ask what Billy can see, to look around, to check what's in front of him, or to describe a scene/object. Do not call this again to analyze an image that has already been attached in the conversation.",
@@ -243,7 +317,14 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "search_local_knowledge",
             "type": "function",
-            "description": "Search Billy's uploaded local knowledge files such as PDFs, spreadsheets, notes, manuals, and household documents. Use this when the answer may be in uploaded files instead of general world knowledge.",
+            "description": "Search the files uploaded to this Billy: PDFs, spreadsheets, notes, manuals and household documents. "
+            + _knowledge_topics_hint()
+            + "Check here FIRST, before any feed or web search, whenever the "
+            "question touches one of those topics or anything belonging to "
+            "this household - their own manuals, paperwork, notes or things. "
+            "Do not call it for questions about the wider world or about "
+            "anything current: nothing here is newer than the day it was "
+            "uploaded.",
             "parameters": {
                 "type": "object",
                 "properties": {

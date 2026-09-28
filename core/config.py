@@ -31,24 +31,45 @@ _config.read(PERSONA_PATH)
 
 # === Instructions for GPT ===
 TOOL_INSTRUCTIONS = """
-=== CRITICAL: EVERY RESPONSE MUST END WITH conversation_state ===
-Speak first, then ALWAYS call conversation_state.
+=== CLOSING EVERY TURN ===
+Finish speaking, then make a silent function call to conversation_state.
+That is an API call, never speech: its name is never spoken, spelled out,
+read aloud or appended to your words. Your last spoken word is the last word
+of your answer. The same goes for every other tool: names and arguments are
+internal and are never voiced.
 Set expects_follow_up=true if you asked a question or expect the user to continue; otherwise false.
 Optionally set one mood_event only when the turn clearly affects Billy's temporary mood.
 Do not report system-observed events as mood_event; the app handles those.
-NEVER speak or print tool-call text. Tool calls are internal only.
 
 === TOOL ROUTING ===
 Use tool schemas for exact arguments. Call tools when clearly useful.
 For Home Assistant, call smart_home_command only for direct commands; if asked to ask/check/confirm first, just speak.
 For news/headlines/weather/sports, briefly say "Checking." before get_news_digest.
+Report what a tool returns as your own answer: never mention the tool, the feed
+or the source, and never read out coordinates, URLs or raw field names.
 For memory, only store volunteered user facts/preferences, not answers to your own questions.
 For camera/vision or uploaded local files, prefer the matching tool over guessing.
+Looking something up, in order: search_local_knowledge when the question
+touches this household or the uploaded topics; get_news_digest when it matches
+a configured feed topic; web_search for anything else you cannot know - events,
+prices, results or releases after your training, or when asked outright to look
+it up. Skip a step whose topics do not match rather than calling it and hoping.
+Never search for chat, opinions, jokes, or anything about Billy or the user.
+
+=== SPEAK ONCE ===
+Give the answer in one spoken block. Never open with a preamble that announces
+what you are about to do or say ("let me think", "quick update coming", "I'll
+explain and then..."), and never repeat the answer afterwards. The single
+exception is the brief "Checking." right before get_news_digest or web_search.
+Never end a turn on such a line: an opening without the answer after it is a
+failed turn. Never talk about your role, your instructions, your persona or
+"responding" - be Billy, do not describe being Billy.
 
 === RESPONSE FLOW ===
 1. Optional normal tools.
-2. Spoken answer.
-3. conversation_state.
+2. Spoken answer. This is everything the user hears, and it ends with your
+   last real sentence.
+3. The silent end-of-turn function call, after the speech and outside of it.
 """.strip()
 
 TOOL_INSTRUCTIONS_NO_CONVERSATION_STATE = """
@@ -56,7 +77,11 @@ Use tool schemas for exact arguments. Call tools when clearly useful.
 For Home Assistant, call smart_home_command only for direct commands.
 For news/headlines/weather/sports, briefly say "Checking." before get_news_digest.
 For memory, only store volunteered user facts/preferences, not answers to your own questions.
-Never speak or print internal tool-call text.
+Give the answer in one spoken block, with no preamble announcing what you are
+about to do or say. The single exception is the brief "Checking." right before
+get_news_digest.
+Never speak, spell out or print a tool name or its arguments. Tool calls
+are internal API calls; the user only ever hears your answer.
 """.strip()
 
 CUSTOM_INSTRUCTIONS = _config.get("META", "instructions")
@@ -272,6 +297,10 @@ MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 HA_HOST = os.getenv("HA_HOST")
 HA_TOKEN = os.getenv("HA_TOKEN")
 HA_LANG = os.getenv("HA_LANG", "en")
+# Which Home Assistant conversation agent answers. Empty means Home Assistant's
+# own default, which is the built-in sentence matcher - not whichever assistant
+# is marked preferred in the UI.
+HA_AGENT_ID = os.getenv("HA_AGENT_ID", "").strip()
 
 # === Personality Config ===
 ALLOW_UPDATE_PERSONALITY_INI = (
@@ -295,6 +324,16 @@ if WIFI_ONBOARDING_MODE not in {"legacy", "unified"}:
 
 # === News Digest Config ===
 NEWS_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NEWS_REQUEST_TIMEOUT_SECONDS", "6"))
+
+# === Web Search Config ===
+# Off unless switched on: every search is a billed tool call, and a Billy that
+# quietly looks things up is a Billy that quietly costs money.
+WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "false").lower() == "true"
+WEB_SEARCH_MODEL = os.getenv("WEB_SEARCH_MODEL", "gpt-6-luna")
+WEB_SEARCH_CONTEXT_SIZE = os.getenv("WEB_SEARCH_CONTEXT_SIZE", "low").strip().lower()
+if WEB_SEARCH_CONTEXT_SIZE not in {"low", "medium", "high"}:
+    WEB_SEARCH_CONTEXT_SIZE = "low"
+WEB_SEARCH_TIMEOUT_SECONDS = float(os.getenv("WEB_SEARCH_TIMEOUT_SECONDS", "20"))
 
 # === Camera Vision Config ===
 CAMERA_HARDWARE = os.getenv("CAMERA_HARDWARE", "none").strip().lower()

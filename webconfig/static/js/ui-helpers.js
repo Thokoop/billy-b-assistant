@@ -158,6 +158,42 @@ document.addEventListener('click', (e) => {
     updateTooltipContainerLayers();
 });
 
+// A fetch that always settles. A request to a service that is going down can
+// be accepted and then never answered, and a bare fetch() waits on that for as
+// long as the browser allows, stalling whatever awaited it.
+function fetchWithTimeout(url, timeoutMs = 5000, options = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, {cache: "no-store", ...options, signal: controller.signal})
+        .finally(() => clearTimeout(timer));
+}
+
+window.fetchWithTimeout = fetchWithTimeout;
+
+// A fetch whose failure path is its own concern. Call sites used to write
+//     if (!res.ok) throw new Error(...)
+// inside the very try/catch that handles it, which reads as control flow
+// rather than as an error: here the throw belongs to this function's
+// contract, and the caller's catch is a genuine boundary.
+//
+// accept(data, res) decides success where res.ok is not the whole story - a
+// 200 carrying {status: "error"} is still a failure. error supplies the
+// message to use when the body does not name one, as a string or as a
+// (data, res) => string for endpoints that report it under another key.
+async function requestJson(url, options = {}) {
+    const {accept, error: fallback, ...init} = options;
+    const res = await fetch(url, init);
+    // A body that is missing or is not JSON is not itself the failure: a
+    // route can answer 204, and a failing one often returns an error page.
+    // Whether that counts is for accept (or res.ok) to say, below.
+    const data = await res.json().catch(() => null);
+    if (accept ? accept(data, res) : res.ok) return data;
+    const detail = typeof fallback === "function" ? fallback(data, res) : fallback;
+    throw new Error((data && data.error) || detail || `HTTP ${res.status}`);
+}
+
+window.requestJson = requestJson;
+
 // ===================== LOADING OVERLAY =====================
 const LoadingOverlay = (() => {
     const overlayId = "loading-overlay";
@@ -208,23 +244,46 @@ const LoadingOverlay = (() => {
     const waitForReload = (
         previousWebconfigInstance = null,
         initialDelayMs = 250,
-        timeoutMs = 45000,
+        timeoutMs = 60000,
+        // If neither an outage nor a new instance is ever observed (the restart
+        // of the web interface failed, or it came back between two polls),
+        // reload anyway instead of leaving the overlay up: a reload always
+        // shows the truth.
+        fallbackReloadMs = 20000,
+        // When the restart was asked for. A readiness marker older than this
+        // belongs to the run being replaced, not the one coming back.
+        restartRequestedAt = null,
     ) => {
         const startedAt = Date.now();
+        let announcedWaitingForBilly = false;
+        // Billy only reports readiness on builds that write the marker. Until
+        // one is seen, fall back to the service state as before.
+        let sawReadyMarker = false;
 
-        const poll = async () => {
+        // Returns true when the overlay is finished with (a reload is on its
+        // way, or the wait timed out); anything else means poll again.
+        const pollOnce = async () => {
+            let reachable = false;
+            let instanceChanged = false;
+            let billyState = null;
+            let billyReadyAt = null;
+
             try {
-                const res = await fetch("/health", {cache: "no-store"});
+                // The web interface is killed mid-request while it restarts,
+                // which leaves the socket open and this fetch hanging. Without
+                // a deadline the poll below never runs again and the overlay
+                // sits there for good.
+                const res = await fetchWithTimeout("/health", 2500);
+                reachable = res.ok;
                 const data = res.ok ? await res.json().catch(() => ({})) : {};
-                const instanceChanged = Boolean(
+                billyState = data.billy_service || null;
+                billyReadyAt = Number(data.billy_ready_at) || null;
+                if (billyReadyAt) sawReadyMarker = true;
+                instanceChanged = Boolean(
                     previousWebconfigInstance
                     && data.webconfig_instance
                     && data.webconfig_instance !== previousWebconfigInstance
                 );
-                if (res.ok && (restartSawUnavailable || instanceChanged)) {
-                    reloadSoon();
-                    return;
-                }
                 if (!res.ok) {
                     restartSawUnavailable = true;
                 }
@@ -233,14 +292,69 @@ const LoadingOverlay = (() => {
                 // Expected while billy-webconfig.service is restarting.
             }
 
-            if (Date.now() - startedAt >= timeoutMs) {
+            const elapsed = Date.now() - startedAt;
+            // The web interface is back when it answers again after going away,
+            // or when it answers as a different process. If neither is ever seen
+            // (it came back between two polls, or it never went down), fall back
+            // to trusting that it is up after a while.
+            const interfaceBack = reachable && (
+                restartSawUnavailable
+                || instanceChanged
+                || elapsed >= fallbackReloadMs
+            );
+
+            if (interfaceBack) {
+                // Billy takes longer to come back than the interface does,
+                // and his unit reports "active" the moment the process is
+                // exec'd - seconds before he can actually do anything. Wait
+                // for him to say so himself where he can, and only fall back
+                // to the service state on builds that never report it.
+                // Both are the device's own clock in seconds: the marker's
+                // modification time and the moment /restart was called.
+                const readyAfterRestart = Boolean(
+                    billyReadyAt
+                    && (!restartRequestedAt || billyReadyAt > restartRequestedAt)
+                );
+                const billyReady = readyAfterRestart
+                    || (!sawReadyMarker && (
+                        !billyState
+                        || billyState === "active"
+                        || billyState === "failed"
+                    ))
+                    || billyState === "failed";
+                if (billyReady || elapsed >= timeoutMs) {
+                    reloadSoon();
+                    return true;
+                }
+                if (!announcedWaitingForBilly) {
+                    announcedWaitingForBilly = true;
+                    show("Web interface is back. Waiting for Billy to start...");
+                }
+            }
+
+            if (elapsed >= timeoutMs) {
                 clearReloadFlag();
                 hide();
                 window.dispatchEvent(new CustomEvent("billy:restart-timeout"));
-                return;
+                return true;
             }
 
-            reloadPollTimeout = setTimeout(poll, 350);
+            return false;
+        };
+
+        // Every exit from pollOnce() schedules the next tick, including the
+        // ones it takes by throwing. A single failed poll can slow recovery
+        // down; it must never be able to stop it.
+        const poll = async () => {
+            let done = false;
+            try {
+                done = await pollOnce();
+            } catch (err) {
+                console.error("Restart poll failed:", err);
+            }
+            if (!done) {
+                reloadPollTimeout = setTimeout(poll, 350);
+            }
         };
 
         if (reloadPollTimeout) {

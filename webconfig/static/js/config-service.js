@@ -13,8 +13,11 @@ const ConfigService = (() => {
         }
 
         try {
-            const res = await fetch("/config");
-            const data = await res.json();
+            // On the first load of the page this comes from the combined
+            // bootstrap request that is already in flight, so /config is not
+            // fetched a second time. Every later call goes to /config itself.
+            const data = (!forceRefresh && await window.BootstrapData?.take("config"))
+                || await (await fetch("/config")).json();
             configCache = data;
             lastFetch = now;
             return data;

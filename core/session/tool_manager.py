@@ -6,7 +6,13 @@ import os
 from typing import Any
 
 from ..base_tools import get_base_tools, get_user_tools
-from ..config import CAMERA_HARDWARE, is_conversation_state_enabled
+from ..config import (
+    CAMERA_HARDWARE,
+    OPENAI_API_KEY,
+    REALTIME_AI_PROVIDER,
+    WEB_SEARCH_ENABLED,
+    is_conversation_state_enabled,
+)
 from ..logger import logger
 
 
@@ -40,7 +46,46 @@ class ToolManager:
         if camera_hardware not in {"rpi_camera", "usb_webcam"}:
             tools = [t for t in tools if t.get("name") != "describe_scene"]
 
+        # Web search is implemented against the OpenAI API, so it is offered
+        # only on an OpenAI build with a key. xAI has its own search tool; until
+        # that is wired up, an xAI build simply does not get this one.
+        web_search_enabled = os.getenv(
+            "WEB_SEARCH_ENABLED", str(WEB_SEARCH_ENABLED)
+        ).strip().lower() in {"true", "1", "yes", "on"}
+        provider = (
+            os.getenv("REALTIME_AI_PROVIDER", REALTIME_AI_PROVIDER or "openai")
+            .strip()
+            .lower()
+        )
+        if (
+            not web_search_enabled
+            or provider != "openai"
+            or not os.getenv("OPENAI_API_KEY", OPENAI_API_KEY)
+        ):
+            tools = [t for t in tools if t.get("name") != "web_search"]
+
+        # With no sources configured the digest can only ever fail, and a
+        # failed call still costs a turn and an awkward answer. Take it away
+        # so the model reaches for web search, or says it does not know.
+        if not self._has_news_sources():
+            tools = [t for t in tools if t.get("name") != "get_news_digest"]
+
         return tools
+
+    @staticmethod
+    def _has_news_sources() -> bool:
+        try:
+            from ..news_manager import load_news_sources
+
+            return bool(load_news_sources())
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(f"Could not read news sources: {exc}", "\U0001f5de\ufe0f")
+            # Unreadable is not the same as empty; keep the tool available.
+            return True
+
+    def is_available(self, name: str, mode: str = "user") -> bool:
+        """Whether a tool is actually offered to the model right now."""
+        return any(tool.get("name") == name for tool in self.get_tools(mode))
 
     def refresh_tools(self):
         """Refresh tool definitions (e.g., after song list changes)."""

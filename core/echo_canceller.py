@@ -76,6 +76,7 @@ class EchoCanceller:
         self._render_first_write_at = None
         self._render_written_samples = 0
         self._render_latency_seconds = 0.0
+        self._last_reference_rms: float | None = None
         self._capture_latency_seconds = 0.0
         self._stream_delay_ms = 0
         self._last_voice_detected: bool | None = None
@@ -102,6 +103,11 @@ class EchoCanceller:
         """Return WebRTC VAD's decision for the latest processed capture frame."""
         with self._lock:
             return self._last_voice_detected
+
+    def playback_reference_level(self) -> float | None:
+        """RMS of the speaker audio the last capture was compared against."""
+        with self._lock:
+            return self._last_reference_rms
 
     @property
     def playback_similarity(self) -> float | None:
@@ -249,6 +255,19 @@ class EchoCanceller:
         score = np.abs(correlation) / denominator
         if not score.size:
             return None
+
+        # Deliberately the best match across the whole search window. Scoring
+        # only the exact alignment measures how well AEC3 cancelled the echo,
+        # not who is speaking: well-cancelled echo then scores near zero and
+        # every frame looks like an independent voice. The search window is
+        # what keeps this an ownership check.
+        best = int(np.argmax(score))
+        # The speaker level this capture is being compared against, taken at
+        # the same alignment. Cleaned capture against this is echo return loss:
+        # echo alone keeps a steady ratio, a second voice raises it.
+        self._last_reference_rms = float(
+            np.sqrt(max(0.0, window_energy[best]) / max(1, query.size))
+        )
         return min(1.0, float(np.max(score)))
 
     def invalidate_render_generation(self) -> None:

@@ -4,7 +4,12 @@ const AudioPanel = (() => {
     let micCheckSource = null;
     let serviceWasRunning = false; // Track if service was running before mic test
     let deviceInfoRetryTimer = null;
-    let deviceInfoRequestInFlight = false;
+    // The in-flight request itself, so callers that arrive while one is open
+    // share its answer instead of returning empty-handed and needing their own
+    // round trip later. One retry chain at a time, identified by generation:
+    // a newer caller cancels the older chain rather than the two interleaving.
+    let deviceInfoInFlight = null;
+    let deviceInfoGeneration = 0;
     let micRecordingPollTimer = null;
     let micRecordingServiceWasRunning = false;
     let currentMicMeterScale = MIC_FULL_SCALE;
@@ -93,11 +98,11 @@ const AudioPanel = (() => {
         }
 
         clearTimeout(speakerVolumeDebounceTimeout);
-        fetch("/volume")
-            .then(response => {
+        Promise.resolve(window.BootstrapData?.take("volume"))
+            .then(bootstrapped => bootstrapped || fetch("/volume").then(response => {
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 return response.json();
-            })
+            }))
             .then(data => {
                 if (data.volume !== undefined) updateSpeakerVolumeUi(data.volume);
             })
@@ -127,15 +132,11 @@ const AudioPanel = (() => {
                 showNotification("Billy service stopped. Running speaker test...", "success");
             }
             
-            const res = await fetch("/speaker-test", {
+            await requestJson("/speaker-test", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({speaker_preference: selectedSpeakerPreference}),
             });
-            const result = await res.json();
-            if (!res.ok) {
-                throw new Error(result.error || `HTTP ${res.status}`);
-            }
             showNotification("Speaker test triggered");
         } catch (err) {
             console.error("Failed to trigger speaker test:", err);
@@ -208,11 +209,14 @@ const AudioPanel = (() => {
         };
 
         try {
-            const res = await fetch("/audio/devices");
+            const bootstrapped = await window.BootstrapData?.take("audio_devices");
+            const res = bootstrapped
+                ? {ok: true, status: 200, json: async () => bootstrapped}
+                : await fetch("/audio/devices");
             const data = await res.json();
             if (!res.ok) {
                 console.error("Failed to load audio devices:", data.error || `HTTP ${res.status}`);
-                setTimeout(() => updateDeviceLabels(), 2000);
+                await updateDeviceLabels();
                 return;
             }
 
@@ -248,11 +252,12 @@ const AudioPanel = (() => {
             }
 
             // Re-resolve labels after device selectors are populated.
-            updateDeviceLabels();
+            await updateDeviceLabels();
         } catch (error) {
             console.error("Failed to load audio device selectors:", error);
-            // Retry label refresh even if selectors fail once during boot races.
-            setTimeout(() => updateDeviceLabels(), 2000);
+            // updateDeviceLabels() retries on its own; a second entry point
+            // here only duplicated the chain.
+            await updateDeviceLabels();
         }
     }
 
@@ -476,11 +481,12 @@ const AudioPanel = (() => {
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
-            const res = await fetch("/mic-record/start", {method: "POST"});
-            const result = await res.json();
-            if (!res.ok) {
-                throw new Error(result.error || result.status || `HTTP ${res.status}`);
-            }
+            const result = await requestJson("/mic-record/start", {
+                method: "POST",
+                // This route reports a refusal ("already recording") as its
+                // status rather than as an error.
+                error: (data) => data && data.status,
+            }) || {};
             setMicRecordButton(true);
             setMicRecordStatus(`Recording... 0s / ${result.max_seconds}s`, false);
             showNotification("Mic recording started. It will stop automatically after 30 seconds.", "success");
@@ -509,15 +515,11 @@ const AudioPanel = (() => {
                 await fetch("/stop-billy", {method: "POST"});
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
-            const res = await fetch("/mic-record/play", {
+            const result = await requestJson("/mic-record/play", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({speaker_preference: selectedSpeakerPreference}),
-            });
-            const result = await res.json();
-            if (!res.ok) {
-                throw new Error(result.error || `HTTP ${res.status}`);
-            }
+            }) || {};
             showNotification("Playing mic test recording", "success");
             if (shouldRestart) {
                 const durationMs = Math.max(1000, Number(result.duration || 30) * 1000);
@@ -589,7 +591,10 @@ const AudioPanel = (() => {
         return document.getElementById("SILENCE_THRESHOLD");
     }
 
-    function updateMicMeterScale(threshold = getThresholdInputValue()) {
+    // The meter runs to a fixed full scale, so nothing here depends on where
+    // the threshold sits - it only has to be recomputed when the mic panel is
+    // rebuilt. It took a threshold argument once and never read it.
+    function updateMicMeterScale() {
         currentMicMeterScale = getMicMeterScale();
         return currentMicMeterScale;
     }
@@ -604,7 +609,7 @@ const AudioPanel = (() => {
 
     function syncThresholdFromInput({sendToActiveTest = true} = {}) {
         const threshold = getThresholdInputValue();
-        updateMicMeterScale(threshold);
+        updateMicMeterScale();
         updateThresholdLine(threshold);
         if (sendToActiveTest) {
             updateMicCheckConfig();
@@ -641,8 +646,8 @@ const AudioPanel = (() => {
         const fill = document.getElementById("mic-gain-fill");
         if (!label || !slider || !fill) return;
         try {
-            const res = await fetch("/mic-gain");
-            const data = await res.json();
+            const data = await window.BootstrapData?.take("mic_gain")
+                || await (await fetch("/mic-gain")).json();
             if (data.gain !== undefined) {
                 updateMicGainUi(data.gain, data);
             } else {
@@ -733,41 +738,68 @@ const AudioPanel = (() => {
 
     refreshMicRecordingStatus();
 
-    async function updateDeviceLabels(retries = 0) {
+    // Resolves once the labels reflect a /device-info answer. Concurrent
+    // callers get the same promise; the chain retries only while the device
+    // names are genuinely still unknown, and stops as soon as they are not.
+    function updateDeviceLabels() {
         const micLabel = document.getElementById("mic-label");
         const speakerLabel = document.getElementById("speaker-label");
-        if (!micLabel && !speakerLabel) return;
-        if (deviceInfoRequestInFlight) return;
+        if (!micLabel && !speakerLabel) return Promise.resolve();
+        if (deviceInfoInFlight) return deviceInfoInFlight;
 
-        try {
-            deviceInfoRequestInFlight = true;
-            const res = await fetch("/device-info");
-            const data = await res.json();
-            const updateParentClass = (id, value) => {
-                const el = document.getElementById(id);
-                if (el && el.parentElement) {
-                    el.textContent = value;
-                    el.parentElement.classList.add("text-emerald-500");
+        clearTimeout(deviceInfoRetryTimer);
+        const generation = ++deviceInfoGeneration;
+
+        const attempt = async (retries) => {
+            try {
+                // Only the first attempt can come from the bootstrap payload;
+                // a retry exists because that answer was not good enough.
+                const data = (retries === 0
+                        && await window.BootstrapData?.take("device_info"))
+                    || await (await fetchWithTimeout("/device-info", 8000)).json();
+                if (generation !== deviceInfoGeneration) return;
+
+                const updateParentClass = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el && el.parentElement) {
+                        el.textContent = value;
+                        el.parentElement.classList.add("text-emerald-500");
+                    }
+                };
+                updateParentClass("mic-label", data.mic);
+                updateParentClass("speaker-label", data.speaker);
+
+                const unknown = (value) =>
+                    String(value || "").toLowerCase() === "unknown";
+                if ((unknown(data.mic) || unknown(data.speaker)) && retries < 4) {
+                    scheduleRetry(retries);
                 }
-            };
-            updateParentClass("mic-label", data.mic);
-            updateParentClass("speaker-label", data.speaker);
+            } catch (error) {
+                if (generation !== deviceInfoGeneration) return;
+                console.error("Failed to fetch device info:", error);
+                if (retries < 4) scheduleRetry(retries);
+            }
+        };
 
-            const hasUnknown = String(data.mic || "").toLowerCase() === "unknown"
-                || String(data.speaker || "").toLowerCase() === "unknown";
-            if (hasUnknown && retries < 6) {
-                clearTimeout(deviceInfoRetryTimer);
-                deviceInfoRetryTimer = setTimeout(() => updateDeviceLabels(retries + 1), 1500);
-            }
-        } catch (error) {
-            console.error("Failed to fetch device info:", error);
-            if (retries < 6) {
-                clearTimeout(deviceInfoRetryTimer);
-                deviceInfoRetryTimer = setTimeout(() => updateDeviceLabels(retries + 1), 1500);
-            }
-        } finally {
-            deviceInfoRequestInFlight = false;
-        }
+        // Back off rather than hammering: enumeration after boot settles in a
+        // few seconds, and a device that is simply absent never resolves.
+        const scheduleRetry = (retries) => {
+            const delay = 1500 * 2 ** retries;
+            clearTimeout(deviceInfoRetryTimer);
+            deviceInfoRetryTimer = setTimeout(() => {
+                if (generation !== deviceInfoGeneration) return;
+                deviceInfoInFlight = attempt(retries + 1).finally(() => {
+                    if (generation === deviceInfoGeneration) {
+                        deviceInfoInFlight = null;
+                    }
+                });
+            }, delay);
+        };
+
+        deviceInfoInFlight = attempt(0).finally(() => {
+            if (generation === deviceInfoGeneration) deviceInfoInFlight = null;
+        });
+        return deviceInfoInFlight;
     }
 
     bindUI();
