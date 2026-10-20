@@ -33,6 +33,8 @@ class MicManagerWrapper:
         self.mic = MicManager()
         self.mic_running = False
         self.mic_timeout_task = None
+        self._retry_task = None
+        self._mic_generation = 0
         self.last_rms = 0.0
         self._mic_guard_until = 0.0
         self._timeout_motor_guard_until = 0.0
@@ -112,11 +114,21 @@ class MicManagerWrapper:
         except Exception as e:
             self.mic_running = False
             logger.error(f"Mic start failed: {e}")
-            if retry and self.session.session_active.is_set():
-                asyncio.create_task(self._retry_loop())
+            if (
+                retry
+                and self.session.session_active.is_set()
+                and (self._retry_task is None or self._retry_task.done())
+            ):
+                self._retry_task = asyncio.create_task(self._retry_loop())
 
     def stop(self):
-        """Stop the microphone."""
+        """Stop the microphone and invalidate pending reopen attempts."""
+        self._mic_generation += 1
+        task = self._retry_task
+        if task is not None and not task.done():
+            # stop() can run in an executor thread during session teardown.
+            with contextlib.suppress(RuntimeError):
+                task.get_loop().call_soon_threadsafe(task.cancel)
         if self.mic_running:
             try:
                 self.mic.stop()
@@ -900,7 +912,13 @@ class MicManagerWrapper:
         if not self.session.session_active.is_set():
             return
 
+        generation = self._mic_generation
         await asyncio.sleep(0.5)
+        if (
+            not self.session.session_active.is_set()
+            or generation != self._mic_generation
+        ):
+            return
 
         try:
             self.mic = MicManager()
@@ -909,6 +927,12 @@ class MicManagerWrapper:
 
         try:
             self.mic.start(self.callback)
+            if (
+                not self.session.session_active.is_set()
+                or generation != self._mic_generation
+            ):
+                self.mic.stop()
+                return
             self.mic_running = True
             self._mic_guard_until = time.time() + 0.35
             logger.info("Mic started after retry", "✅")

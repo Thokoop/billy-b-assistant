@@ -26,6 +26,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .diagnostics import UplinkTiming, format_timing
 from .endpoints import ServiceEndpoints
 from .transport import (
     PCMFrames,
@@ -56,10 +57,8 @@ UPLINK_CAPTURE = os.environ.get("BLUETOOTH_UPLINK_CAPTURE")
 # enough to starve the mic pump. pw-cat exiting already signals a vanished node,
 # so the periodic sweep is only a slow safety net, not the primary detector.
 ROUTE_CHECK_TICKS = 5
-# The outgoing pw-cat drains at its node latency. At 20 ms any Python stall
-# longer than that starves it and PipeWire sends silence down the SCO link,
-# which the far end hears as chop. Nothing is lost on our side, so the cure is
-# a deeper buffer there, not more buffering here.
+# Requested PipeWire latency, not a guaranteed prefilled jitter buffer.
+# Pump timing measures delivery to pw-cat only, not downstream SCO underruns.
 MIC_SEND_LATENCY_MS = 60
 
 
@@ -180,6 +179,7 @@ def session(route, endpoints=None, stop=None):
             mic_error = []
             session_stop = threading.Event()
             last_frame = [time.monotonic()]
+            timing = UplinkTiming(time.monotonic())
 
             def pump():
                 """Mic -> AEC -> phone, off the render loop.
@@ -191,9 +191,10 @@ def session(route, endpoints=None, stop=None):
                 try:
                     while not (stop.is_set() or session_stop.is_set()):
                         try:
-                            samples = mic_queue.get(timeout=0.05)
+                            captured_at, samples = mic_queue.get(timeout=0.05)
                         except queue.Empty:
                             continue
+                        started_at = time.monotonic()
                         cleaned = aec.process_capture(
                             samples,
                             mic_rate,
@@ -221,13 +222,21 @@ def session(route, endpoints=None, stop=None):
                         payload = (
                             np.clip(converted, -32768, 32767).astype(np.int16).tobytes()
                         )
+                        processed_at = time.monotonic()
+                        write_pcm(outgoing, payload, stop)
+                        sent_at = time.monotonic()
+                        mic_stats["sent"] += 1
+                        timing.record(
+                            captured_at,
+                            started_at,
+                            processed_at,
+                            sent_at,
+                            len(payload) / (48000 * 2),
+                        )
                         if captures:
-                            # Before AEC and after, so an artefact can be
-                            # attributed to the microphone or to processing.
+                            # Accepted by pw-cat; this is not an on-air capture.
                             captures[0].write(samples.astype(np.int16).tobytes())
                             captures[1].write(payload)
-                        write_pcm(outgoing, payload, stop)
-                        mic_stats["sent"] += 1
                 except BaseException as exc:  # re-raised by the render loop
                     mic_error.append(exc)
 
@@ -248,6 +257,8 @@ def session(route, endpoints=None, stop=None):
                 "call_audio" if sink else "media_audio",
                 aec=aec.active,
                 source=source,
+                mic_rate=mic_rate if sink else None,
+                send_latency_ms=MIC_SEND_LATENCY_MS if sink else None,
             )
             next_check = time.monotonic() + 1
             warmed = False
@@ -288,29 +299,47 @@ def session(route, endpoints=None, stop=None):
                         return
                     raise failure
                 if time.monotonic() >= next_check:
-                    dropped = mic_stats["overflow"] + mic_stats["full"]
-                    if outgoing and (
-                        dropped or mic_stats["sent"] < blocks_per_second * 0.9
-                    ):
-                        # Anything below the nominal block rate, or any loss, is
-                        # what the far end hears as chop.
-                        print(
-                            f"bluetooth mic: sent={mic_stats['sent']}/"
-                            f"{blocks_per_second} per s "
-                            f"overflow={mic_stats['overflow']} "
-                            f"full={mic_stats['full']} "
-                            f"queued={mic_queue.qsize()}",
-                            file=sys.stderr,
-                            flush=True,
+                    now = time.monotonic()
+                    if outgoing:
+                        metrics = timing.snapshot(
+                            now, dict(mic_stats), mic_queue.qsize()
                         )
-                    # Skip the first tick: AEC and stream start-up cost blocks.
-                    if warmed and dropped > blocks_per_second * MAX_MIC_DROP_FRACTION:
-                        raise RuntimeError(
-                            "Microphone cannot keep up; audio test stopped"
+                        dropped = metrics["overflow"] + metrics["full"]
+                        anomalous = (
+                            dropped
+                            or metrics["sent_per_s"] < blocks_per_second * 0.9
+                            or metrics["send_gap_ms"] > MIC_SEND_LATENCY_MS
+                            or metrics["since_send_ms"] > MIC_SEND_LATENCY_MS
+                            or metrics["queue_ms"] > MIC_SEND_LATENCY_MS
                         )
+                        # Always report the first interval, then every five
+                        # seconds while healthy; anomalies remain visible sooner.
+                        if not warmed or anomalous or ticks % 5 == 0:
+                            print(
+                                format_timing(metrics, blocks_per_second),
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                        status(
+                            "call_audio",
+                            aec=aec.active,
+                            source=source,
+                            mic_rate=mic_rate,
+                            send_latency_ms=MIC_SEND_LATENCY_MS,
+                            timing=metrics,
+                        )
+                        # Overflows count events, not an exact lost-sample count.
+                        # Preserve the safety cutoff, scaled to actual elapsed time.
+                        if warmed and dropped > (
+                            blocks_per_second
+                            * metrics["interval_s"]
+                            * MAX_MIC_DROP_FRACTION
+                        ):
+                            raise RuntimeError(
+                                "Microphone cannot keep up; audio test stopped"
+                            )
                     warmed = True
-                    mic_stats.update(overflow=0, full=0, sent=0)
-                    next_check = time.monotonic() + 1
+                    next_check = now + 1
                     ticks += 1
                     if ticks % ROUTE_CHECK_TICKS == 0 and (
                         select_route(discover()) != route

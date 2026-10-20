@@ -63,8 +63,12 @@ class EchoCanceller:
     sample_rate = 48000
     frame_samples = 480
 
-    def __init__(self, enabled: bool, processor_factory=None):
+    def __init__(
+        self, enabled: bool, processor_factory=None, *, track_playback_similarity=True
+    ):
         self.requested = enabled
+        # Calls need AEC, but not the AI barge-in ownership analysis.
+        self._track_playback_similarity = track_playback_similarity
         self._processor_factory = processor_factory
         self._processor = None
         self._lock = threading.Lock()
@@ -299,7 +303,8 @@ class EchoCanceller:
                 for offset in range(0, usable, self.frame_samples):
                     frame = render[offset : offset + self.frame_samples].copy()
                     self._processor.process_render(frame)
-                    self._render_history.append((time.monotonic(), frame))
+                    if self._track_playback_similarity:
+                        self._render_history.append((time.monotonic(), frame))
                     self._render_frames += 1
                 self._render_pending = render[usable:].copy()
         except Exception as exc:
@@ -377,7 +382,7 @@ class EchoCanceller:
                     # only the final decision misses a syllable whenever the
                     # last frame happens to be quiet.
                     self._last_voice_detected = any(voice_decisions)
-                if render_active and output:
+                if self._track_playback_similarity and render_active and output:
                     self._last_playback_similarity = self._playback_similarity_locked(
                         np.concatenate(output)
                     )

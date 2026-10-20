@@ -92,5 +92,14 @@ models/
 wakewords/*.ppn
 !wakewords/hey-billy.ppn
 knowledge/
+# Local development tests and experiments
 test/
+.pytest_cache/
+.venv-tests/
 /docs/plans
+
+# Local regression suite, configuration and test documentation
+/tests/
+/pytest.ini
+/docs/bluetooth-audio-testing.md
+/docs/core-regression-testing.md

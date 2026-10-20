@@ -34,6 +34,8 @@ from .movements import (
     move_head,
     move_tail_async,
 )
+from .playback_queue import PlaybackError as PlaybackError
+from .playback_queue import PlaybackQueue
 
 
 # === Audio Device Globals ===
@@ -49,7 +51,7 @@ WAKE_UP_DIR_DEFAULT = "sounds/wake-up/default"
 RESPONSE_HISTORY_DIR = "sounds/response-history"
 os.makedirs(RESPONSE_HISTORY_DIR, exist_ok=True)
 
-playback_queue = Queue()
+playback_queue = PlaybackQueue()
 head_move_queue = Queue()
 tail_move_queue = Queue()
 # List of (start_seconds, duration_seconds) windows during which mouth-flap
@@ -58,6 +60,7 @@ tail_move_queue = Queue()
 mouth_mute_windows = []
 playback_done_event = threading.Event()
 _playback_thread = None
+_playback_start_lock = threading.Lock()
 _playback_output_latency_seconds = 0.0
 last_played_time = time.time()
 song_mode = False
@@ -347,126 +350,164 @@ def playback_worker(chunk_ms):
             logger.info("Output stream opened", "🔈")
             while True:
                 item = playback_queue.get()
-                now = time.time()
+                try:
+                    now = time.time()
 
-                if head_move_active and now >= head_move_end_time:
-                    move_head("off")
-                    movements.head_out = False
-                    head_move_active = False
-                    print("🛑 Head move ended")
+                    if head_move_active and now >= head_move_end_time:
+                        move_head("off")
+                        movements.head_out = False
+                        head_move_active = False
+                        print("🛑 Head move ended")
 
-                if not head_move_active and not head_move_queue.empty():
-                    move_time, move_duration = head_move_queue.queue[0]  # peek
-                    if now - song_start_time >= move_time:
-                        head_move_queue.get()
-                        move_head("on")
-                        movements.head_out = True
-                        head_move_active = True
-                        head_move_end_time = now + move_duration
-                        print(f"🐟 Head move started for {move_duration:.2f} seconds")
+                    if not head_move_active and not head_move_queue.empty():
+                        move_time, move_duration = head_move_queue.queue[0]  # peek
+                        if now - song_start_time >= move_time:
+                            head_move_queue.get()
+                            move_head("on")
+                            movements.head_out = True
+                            head_move_active = True
+                            head_move_end_time = now + move_duration
+                            print(
+                                f"🐟 Head move started for {move_duration:.2f} seconds"
+                            )
 
-                if not tail_move_queue.empty() and not movements.head_out:
-                    # Modern (2-motor) hardware shares one bridge between head and
-                    # tail, so a tail flap while the head is out would yank the
-                    # head back down. Defer - the move stays queued and fires as
-                    # soon as head_out clears, same as the automatic drums path.
-                    move_time, move_duration = tail_move_queue.queue[0]  # peek
-                    if now - song_start_time >= move_time:
-                        tail_move_queue.get()
-                        move_tail_async(duration=move_duration)
-                        print(
-                            f"🐟 Manual tail move started for {move_duration:.2f} seconds"
-                        )
+                    if not tail_move_queue.empty() and not movements.head_out:
+                        # Modern (2-motor) hardware shares one bridge between head and
+                        # tail, so a tail flap while the head is out would yank the
+                        # head back down. Defer - the move stays queued and fires as
+                        # soon as head_out clears, same as the automatic drums path.
+                        move_time, move_duration = tail_move_queue.queue[0]  # peek
+                        if now - song_start_time >= move_time:
+                            tail_move_queue.get()
+                            move_tail_async(duration=move_duration)
+                            print(
+                                f"🐟 Manual tail move started for {move_duration:.2f} seconds"
+                            )
 
-                if item is None:
-                    logger.info("Received stop signal, cleaning up.", "🧵")
-                    playback_queue.task_done()
-                    break
+                    if item is None:
+                        logger.info("Received stop signal, cleaning up.", "🧵")
+                        break
 
-                if isinstance(item, tuple):
-                    mode = item[0]
-                    if mode == "song":
-                        audio_chunk, flap_chunk, rms_drums = item[1], item[2], item[3]
+                    if isinstance(item, tuple):
+                        mode = item[0]
+                        if mode == "song":
+                            audio_chunk, flap_chunk, rms_drums = (
+                                item[1],
+                                item[2],
+                                item[3],
+                            )
 
-                        flap_samples = np.frombuffer(flap_chunk, dtype=np.int16)
-                        song_position = now - song_start_time
-                        if mouth_mute_windows and any(
-                            start <= song_position < start + duration
-                            for start, duration in mouth_mute_windows
-                        ):
-                            # Feed silence rather than skip the call entirely, so
-                            # flap_from_pcm_chunk's own "too quiet, stop motor"
-                            # path actively closes the mouth instead of leaving it
-                            # stuck wherever it was when the mute window began.
-                            flap_samples = np.zeros_like(flap_samples)
-
-                        flap_from_pcm_chunk(
-                            flap_samples,
-                            threshold=song_mouth_threshold,
-                            chunk_ms=chunk_ms,
-                            articulation_override=song_mouth_articulation,
-                        )
-
-                        if rms_drums > drums_peak:
-                            drums_peak = rms_drums
-                            drums_peak_time = now
-
-                        adjusted_now = (now - song_start_time) + (
-                            compensate_tail_beats * beat_length
-                        )
-                        elapsed_song_time = now - song_start_time
-
-                        # print(f"[DEBUG] ⏱ elapsed: {elapsed_song_time:.2f}s | 🥁 adjusted: {adjusted_now:.2f}s | 🎯 next beat at {next_beat_time:.2f}s | 🐟 head_move_queue: {list(head_move_queue.queue)}")
-
-                        if adjusted_now >= next_beat_time:
-                            if (
-                                drums_peak > song_tail_threshold
-                                and not movements.head_out
+                            flap_samples = np.frombuffer(flap_chunk, dtype=np.int16)
+                            song_position = now - song_start_time
+                            if mouth_mute_windows and any(
+                                start <= song_position < start + duration
+                                for start, duration in mouth_mute_windows
                             ):
-                                move_tail_async(duration=0.2)
-                            drums_peak = 0
-                            drums_peak_time = 0
-                            next_beat_time += beat_length
+                                # Feed silence rather than skip the call entirely, so
+                                # flap_from_pcm_chunk's own "too quiet, stop motor"
+                                # path actively closes the mouth instead of leaving it
+                                # stuck wherever it was when the mute window began.
+                                flap_samples = np.zeros_like(flap_samples)
 
-                        mono = np.frombuffer(audio_chunk, dtype=np.int16)
-                        stream.write(_resample_24k_mono_to_48k_stereo(mono))
+                            flap_from_pcm_chunk(
+                                flap_samples,
+                                threshold=song_mouth_threshold,
+                                chunk_ms=chunk_ms,
+                                articulation_override=song_mouth_articulation,
+                            )
 
-                    elif mode == "bluetooth":
-                        # 48 kHz mono already, and carrying its own canceller:
-                        # the module-level one is built from AEC_ENABLED, which
-                        # governs the AI path and is off by default, while a
-                        # call needs cancellation either way.
-                        chunk, canceller = item[1], item[2]
-                        render_external_pcm(
-                            stream, np.frombuffer(chunk, dtype=np.int16), canceller
-                        )
+                            if rms_drums > drums_peak:
+                                drums_peak = rms_drums
+                                drums_peak_time = now
 
-                    elif mode == "tts":
-                        chunk = item[1]
-                        generation = item[2] if len(item) > 2 else None
+                            adjusted_now = (now - song_start_time) + (
+                                compensate_tail_beats * beat_length
+                            )
+                            elapsed_song_time = now - song_start_time
+
+                            # print(f"[DEBUG] ⏱ elapsed: {elapsed_song_time:.2f}s | 🥁 adjusted: {adjusted_now:.2f}s | 🎯 next beat at {next_beat_time:.2f}s | 🐟 head_move_queue: {list(head_move_queue.queue)}")
+
+                            if adjusted_now >= next_beat_time:
+                                if (
+                                    drums_peak > song_tail_threshold
+                                    and not movements.head_out
+                                ):
+                                    move_tail_async(duration=0.2)
+                                drums_peak = 0
+                                drums_peak_time = 0
+                                next_beat_time += beat_length
+
+                            mono = np.frombuffer(audio_chunk, dtype=np.int16)
+                            stream.write(_resample_24k_mono_to_48k_stereo(mono))
+                            playback_queue.mark_progress()
+
+                        elif mode == "bluetooth":
+                            # 48 kHz mono already, and carrying its own canceller:
+                            # the module-level one is built from AEC_ENABLED, which
+                            # governs the AI path and is off by default, while a
+                            # call needs cancellation either way.
+                            chunk, canceller = item[1], item[2]
+                            render_external_pcm(
+                                stream, np.frombuffer(chunk, dtype=np.int16), canceller
+                            )
+                            playback_queue.mark_progress()
+
+                        elif mode == "tts":
+                            chunk = item[1]
+                            generation = item[2] if len(item) > 2 else None
+                            mono = np.frombuffer(chunk, dtype=np.int16)
+                            chunk_len = int(PROVIDER_OUTPUT_RATE * chunk_ms / 1000)
+                            for i in range(0, len(mono), chunk_len):
+                                if (
+                                    generation is not None
+                                    and not is_current_aec_playback_generation(
+                                        generation
+                                    )
+                                ):
+                                    break
+                                sub = mono[i : i + chunk_len]
+                                if len(sub) == 0:
+                                    continue
+                                speaker_pcm = _resample_24k_mono_to_48k_stereo(sub)
+                                echo_canceller.feed_render(
+                                    speaker_pcm[:, 0], 48000, generation
+                                )
+                                flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
+                                write_started_at = time.monotonic()
+                                stream.write(speaker_pcm)
+                                playback_queue.mark_progress()
+                                echo_canceller.mark_render_written(
+                                    len(speaker_pcm),
+                                    48000,
+                                    generation,
+                                    write_started_at,
+                                )
+
+                                interlude_counter += len(sub)
+                                interlude_counter, interlude_target = (
+                                    _maybe_trigger_interlude(
+                                        interlude_counter, interlude_target
+                                    )
+                                )
+
+                    else:
+                        chunk = item
                         mono = np.frombuffer(chunk, dtype=np.int16)
                         chunk_len = int(PROVIDER_OUTPUT_RATE * chunk_ms / 1000)
                         for i in range(0, len(mono), chunk_len):
-                            if (
-                                generation is not None
-                                and not is_current_aec_playback_generation(generation)
-                            ):
-                                break
                             sub = mono[i : i + chunk_len]
                             if len(sub) == 0:
                                 continue
                             speaker_pcm = _resample_24k_mono_to_48k_stereo(sub)
-                            echo_canceller.feed_render(
-                                speaker_pcm[:, 0], 48000, generation
-                            )
+                            echo_canceller.feed_render(speaker_pcm[:, 0], 48000)
                             flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
                             write_started_at = time.monotonic()
                             stream.write(speaker_pcm)
+                            playback_queue.mark_progress()
                             echo_canceller.mark_render_written(
                                 len(speaker_pcm),
                                 48000,
-                                generation,
-                                write_started_at,
+                                write_started_at=write_started_at,
                             )
 
                             interlude_counter += len(sub)
@@ -476,34 +517,17 @@ def playback_worker(chunk_ms):
                                 )
                             )
 
-                else:
-                    chunk = item
-                    mono = np.frombuffer(chunk, dtype=np.int16)
-                    chunk_len = int(PROVIDER_OUTPUT_RATE * chunk_ms / 1000)
-                    for i in range(0, len(mono), chunk_len):
-                        sub = mono[i : i + chunk_len]
-                        if len(sub) == 0:
-                            continue
-                        speaker_pcm = _resample_24k_mono_to_48k_stereo(sub)
-                        echo_canceller.feed_render(speaker_pcm[:, 0], 48000)
-                        flap_from_pcm_chunk(sub, chunk_ms=chunk_ms)
-                        write_started_at = time.monotonic()
-                        stream.write(speaker_pcm)
-                        echo_canceller.mark_render_written(
-                            len(speaker_pcm),
-                            48000,
-                            write_started_at=write_started_at,
-                        )
-
-                        interlude_counter += len(sub)
-                        interlude_counter, interlude_target = _maybe_trigger_interlude(
-                            interlude_counter, interlude_target
-                        )
-
-                playback_queue.task_done()
+                except Exception as exc:
+                    # Publish failure before task_done can release a waiter.
+                    playback_queue.fail(exc)
+                    raise
+                finally:
+                    playback_queue.task_done()
                 last_played_time = time.time()
 
     except Exception as e:
+        playback_queue.fail(e)
+        movements.stop_all_motors()
         logger.error(f"Playback stream failed: {e}")
     finally:
         playback_done_event.set()
@@ -513,11 +537,18 @@ def ensure_playback_worker_started(chunk_ms):
     global _playback_thread
     if TEXT_ONLY_MODE:
         return
-    if not _playback_thread or not _playback_thread.is_alive():
+    with _playback_start_lock:
+        if _playback_thread and _playback_thread.is_alive():
+            return
+        playback_queue.recover()
         _playback_thread = threading.Thread(
             target=playback_worker, args=(chunk_ms,), daemon=True
         )
-        _playback_thread.start()
+        try:
+            _playback_thread.start()
+        except Exception as exc:
+            playback_queue.fail(exc)
+            raise
 
 
 def save_audio_to_wav(audio_bytes, filename):
@@ -760,12 +791,7 @@ def stop_playback():
     # Invalidate first so a chunk already owned by the playback worker cannot
     # add cancelled response audio to the next response's AEC reference.
     echo_canceller.invalidate_render_generation()
-    while not playback_queue.empty():
-        try:
-            playback_queue.get_nowait()
-            playback_queue.task_done()
-        except Exception:
-            break
+    playback_queue.discard_pending()
     playback_done_event.set()
 
 
@@ -783,7 +809,7 @@ def reset_for_new_song():
         next_beat_time, \
         drums_peak, \
         drums_peak_time
-    playback_queue.queue.clear()
+    playback_queue.discard_pending()
     head_move_queue.queue.clear()
     tail_move_queue.queue.clear()
     mouth_mute_windows.clear()
@@ -1124,12 +1150,7 @@ async def play_song(song_name, interrupt_event=None):
             if interrupt_event and interrupt_event.is_set():
                 print("🛑 Song playback wait interrupted")
                 # Flush remaining queue items
-                while not audio.playback_queue.empty():
-                    try:
-                        audio.playback_queue.get_nowait()
-                        audio.playback_queue.task_done()
-                    except Exception:
-                        break
+                audio.playback_queue.discard_pending()
                 break
 
             if not is_current_song_generation(my_generation):

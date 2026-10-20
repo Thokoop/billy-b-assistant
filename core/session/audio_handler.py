@@ -116,11 +116,17 @@ class AudioHandler:
             self.session.session_active.clear()
             self.session.interrupt_event.clear()
 
-    async def wait_for_playback_complete(self):
+    async def wait_for_playback_complete(self, *, timeout=25.0):
         """Wait for audio playback to complete."""
         if not TEXT_ONLY_MODE:
-            await asyncio.to_thread(audio.playback_queue.join)
+            completed = await audio.playback_queue.wait(
+                timeout=timeout,
+                cancelled=lambda: not self.session.session_active.is_set(),
+            )
+            if not completed:
+                return False
             await asyncio.sleep(0.3)
+        return self.session.session_active.is_set()
 
     def save_response_audio(self):
         """Save the response audio buffer to disk."""
@@ -155,4 +161,4 @@ class AudioHandler:
     @staticmethod
     async def wait_for_playback_queue():
         """Wait for the playback queue to empty."""
-        await asyncio.to_thread(audio.playback_queue.join)
+        await audio.playback_queue.wait()

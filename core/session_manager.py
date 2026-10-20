@@ -30,9 +30,8 @@ from .config import (
 
 
 MANUAL_HANDOFF_ECHO_SETTLE_SECONDS = 1.5
-# Safety net only: normal spoken turns finish draining well under this. If the
-# playback queue ever stalls (e.g. a stuck worker), this stops assistant_speaking
-# / playback_done_event from being wedged forever with no other way to clear them.
+# Maximum time without successful output while draining a response. Healthy
+# long answers keep playing; a stalled worker must not hold the session forever.
 PLAYBACK_DRAIN_TIMEOUT_SECONDS = 25.0
 # Room/speaker tail after playback stops. Mic evidence inside this window does
 # not count as the user continuing an item that began during playback.
@@ -956,19 +955,26 @@ class BillySession:
     async def _wait_for_response_playback(self, response_id: str | None):
         """Wait for queued speaker audio, then complete the response."""
         try:
-            await asyncio.wait_for(
-                self.audio_handler.wait_for_playback_complete(),
-                timeout=PLAYBACK_DRAIN_TIMEOUT_SECONDS,
+            completed = await self.audio_handler.wait_for_playback_complete(
+                timeout=PLAYBACK_DRAIN_TIMEOUT_SECONDS
             )
+            if completed is False or not self.session_active.is_set():
+                return
+        except audio.PlaybackError as exc:
+            logger.warning(f"Response playback failed: {exc}")
+            await self.stop_session(reason="playback_failed")
+            return
         except asyncio.TimeoutError:
             logger.warning(
-                "Playback queue did not drain within "
+                "Playback made no progress for "
                 f"{PLAYBACK_DRAIN_TIMEOUT_SECONDS:.0f}s of response "
-                "completion; continuing without waiting further so "
-                "assistant_speaking/playback_done_event cannot stay "
-                "wedged.",
+                "completion; ending the session because output is stalled.",
                 "⚠️",
             )
+            audio.playback_queue.fail(TimeoutError("Speaker playback stalled"))
+            audio.stop_playback()
+            await self.stop_session(reason="playback_timeout")
+            return
         # A local barge-in may have stopped queued playback while this
         # handler was awaiting completion. That path already owns the mic
         # handoff, so do not save an emptied buffer or transition twice.
@@ -1492,7 +1498,10 @@ class BillySession:
 
     async def run_stream(self):
         if not TEXT_ONLY_MODE and not audio.playback_done_event.is_set():
-            await asyncio.to_thread(audio.playback_done_event.wait)
+            while not audio.playback_done_event.is_set():
+                if not self.session_active.is_set():
+                    return
+                await asyncio.sleep(0.01)
 
         logger.info(
             "Mic stream active. Say something..."
@@ -1681,25 +1690,33 @@ class BillySession:
                 reason = f"caller={caller.function}"
         logger.info(f"Stopping session... ({reason or 'unspecified'})", "🛑")
 
-        # Increment interaction count for current user at end of session
-        if not self._interaction_count_recorded:
-            user_manager.increment_current_user_interaction_count()
-            self._interaction_count_recorded = True
-
+        # Stop capture forwarding before optional persistence or driver cleanup.
         self.session_active.clear()
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(self.mic_manager.stop), timeout=1.0
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Mic stop timed out during session shutdown; continuing teardown.",
-                "⚠️",
-            )
-            self.mic_manager.mic_running = False
-        await self._close_ws()
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(self.mic_manager.stop), timeout=1.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Mic stop timed out during session shutdown; continuing teardown.",
+                    "⚠️",
+                )
+                self.mic_manager.mic_running = False
+            except Exception as exc:
+                logger.warning(f"Mic stop failed during session shutdown: {exc}")
+        finally:
+            # A mic error or cancellation must not skip connection cleanup.
+            await self._close_ws()
 
-        # Give the message loop a moment to exit
+        if not self._interaction_count_recorded:
+            self._interaction_count_recorded = True
+            try:
+                user_manager.increment_current_user_interaction_count()
+            except Exception as exc:
+                logger.warning(f"Could not save session interaction count: {exc}")
+
+        # Give the message loop a moment to exit.
         await asyncio.sleep(0.1)
 
     async def request_stop(self):
