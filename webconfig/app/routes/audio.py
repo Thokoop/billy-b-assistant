@@ -18,7 +18,6 @@ import sounddevice as sd
 from dotenv import find_dotenv
 from flask import Blueprint, Response, jsonify, request, send_from_directory
 
-from core.audio import calculate_input_rms
 from core.env_utils import set_env_key
 from core.wakeup import generate_wake_clip_async
 
@@ -710,6 +709,13 @@ def audio_callback(indata, frames, time_info, status):
     if not mic_check_running:
         raise sd.CallbackStop()
     frame_bytes = indata.copy().tobytes()
+    # Imported here, not at module scope: core.audio pulls in core.movements,
+    # which claims the motor GPIO pins the moment it is imported. At module
+    # scope that happens when billy-webconfig starts, so the web interface
+    # would hold Billy's motor pins for the life of the service and Billy
+    # himself could never claim them.
+    from core.audio import calculate_input_rms
+
     rms = calculate_input_rms(indata)
     rms_queue.put(rms)
     if mic_check_record_queue is not None:

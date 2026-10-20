@@ -16,6 +16,43 @@ from ..news_digest import get_news_digest
 from ..persona import update_persona_ini
 from ..persona_manager import persona_manager
 from ..vision import describe_scene
+from ..web_search import web_search
+from .tool_manager import tool_manager
+
+
+# A response that exists only to be spoken - a tool result read back, or a turn
+# being asked for the answer it never gave. Withholding the tools for that one
+# response is what stops the gpt-realtime-2.x models closing it with
+# conversation_state and no audio: with nothing to call, the only output left
+# is speech. conversation_state will not arrive for it, which is what the
+# heuristic follow-up fallback already covers.
+SPEECH_ONLY_RESPONSE = {"type": "response.create", "response": {"tool_choice": "none"}}
+
+
+def turn_directive_response(
+    directive: str, *, allow_tools: bool = False, **response_fields: Any
+) -> dict[str, Any]:
+    """Build a response.create that carries a one-turn directive out of band.
+
+    Steering text must never be injected as a role="user" conversation item.
+    The model cannot tell such an item from the user actually speaking, so it
+    answers it out loud ("you said something about the turn not being
+    answered") and, because the item stays in the transcript, keeps referring
+    back to it turns later. Per-response instructions reach the model for this
+    response only and leave no trace in the conversation.
+    """
+    from ..session_manager import get_instructions_with_user_context
+
+    instructions = (
+        get_instructions_with_user_context()
+        + "\n\n---\n# This response only\n"
+        + directive
+    )
+    response: dict[str, Any] = {"instructions": instructions}
+    if not allow_tools:
+        response["tool_choice"] = "none"
+    response.update(response_fields)
+    return {"type": "response.create", "response": response}
 
 
 class FunctionHandler:
@@ -62,6 +99,7 @@ class FunctionHandler:
             "manage_profile": self._handle_manage_profile,
             "switch_persona": self._handle_switch_persona,
             "get_news_digest": self._handle_get_news_digest,
+            "web_search": self._handle_web_search,
             "describe_scene": self._handle_describe_scene,
             "search_local_knowledge": self._handle_search_local_knowledge,
         }
@@ -118,10 +156,53 @@ class FunctionHandler:
                 )
                 return args
             except Exception as fix_e:
+                salvaged = self._salvage_json_args(raw_args)
+                shown = (
+                    raw_args
+                    if len(raw_args) <= 300
+                    else raw_args[:300] + f"... [{len(raw_args)} chars]"
+                )
+                if salvaged:
+                    logger.warning(
+                        f"{tool_name}: arguments were malformed; recovered "
+                        f"{sorted(salvaged)} from them | raw={shown!r}"
+                    )
+                    return salvaged
                 logger.warning(
-                    f"{tool_name}: failed to parse arguments: {e} | raw={raw_args!r} | fix also failed: {fix_e}"
+                    f"{tool_name}: failed to parse arguments: {e} | raw={shown!r} "
+                    f"| fix also failed: {fix_e}"
                 )
                 return None if strict else {}
+
+    @staticmethod
+    def _salvage_json_args(raw_args: str) -> dict:
+        """Pull whatever complete values survive in a broken argument string.
+
+        A model that derails while writing tool arguments still usually gets
+        the first field right before the rubbish starts, and answering from
+        that beats telling the user their request was empty.
+        """
+        import re
+
+        salvaged: dict[str, Any] = {}
+        pattern = re.compile(
+            r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*'
+            r'(?:"((?:[^"\\]|\\.)*)"|(-?\d+(?:\.\d+)?)|(true|false))'
+        )
+        for match in pattern.finditer(raw_args or ""):
+            key, text, number, boolean = match.groups()
+            if key in salvaged:
+                continue
+            if text is not None:
+                try:
+                    salvaged[key] = json.loads(f'"{text}"')
+                except Exception:
+                    salvaged[key] = text
+            elif number is not None:
+                salvaged[key] = float(number) if "." in number else int(number)
+            else:
+                salvaged[key] = boolean == "true"
+        return salvaged
 
     @staticmethod
     def _coerce_bool(value: Any, default: bool = False) -> bool:
@@ -255,16 +336,14 @@ class FunctionHandler:
                 f"Okay, {trait} is now set to {PERSONALITY._bucket(val).upper()}."
                 for trait, val in changes
             ])
-            await self.session._ws_send_json({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": confirmation_text}],
-                },
-            })
             self.session.state._triggered_new_response = True
-            await self.session._ws_send_json({"type": "response.create"})
+            await self.session._ws_send_json(
+                turn_directive_response(
+                    "Confirm the change out loud to the user, in your own voice: "
+                    f"{confirmation_text}",
+                    allow_tools=True,
+                )
+            )
 
     async def _handle_play_song(self, raw_args: str | None, call_id: str | None = None):
         """Handle song playback."""
@@ -304,17 +383,11 @@ class FunctionHandler:
             "conversation open. After speaking, call conversation_state with "
             "expects_follow_up=true."
         )
-        await self.session._ws_send_json({
-            "type": "conversation.item.create",
-            "item": {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": prompt}],
-            },
-        })
         self.session.state._triggered_new_response = True
         self.session._next_response_is_tool_continuation = True
-        await self.session._ws_send_json({"type": "response.create"})
+        await self.session._ws_send_json(
+            turn_directive_response(prompt, allow_tools=True)
+        )
 
     async def _handle_set_mood(self, raw_args: str | None, call_id: str | None = None):
         """Handle temporary mood changes."""
@@ -350,17 +423,11 @@ class FunctionHandler:
                 "expects_follow_up=true."
             )
 
-        await self.session._ws_send_json({
-            "type": "conversation.item.create",
-            "item": {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": prompt}],
-            },
-        })
         self.session.state._triggered_new_response = True
         self.session._next_response_is_tool_continuation = True
-        await self.session._ws_send_json({"type": "response.create"})
+        await self.session._ws_send_json(
+            turn_directive_response(prompt, allow_tools=True)
+        )
 
     async def _handle_smart_home_command(
         self, raw_args: str | None, call_id: str | None = None
@@ -396,16 +463,10 @@ class FunctionHandler:
                 await asyncio.sleep(0.1)
 
             confirmation_prompt = f"Home Assistant completed the task: '{speech_text}'. Confirm this out loud to the user."
-            await self.session._ws_send_json({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": confirmation_prompt}],
-                },
-            })
             self.session.state._triggered_new_response = True
-            await self.session._ws_send_json({"type": "response.create"})
+            await self.session._ws_send_json(
+                turn_directive_response(confirmation_prompt, allow_tools=True)
+            )
         else:
             logger.warning(f"Failed to parse HA response: {ha_response}")
             if call_id:
@@ -422,19 +483,13 @@ class FunctionHandler:
                 })
                 await asyncio.sleep(0.1)
 
-            await self.session._ws_send_json({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": "Home Assistant didn't understand the request.",
-                        }
-                    ],
-                },
-            })
+            await self.session._ws_send_json(
+                turn_directive_response(
+                    "Home Assistant didn't understand the request. Say so briefly "
+                    "in your own voice.",
+                    allow_tools=True,
+                )
+            )
             self.session.state._triggered_new_response = True
             await self.session._ws_send_json({"type": "response.create"})
 
@@ -497,30 +552,97 @@ class FunctionHandler:
             await asyncio.sleep(0.1)
 
         category = str(result.get("category", "news")).strip()
+        needs_tools = False
         if result.get("ok"):
             prompt = (
                 f"Create a short spoken {category} briefing based on this tool result: "
-                f"{json.dumps(result)}. Mention location/source when relevant and keep it under 4 sentences."
+                f"{json.dumps(result)}. Keep it under 4 sentences, say it as your own "
+                "answer, and never mention the tool, the feed or the source, or read "
+                "out URLs, coordinates or field names."
+            )
+        elif tool_manager.is_available("web_search"):
+            # Configured sources could not answer, so let the model reach for
+            # the internet instead of apologising about an empty feed list.
+            # This is the one continuation that must keep its tools: it exists
+            # precisely to make the follow-up web_search call.
+            needs_tools = True
+            prompt = (
+                f"The configured {category} sources could not answer that "
+                "question. Call web_search now with a short, self-contained "
+                "query for what was actually asked, then answer from what it "
+                "returns. Do not say anything about tools, sources, feeds or "
+                "configuration."
             )
         else:
             prompt = (
-                f"The news tool failed with this result: {json.dumps(result)}. "
-                "Apologize briefly and ask a concise follow-up question to refine location/topic."
+                f"You could not look up that {category} question, and you "
+                "cannot search the internet. In one or two sentences, in your "
+                "own voice, say you do not have that right now and offer what "
+                "you do know instead. You may mention once, lightly and in "
+                "character, that you could look things like this up if they "
+                "let you on the internet - it is the Web search setting. Do "
+                "not labour the point, and never mention any other tool, feed "
+                "or setting."
             )
 
-        await self.session._ws_send_json({
-            "type": "conversation.item.create",
-            "item": {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": prompt}],
-            },
-        })
         self.session.state._triggered_new_response = True
         # This response is a synthetic continuation of the news tool result.
         # A user barge-in must supersede it instead of letting it resume later.
         self.session._next_response_is_tool_continuation = True
-        await self.session._ws_send_json({"type": "response.create"})
+        await self.session._ws_send_json(
+            turn_directive_response(prompt, allow_tools=needs_tools)
+        )
+
+    async def _handle_web_search(
+        self, raw_args: str | None, call_id: str | None = None
+    ):
+        """Handle a live web search for something the model cannot know."""
+        args = self._parse_json_args(raw_args, "web_search")
+        query = str(args.get("query") or "").strip()
+        logger.info(f"Searching the web for {query!r}", "\U0001f310")
+        result = await asyncio.to_thread(web_search, args)
+        if logger.get_level().name == "VERBOSE":
+            logger.verbose(
+                "web_search:result "
+                f"ok={result.get('ok')} "
+                f"sources={result.get('sources')} "
+                f"summary={result.get('summary')!r}",
+                "\U0001f310",
+            )
+
+        if call_id:
+            await self.session._ws_send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result),
+                },
+            })
+            await asyncio.sleep(0.1)
+
+        if result.get("ok"):
+            prompt = (
+                "Answer the question in your own voice using this search result: "
+                f"{json.dumps(result)}. Keep it under three sentences, never read "
+                "out a URL, and do not mention searching or the tool."
+            )
+        else:
+            # Never quote the error back: the user did nothing wrong, and a
+            # result like "I need something to search for" reads as their
+            # fault when it was Billy's own lookup that fell over.
+            prompt = (
+                "Your own search did not come back with anything usable. In "
+                "one short sentence, in your own voice, say you could not look "
+                "it up just now and offer to try again. Do not blame the user, "
+                "and do not mention tools, errors or empty requests."
+            )
+
+        self.session.state._triggered_new_response = True
+        # Same as the news digest: this response continues a tool result, so a
+        # barge-in must supersede it rather than let it resume later.
+        self.session._next_response_is_tool_continuation = True
+        await self.session._ws_send_json(turn_directive_response(prompt))
 
     async def _handle_describe_scene(
         self, raw_args: str | None, call_id: str | None = None
@@ -548,19 +670,13 @@ class FunctionHandler:
                 })
                 await asyncio.sleep(0.1)
 
-            await self.session._ws_send_json({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": "Camera vision is only available with OpenAI Realtime in this build. Apologize briefly and ask the user to switch provider.",
-                        }
-                    ],
-                },
-            })
+            await self.session._ws_send_json(
+                turn_directive_response(
+                    "Camera vision is only available with OpenAI Realtime in this "
+                    "build. Apologize briefly and ask the user to switch provider.",
+                    allow_tools=True,
+                )
+            )
             self.session.state._triggered_new_response = True
             await self.session._ws_send_json({"type": "response.create"})
             return
@@ -599,16 +715,10 @@ class FunctionHandler:
                     "Camera capture returned no image bytes. "
                     "Apologize briefly and ask the user to retry."
                 )
-                await self.session._ws_send_json({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "message",
-                        "role": "user",
-                        "content": [{"type": "input_text", "text": prompt}],
-                    },
-                })
                 self.session.state._triggered_new_response = True
-                await self.session._ws_send_json({"type": "response.create"})
+                await self.session._ws_send_json(
+                    turn_directive_response(prompt, allow_tools=True)
+                )
                 return
 
             await self.session._ws_send_json({
@@ -638,14 +748,18 @@ class FunctionHandler:
                 f"Error details: {result.get('error', 'unknown error')}. "
                 "Apologize briefly and ask the user to retry."
             )
-            await self.session._ws_send_json({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": prompt}],
-                },
-            })
+            # Carries its own response, so it must not fall through to the
+            # one below: two response.create calls would race for the turn.
+            self.session.state._triggered_new_response = True
+            await self.session._ws_send_json(
+                turn_directive_response(
+                    prompt,
+                    allow_tools=True,
+                    tools=[self._conversation_state_tool()],
+                    tool_choice="auto",
+                )
+            )
+            return
         self.session.state._triggered_new_response = True
         await self.session._ws_send_json({
             "type": "response.create",
@@ -687,29 +801,34 @@ class FunctionHandler:
                 "Do not mention filenames, documents, PDFs, or internal knowledge sources unless the user explicitly asks where the information came from. "
                 "If the snippets are incomplete, say so briefly."
             )
+        elif tool_manager.is_available("web_search"):
+            # Nothing in the uploaded files, or the index could not be read.
+            # Either way the question is still unanswered: go and look it up.
+            prompt = (
+                "The uploaded files do not cover that. Call web_search now "
+                "with a short, self-contained query for what was actually "
+                "asked, then answer from what it returns. Do not say anything "
+                "about files, tools or searching."
+            )
         elif result.get("ok"):
             prompt = (
-                "The local knowledge search found no useful matches. "
-                f"Search result: {json.dumps(result)}. "
-                "Say you could not find that in uploaded knowledge and ask one concise follow-up question if helpful."
+                "The uploaded files do not cover that, and you cannot search "
+                "the internet. Say so briefly in your own voice and offer what "
+                "you do know. You may mention once, lightly and in character, "
+                "that you could look things like this up if they let you on "
+                "the internet - it is the Web search setting."
             )
         else:
             prompt = (
-                "The local knowledge search failed. "
-                f"Error result: {json.dumps(result)}. "
-                "Apologize briefly and ask the user to try again."
+                "You could not read the uploaded files just now. Say so "
+                "briefly in your own voice and suggest trying again in a "
+                "moment. Do not mention tools or error messages."
             )
 
-        await self.session._ws_send_json({
-            "type": "conversation.item.create",
-            "item": {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": prompt}],
-            },
-        })
         self.session.state._triggered_new_response = True
-        await self.session._ws_send_json({"type": "response.create"})
+        await self.session._ws_send_json(
+            turn_directive_response(prompt, allow_tools=True)
+        )
 
     # Helper method (kept for backward compatibility with update_personality handler)
     async def _update_session_with_user_context(self):

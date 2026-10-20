@@ -40,6 +40,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         window.MainPageRouter.bindUI();
     }
 
+    // Upgrade every [data-searchable-select] input before anything fills it.
+    window.SearchableSelect?.initAll();
+
+    // One request for the config, hostname, timezone, mic gain and volume.
+    // Everything below takes its share of this instead of fetching its own.
+    window.BootstrapData?.load();
+
     const cfg = await AppConfig.load();
     // Absent key (fresh install / pre-existing .env) defaults to shown, same
     // as core/config.py's SHOW_TOOLTIPS fallback.
@@ -50,15 +57,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     LogPanel.fetchLogs();
     ServiceStatus.fetchStatus();
 
-    if (typeof AudioPanel !== 'undefined') {
-        AudioPanel.bindUI?.();
-        AudioPanel.updateDeviceLabels();
-        AudioPanel.loadMicGain();
-        AudioPanel.loadAudioDeviceSelectors();
-        // Late refreshes for first-boot device-enumeration races.
-        setTimeout(() => AudioPanel.updateDeviceLabels(), 3000);
-        setTimeout(() => AudioPanel.updateDeviceLabels(), 12000);
-    }
+    // No AudioPanel setup here: those controls live only in the settings form,
+    // and initializePage("settings") below already sets them up. Doing it in
+    // both places asked for /audio/devices and /mic-gain twice on that page,
+    // and fetched /audio/devices on every other page for controls not present.
+
     SettingsForm.bindNewsSources();
     window.addBackstoryField = PersonaForm.addBackstoryField;
     window.savePersonaAs = PersonaForm.savePersonaAs;

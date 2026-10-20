@@ -8,37 +8,61 @@ import uuid
 
 from flask import Blueprint, jsonify, request
 
+from core.logger import logger
+
 
 bp = Blueprint("misc", __name__)
 _service_restart_lock = threading.Lock()
 WEBCONFIG_INSTANCE_ID = uuid.uuid4().hex
 
 
-def _restart_billy_service_gracefully():
-    subprocess.run(["sudo", "systemctl", "stop", "billy.service"], check=False)
-    deadline = time.time() + 8.0
-    while time.time() < deadline:
-        status = subprocess.run(
-            ["systemctl", "is-active", "billy.service"],
+def _restart_units(*units: str) -> None:
+    """Hand the restarts to systemd and return immediately.
+
+    Previously this stopped billy.service, polled up to 25 seconds for it to go
+    inactive, started it again, and only then restarted the web interface. The
+    interface therefore could not come back until Billy already had, which is
+    most of the wait after pressing Restart. "systemctl restart" performs the
+    same stop-then-start and orders it correctly by itself - the hand-rolled
+    sequence existed only to work around starting mid stop-job - and
+    --no-block hands the job to systemd rather than holding this thread (and,
+    for the web interface, its own process) until the job finishes.
+    """
+    for unit in units:
+        result = subprocess.run(
+            ["sudo", "systemctl", "restart", "--no-block", unit],
             check=False,
             capture_output=True,
             text=True,
         )
-        if status.stdout.strip() in {"inactive", "failed", "unknown"}:
-            break
-        time.sleep(0.25)
-    time.sleep(0.5)
-    subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=True)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            logger.error(f"Restarting {unit} failed: {detail}")
+            # --no-block is refused by very old systemd. A blocking restart is
+            # slower but must never be skipped: the browser is sitting on
+            # "waiting for reconnect" until the unit comes back.
+            subprocess.run(
+                ["sudo", "systemctl", "restart", unit],
+                check=False,
+            )
+
+
+def _restart_billy_service_gracefully():
+    """Restart Billy alone, letting systemd sequence the stop and start."""
+    _restart_units("billy.service")
 
 
 def _restart_billy_services_in_background():
     if not _service_restart_lock.acquire(blocking=False):
         return
     try:
-        # Let the HTTP response flush before restarting either service.
+        # Let the HTTP response flush before either unit goes down.
         time.sleep(0.25)
-        _restart_billy_service_gracefully()
-        subprocess.run(["sudo", "systemctl", "restart", "billy-webconfig.service"])
+        logger.info("Restarting Billy and the web interface...", "🔄")
+        # Both jobs are queued back to back and run in parallel. The web
+        # interface no longer waits for Billy, and queueing its own restart
+        # last means this thread's process is the one that goes away.
+        _restart_units("billy.service", "billy-webconfig.service")
     finally:
         _service_restart_lock.release()
 
@@ -133,6 +157,10 @@ def control_service(action):
 @bp.route('/restart', methods=['POST'])
 def restart_billy_services():
     try:
+        # Taken before the units are touched, so a readiness marker written by
+        # the run that is about to be stopped cannot be mistaken for the new
+        # one. Both clocks are this machine's, so they compare directly.
+        requested_at = time.time()
         threading.Thread(
             target=_restart_billy_services_in_background,
             daemon=True,
@@ -141,6 +169,7 @@ def restart_billy_services():
             "status": "ok",
             "message": "Restarting...",
             "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+            "restart_requested_at": requested_at,
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -167,6 +196,35 @@ def stop_billy_only():
         return jsonify({"status": "ok", "message": "Stopping Billy service..."})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+
+
+_BILLY_STATE_CACHE: dict[str, object] = {"value": None, "checked_at": 0.0}
+_BILLY_STATE_TTL_SECONDS = 0.75
+
+
+def _billy_service_state() -> str:
+    """systemctl state of billy.service, cached so polling stays cheap."""
+    now = time.monotonic()
+    checked_at = float(_BILLY_STATE_CACHE.get("checked_at") or 0.0)
+    cached = _BILLY_STATE_CACHE.get("value")
+    if cached and now - checked_at < _BILLY_STATE_TTL_SECONDS:
+        return str(cached)
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "billy.service"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        state = (result.stdout or "").strip() or "unknown"
+    except FileNotFoundError:
+        # No systemd (running Billy by hand): nothing to wait for.
+        state = "active"
+    except Exception:
+        state = "unknown"
+    _BILLY_STATE_CACHE["value"] = state
+    _BILLY_STATE_CACHE["checked_at"] = now
+    return state
 
 
 @bp.route("/service/status")
@@ -319,10 +377,17 @@ def service_status():
 
 @bp.route("/health")
 def health():
-    """Lightweight process identity used while the web UI reconnects."""
+    """Process identity and Billy's state, polled while the web UI reconnects."""
+    from core.readiness import ready_at
+
     return jsonify({
         "status": "ok",
         "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+        "billy_service": _billy_service_state(),
+        # billy.service is Type=simple, so "active" arrives well before Billy
+        # can do anything. This says when he last reported himself ready, and
+        # is null while he is down or still starting.
+        "billy_ready_at": ready_at(),
     })
 
 

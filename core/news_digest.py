@@ -504,17 +504,22 @@ def _get_weather_digest_open_meteo(
     location = str(args.get("location") or "").strip()
     source_coordinates = _extract_open_meteo_coordinates(source_url)
     source_timezone = _extract_open_meteo_timezone(source_url) or "auto"
+    temperature_unit, wind_speed_unit = _extract_open_meteo_units(source_url)
+    temp_suffix = "f" if temperature_unit == "fahrenheit" else "c"
+    temp_label = "\u00b0F" if temperature_unit == "fahrenheit" else "\u00b0C"
+    wind_suffix = {"mph": "mph", "ms": "ms", "kn": "kn"}.get(wind_speed_unit, "kmh")
 
     try:
         resolved_location = location
         latitude: float | None = None
         longitude: float | None = None
 
-        if source_coordinates:
+        if source_coordinates and not location:
+            # The source's own coordinates, with no name to go with them. Left
+            # blank on purpose: a spoken answer must never read latitude and
+            # longitude out loud.
             latitude, longitude = source_coordinates
-            resolved_location = (
-                location if location else f"{latitude:.4f}, {longitude:.4f}"
-            )
+            resolved_location = ""
         else:
             if not location:
                 return DigestResult(
@@ -590,6 +595,8 @@ def _get_weather_digest_open_meteo(
                     "precipitation_probability_max",
                 ]),
                 "timezone": source_timezone,
+                "temperature_unit": temperature_unit,
+                "wind_speed_unit": wind_speed_unit,
                 "forecast_days": 1,
             },
             timeout=NEWS_REQUEST_TIMEOUT_SECONDS,
@@ -617,23 +624,23 @@ def _get_weather_digest_open_meteo(
 
     items = [
         {
-            "metric": "temperature_c",
+            "metric": f"temperature_{temp_suffix}",
             "value": current.get("temperature_2m"),
         },
         {
-            "metric": "feels_like_c",
+            "metric": f"feels_like_{temp_suffix}",
             "value": current.get("apparent_temperature"),
         },
         {
-            "metric": "wind_kmh",
+            "metric": f"wind_{wind_suffix}",
             "value": current.get("wind_speed_10m"),
         },
         {
-            "metric": "today_high_c",
+            "metric": f"today_high_{temp_suffix}",
             "value": max_temp,
         },
         {
-            "metric": "today_low_c",
+            "metric": f"today_low_{temp_suffix}",
             "value": min_temp,
         },
         {
@@ -646,10 +653,11 @@ def _get_weather_digest_open_meteo(
         },
     ]
 
+    where = f" for {resolved_location}" if resolved_location else ""
     summary = (
-        f"Weather for {resolved_location}: {current.get('temperature_2m')}°C now, "
-        f"feels like {current.get('apparent_temperature')}°C. "
-        f"Today ranges from {min_temp}°C to {max_temp}°C with up to "
+        f"Weather{where}: {current.get('temperature_2m')}{temp_label} now, "
+        f"feels like {current.get('apparent_temperature')}{temp_label}. "
+        f"Today ranges from {min_temp}{temp_label} to {max_temp}{temp_label} with up to "
         f"{precip_prob}% precipitation chance."
     )
 
@@ -683,6 +691,27 @@ def _extract_open_meteo_coordinates(source_url: str) -> tuple[float, float] | No
     if lat is None or lon is None:
         return None
     return lat, lon
+
+
+def _extract_open_meteo_units(source_url: str) -> tuple[str, str]:
+    """Temperature and wind units from the source URL, Open-Meteo's defaults otherwise.
+
+    Lets a source like `...&temperature_unit=fahrenheit&wind_speed_unit=mph`
+    choose US units. Unknown values fall back to Celsius and km/h.
+    """
+    params: dict[str, list[str]] = {}
+    if source_url:
+        try:
+            params = parse_qs(urlparse(source_url).query, keep_blank_values=False)
+        except Exception:
+            params = {}
+    temperature = (_first_query_param(params, "temperature_unit") or "").strip().lower()
+    wind = (_first_query_param(params, "wind_speed_unit") or "").strip().lower()
+    if temperature not in {"celsius", "fahrenheit"}:
+        temperature = "celsius"
+    if wind not in {"kmh", "ms", "mph", "kn"}:
+        wind = "kmh"
+    return temperature, wind
 
 
 def _extract_open_meteo_timezone(source_url: str) -> str | None:

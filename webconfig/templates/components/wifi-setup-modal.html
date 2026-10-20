@@ -18,7 +18,9 @@
             Choose your Wi-Fi network and save the connection for Billy.
         </p>
 
-        <p class="text-zinc-400 mb-4" style="font-size: 12px;">Device MAC Address: <span data-wifi-mac-address class="font-mono select-all">Checking...</span></p>
+        <p class="text-zinc-400" style="font-size: 12px;">Device MAC Address: <span data-wifi-mac-address class="font-mono select-all">Checking...</span></p>
+        <p data-wifi-ip-row class="text-zinc-400 hidden" style="font-size: 12px;">Local IP Address: <span data-wifi-ip-address class="font-mono select-all"></span></p>
+        <div class="mb-4"></div>
 
         {% set wifi_countries = [
         ('AE', 'United Arab Emirates'), ('AU', 'Australia'), ('AT', 'Austria'),

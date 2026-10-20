@@ -36,7 +36,11 @@ const ServiceStatus = (() => {
         }
 
         try {
-            const res = await fetch("/service/status");
+            const bootstrapped = !forceRefresh
+                && await window.BootstrapData?.take("service");
+            const res = bootstrapped
+                ? {ok: true, json: async () => bootstrapped}
+                : await fetch("/service/status");
             if (!res.ok) {
                 if (isRestartInProgress()) {
                     updateServiceStatusUI("restarting");
@@ -147,6 +151,7 @@ const ServiceStatus = (() => {
         const statusEl = document.getElementById("service-status");
         const logoEl = document.getElementById("status-logo");
         let previousWebconfigInstance = null;
+        let restartRequestedAt = null;
 
         if (action === "restart") {
             markRestartInProgress();
@@ -182,6 +187,7 @@ const ServiceStatus = (() => {
                 const response = await fetch("/restart", {method: "POST"});
                 const data = await response.json().catch(() => ({}));
                 previousWebconfigInstance = data.webconfig_instance || null;
+                restartRequestedAt = Number(data.restart_requested_at) || null;
             } else {
                 await fetch(`/service/${action}`);
             }
@@ -194,7 +200,10 @@ const ServiceStatus = (() => {
 
         if (action === "restart") {
             if (window.LoadingOverlay?.waitForReload) {
-                window.LoadingOverlay.waitForReload(previousWebconfigInstance);
+                window.LoadingOverlay.waitForReload(
+                    previousWebconfigInstance, undefined, undefined, undefined,
+                    restartRequestedAt,
+                );
             }
             return;
         }

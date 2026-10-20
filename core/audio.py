@@ -121,6 +121,10 @@ def aec_voice_detected() -> bool | None:
     return echo_canceller.voice_detected
 
 
+def aec_playback_reference_level() -> float | None:
+    return echo_canceller.playback_reference_level()
+
+
 def aec_playback_similarity() -> float | None:
     """Return gain-independent similarity of cleaned mic to Billy's playback."""
     return echo_canceller.playback_similarity
@@ -279,9 +283,7 @@ def reset_voice_band():
 def voice_band(mono):
     global _voice_band_sos, _voice_band_state
     if _voice_band_sos is None:
-        _voice_band_sos = butter(
-            4, VOICE_BAND_HZ, btype="band", fs=48000, output="sos"
-        )
+        _voice_band_sos = butter(4, VOICE_BAND_HZ, btype="band", fs=48000, output="sos")
     if _voice_band_state is None:
         _voice_band_state = np.zeros((_voice_band_sos.shape[0], 2))
     filtered, _voice_band_state = sosfilt(
@@ -297,8 +299,9 @@ def render_external_pcm(stream, mono, canceller):
     path free of AI generation and song side effects so it can later be used by
     the central mode manager.
     """
-    mono = np.clip(np.asarray(mono, dtype=np.float32) * PLAYBACK_VOLUME,
-                   -32768, 32767).astype(np.int16)
+    mono = np.clip(
+        np.asarray(mono, dtype=np.float32) * PLAYBACK_VOLUME, -32768, 32767
+    ).astype(np.int16)
     stereo = np.repeat(mono[:, None], 2, axis=1)
     canceller.feed_render(mono, 48000)
     # CHUNK_MS, not the 20 ms frame length, so flap duration can reach the

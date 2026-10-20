@@ -44,6 +44,7 @@ from core.bluetooth import watcher as bluetooth_watcher
 from core.logger import reload_log_level
 from core.movements import start_motor_watchdog
 from core.mqtt import start_mqtt, stop_mqtt
+from core.readiness import clear_ready, mark_ready
 from core.status_led import (
     cleanup_status_led,
     initialize_status_led,
@@ -57,6 +58,7 @@ print(f"🔧 Log level set to: {current_level.name}")
 
 def signal_handler(sig, frame):
     logger.info("Exiting cleanly (signal received).", "👋")
+    clear_ready()
     set_status_led_state("stopping")
     core.button.stop_background_services()
     playback_queue.put(None)
@@ -83,6 +85,9 @@ def main():
     threading.Thread(target=start_mqtt, daemon=True).start()
     start_motor_watchdog()
     bluetooth_watcher.start()
+    # Everything slow is behind us: the imports, the profile and the hardware.
+    # Anything waiting for Billy to come back can stop waiting here.
+    mark_ready()
     core.button.start_loop()
 
 
@@ -92,6 +97,7 @@ if __name__ == "__main__":
     except Exception as e:
         print("❌ Unhandled exception occurred:", e)
         traceback.print_exc()
+        clear_ready()
         set_status_led_state("error")
         core.button.stop_background_services()
         from core.movements import cleanup_gpio

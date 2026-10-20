@@ -558,25 +558,23 @@ const LogPanel = (() => {
             logLevelSelect.value = cfg.LOG_LEVEL;
         }
 
-        // Load RC versions / startup flap settings into their toggles
-        fetch('/config')
-            .then(res => res.json())
-            .then(data => {
-                const rcVersionsCheckbox = document.getElementById("SHOW_RC_VERSIONS");
-                if (rcVersionsCheckbox) {
-                    rcVersionsCheckbox.checked = data.SHOW_RC_VERSIONS === 'True' || data.SHOW_RC_VERSIONS === true;
-                }
-                const flapOnBootCheckbox = document.getElementById("FLAP_ON_BOOT");
-                if (flapOnBootCheckbox) {
-                    flapOnBootCheckbox.checked = data.FLAP_ON_BOOT === 'True' || data.FLAP_ON_BOOT === true;
-                }
-                const showTooltipsCheckbox = document.getElementById("SHOW_TOOLTIPS");
-                if (showTooltipsCheckbox) {
-                    // Absent key defaults to shown, same as core/config.py's fallback.
-                    showTooltipsCheckbox.checked = !(data.SHOW_TOOLTIPS === 'False' || data.SHOW_TOOLTIPS === false);
-                }
-            })
-            .catch(err => console.error('Failed to load RC versions setting:', err));
+        // Load RC versions / startup flap settings into their toggles. These
+        // come from the configuration this function was handed - fetching
+        // /config again here asked the device for a payload already in hand.
+        const data = cfg || {};
+        const rcVersionsCheckbox = document.getElementById("SHOW_RC_VERSIONS");
+        if (rcVersionsCheckbox) {
+            rcVersionsCheckbox.checked = data.SHOW_RC_VERSIONS === 'True' || data.SHOW_RC_VERSIONS === true;
+        }
+        const flapOnBootCheckbox = document.getElementById("FLAP_ON_BOOT");
+        if (flapOnBootCheckbox) {
+            flapOnBootCheckbox.checked = data.FLAP_ON_BOOT === 'True' || data.FLAP_ON_BOOT === true;
+        }
+        const showTooltipsCheckbox = document.getElementById("SHOW_TOOLTIPS");
+        if (showTooltipsCheckbox) {
+            // Absent key defaults to shown, same as core/config.py's fallback.
+            showTooltipsCheckbox.checked = !(data.SHOW_TOOLTIPS === 'False' || data.SHOW_TOOLTIPS === false);
+        }
 
         // Handle password change modal and button visibility
         checkAndShowPasswordModal(cfg);

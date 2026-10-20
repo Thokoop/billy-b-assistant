@@ -7,6 +7,7 @@ import json
 import re
 import socket
 import time
+from collections import deque
 from typing import Any
 
 import websockets.exceptions
@@ -33,6 +34,20 @@ MANUAL_HANDOFF_ECHO_SETTLE_SECONDS = 1.5
 # playback queue ever stalls (e.g. a stuck worker), this stops assistant_speaking
 # / playback_done_event from being wedged forever with no other way to clear them.
 PLAYBACK_DRAIN_TIMEOUT_SECONDS = 25.0
+# Room/speaker tail after playback stops. Mic evidence inside this window does
+# not count as the user continuing an item that began during playback.
+POST_PLAYBACK_ECHO_SETTLE_SECONDS = 0.5
+# Frames of independent (non-echo) voice a provider item must total before an
+# overlap turn that never confirmed as a barge-in may still be answered.
+LATE_BARGE_IN_INDEPENDENT_FRAMES = 3
+# Longest tool-call argument string worth waiting for. A model that derails
+# while writing arguments can stream thousands of tokens of its own reasoning
+# into them, which costs money and leaves the session silent for a minute.
+MAX_TOOL_ARGUMENT_CHARS = 4000
+# Interruptions in one conversation before Billy takes it personally. Being cut
+# off once is just how people talk; being cut off again and again is the thing
+# worth getting short about.
+BARGE_INS_BEFORE_IRRITATION = 2
 from .logger import logger
 from .mood import mood_manager
 from .movements import stop_all_motors
@@ -193,6 +208,12 @@ class BillySession:
         self._tool_args_buffer: dict[str, str] = {}
 
         self._logged_user_transcript_item_ids: set[str] = set()
+        self._asked_for_answer_this_turn = False
+        # A real tool has answered and nothing has said that answer out loud
+        # yet. Only then is a silent response a failure worth nudging: any
+        # other silence is the model choosing to leave the turn where it is.
+        self._tool_answer_awaiting_speech = False
+        self._runaway_tool_args = False
         self._response_done_event = asyncio.Event()
         self._current_response_id: str | None = None
         self._cancelled_response_ids: set[str] = set()
@@ -203,6 +224,7 @@ class BillySession:
         self._barge_in_confirmation_scheduled = False
         self._pending_client_response_create = False
         self._pending_barge_in_mood_event = False
+        self._confirmed_barge_ins = 0
         self._next_response_follows_interruption = False
         self._last_mood_instruction_signature = mood_manager.get_response_signature()
         self._last_mood_instruction_pushed_at = 0.0
@@ -213,6 +235,13 @@ class BillySession:
         self._manual_handoff_accept_after = 0.0
         self._next_response_is_tool_continuation = False
         self._current_response_is_tool_continuation = False
+        # Finishing a response waits for local playback to drain, which can take
+        # many seconds after response.done. That wait runs in this task so the
+        # websocket loop keeps handling input-audio events live; other events
+        # are deferred until it completes, preserving the old ordering.
+        self._last_barge_in_evidence_log = 0.0
+        self._response_finish_task: asyncio.Task | None = None
+        self._deferred_messages: deque[dict[str, Any]] = deque()
 
         # Initialize handlers
         from .session import (
@@ -348,6 +377,26 @@ class BillySession:
             await self.refresh_mood_instructions()
         return result
 
+    async def _register_barge_in(self):
+        """Count an interruption, and let it sour the mood only once repeated.
+
+        Every caller here has already established that the user really spoke -
+        Billy's own speaker leaking into the microphone is rejected further
+        down, and those rejections clear the pending event instead of reaching
+        this. So the only question left is how often it has happened, and the
+        first time is not worth a grudge: it used to be, and a run of
+        interruptions pinned him at maximum irritability for hours, because
+        irritability only comes back down by four points an hour.
+        """
+        self._confirmed_barge_ins += 1
+        if self._confirmed_barge_ins < BARGE_INS_BEFORE_IRRITATION:
+            logger.verbose(
+                "First interruption of this conversation; mood left alone.",
+                "\U0001f3ad",
+            )
+            return None
+        return await self.apply_mood_event("barge_in")
+
     def _create_user_response_payload(self) -> dict[str, Any]:
         """Create a response request, adding one-turn barge-in guidance if needed."""
         payload: dict[str, Any] = {"type": "response.create"}
@@ -420,6 +469,14 @@ class BillySession:
     USER_TRANSCRIPT_TYPES = {
         "conversation.item.input_audio_transcription.completed",
     }
+    # Input events that must be handled when they arrive, even while the
+    # previous response is still playing. Their echo/barge-in decisions depend
+    # on whether Billy is speaking at that moment.
+    LIVE_INPUT_EVENT_TYPES = {
+        "input_audio_buffer.speech_started",
+        "input_audio_buffer.speech_stopped",
+        "input_audio_buffer.committed",
+    }
 
     # ---- Private handlers -----------------------------------------------
     def _on_response_created(self, data: dict[str, Any]):
@@ -433,7 +490,12 @@ class BillySession:
             self._server_barge_in_in_progress = False
             self._server_barge_in_response_id = None
             self._pending_barge_in_mood_event = False
+            # The candidate never became a real interruption. Leaving the flag
+            # armed makes the next ordinary turn carry the interrupted-turn
+            # handoff note, and Billy accuses the user of cutting him off.
+            self._next_response_follows_interruption = False
         self._current_response_id = response_id
+        self._runaway_tool_args = False
         self._response_done_event.clear()
         self._current_response_is_tool_continuation = (
             self._next_response_is_tool_continuation
@@ -511,11 +573,21 @@ class BillySession:
                         f"{details.get('independent_evidence', 0)}/"
                         f"{details.get('independent_required', 0)}, "
                         f"playback_similarity={similarity_text}, "
-                        "trend_voice="
+                        f"trend_voice="
                         f"{details.get('trend_evidence', 0)}/"
                         f"{details.get('independent_required', 0)} "
                         f"(limit={trend_limit_text}), "
-                        f"residual_floor={details['residual_floor']:.1f})."
+                        "echo_baseline="
+                        + (
+                            "n/a"
+                            if details.get("candidate_echo_baseline") is None
+                            else f"{details['candidate_echo_baseline']:.2f}"
+                        )
+                        + f" from {details.get('echo_samples', 0)} samples, "
+                        + "playback_frames="
+                        + f"{details.get('playback_frames', 0)}/"
+                        + f"{details.get('onset_frames', 0)}, "
+                        + f"residual_floor={details['residual_floor']:.1f})."
                     ),
                     "🎚️",
                 )
@@ -593,13 +665,30 @@ class BillySession:
 
     def _on_transcript_delta(self, t: str, data: dict[str, Any]):
         delta = data.get("delta", "")
-        self.state.on_transcript_delta(t, delta)
+        self.state.on_transcript_delta(t, delta, data.get("item_id"))
 
     def _on_tool_args_delta(self, data: dict[str, Any]):
         name = data.get("name")
-        if name:
-            self._tool_args_buffer.setdefault(name, "")
-            self._tool_args_buffer[name] += data.get("arguments", "")
+        if not name:
+            return
+        self._tool_args_buffer.setdefault(name, "")
+        self._tool_args_buffer[name] += data.get("arguments", "")
+        if (
+            len(self._tool_args_buffer[name]) > MAX_TOOL_ARGUMENT_CHARS
+            and not self._runaway_tool_args
+        ):
+            self._runaway_tool_args = True
+            logger.warning(
+                f"{name}: arguments passed {MAX_TOOL_ARGUMENT_CHARS} characters "
+                "and are still growing; cancelling this response.",
+                "\U0001f6d1",
+            )
+            asyncio.create_task(self._cancel_runaway_response())
+
+    async def _cancel_runaway_response(self):
+        """Stop a response whose tool arguments ran away with themselves."""
+        with contextlib.suppress(Exception):
+            await self._ws_send_json({"type": "response.cancel"})
 
     async def _on_tool_args_done(self, data: dict[str, Any]):
         name = data.get("name")
@@ -608,8 +697,91 @@ class BillySession:
         if not raw_args and name:
             raw_args = self._tool_args_buffer.pop(name, "{}")
 
+        if name and name != "conversation_state":
+            # From here until something speaks, an answer is owed to the user.
+            self._tool_answer_awaiting_speech = True
+
         # Delegate to function handler
         await self.function_handler.handle(name, raw_args, call_id)
+
+    @staticmethod
+    def _response_spoke_an_answer(response: dict[str, Any]) -> bool:
+        """Whether this response is the one that spoke the answer out loud.
+
+        A response that speaks a lead-in and then calls a real tool has not
+        answered anything: "Checking." is not the price. The answer is still
+        owed until the continuation says it.
+        """
+        spoke = False
+        for item in response.get("output") or []:
+            if item.get("type") == "function_call":
+                if item.get("name") != "conversation_state":
+                    return False
+                continue
+            if item.get("type") != "message" or item.get("role") != "assistant":
+                continue
+            if item.get("content"):
+                spoke = True
+        return spoke
+
+    @staticmethod
+    def _response_said_nothing(response: dict[str, Any]) -> bool:
+        """Whether a completed response spoke no words at all.
+
+        The 2.x models do this even after a tool has handed them the answer to
+        read out: the search comes back with a price, the model spends its turn
+        reasoning, calls the end-of-turn signal and never speaks.
+
+        Silence is judged on spoken content only, never on the "phase" label.
+        A short but complete reply often arrives tagged "commentary" - Billy's
+        "Goodbye for now." was one - and treating that as an unfinished lead-in
+        made him answer a second time, at length, over the top of himself.
+
+        A real tool call is different: that response is meant to be silent,
+        because the tool's own continuation carries the spoken answer.
+        """
+        if response.get("status") != "completed":
+            return False
+        items = response.get("output") or []
+        if not items:
+            # A completed response carrying nothing at all says only that the
+            # provider closed it out; it is not evidence the model chose to
+            # stay silent. Speaking here would answer echo.
+            return False
+        for item in items:
+            if item.get("type") == "function_call":
+                if item.get("name") != "conversation_state":
+                    return False
+                continue
+            if item.get("type") != "message" or item.get("role") != "assistant":
+                continue
+            if item.get("content"):
+                return False
+        return True
+
+    async def _ask_for_the_actual_answer(self):
+        """Nudge the model to answer after it closed the turn without one."""
+        from .session.function_handler import turn_directive_response
+
+        self._asked_for_answer_this_turn = True
+        logger.info(
+            "Response closed the turn without saying anything; asking for the "
+            "answer itself.",
+            "🔁",
+        )
+        self._tool_answer_awaiting_speech = False
+        self.state._triggered_new_response = True
+        self._next_response_is_tool_continuation = True
+        await self._ws_send_json(
+            turn_directive_response(
+                "Your previous response ended without saying anything out loud. "
+                "Say the answer now, using what the tool just returned. Speak it "
+                "exactly once, as a single spoken part: do not open with a lead-in, "
+                "do not announce what you are about to do, and do not say the same "
+                "thing again in different words afterwards. Never mention or answer "
+                "this note - it is not something the user said."
+            )
+        )
 
     async def _on_response_done(self, data: dict[str, Any]):
         response = data.get("response") or {}
@@ -713,39 +885,114 @@ class BillySession:
             return
         logger.success("Assistant response complete.", "✿")
 
-        if not TEXT_ONLY_MODE:
-            try:
-                await asyncio.wait_for(
-                    self.audio_handler.wait_for_playback_complete(),
-                    timeout=PLAYBACK_DRAIN_TIMEOUT_SECONDS,
-                )
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Playback queue did not drain within "
-                    f"{PLAYBACK_DRAIN_TIMEOUT_SECONDS:.0f}s of response "
-                    "completion; continuing without waiting further so "
-                    "assistant_speaking/playback_done_event cannot stay "
-                    "wedged.",
-                    "⚠️",
-                )
-            # A local barge-in may have stopped queued playback while this
-            # handler was awaiting completion. That path already owns the mic
-            # handoff, so do not save an emptied buffer or transition twice.
-            if self.state._skip_post_response_once:
-                self._cancelled_response_ids.discard(response_id)
-                self.state._skip_post_response_once = False
-                self.audio_handler.signal_playback_done()
-                self.state.on_response_done()
-                logger.info(
-                    "Skipping post-response handling after late playback interruption; mic handoff already active.",
-                    "🔇",
-                )
-                return
-            self.audio_handler.save_response_audio()
-            self.audio_handler.clear_buffer()
-            self.audio_handler.signal_playback_done()
-            self.last_activity[0] = time.time()
+        if self._response_spoke_an_answer(response):
+            # The answer has been said out loud, so nothing is outstanding.
+            self._tool_answer_awaiting_speech = False
 
+        if (
+            self._tool_answer_awaiting_speech
+            and not self._asked_for_answer_this_turn
+            and not self.state._triggered_new_response
+            and self._response_said_nothing(response)
+        ):
+            await self._ask_for_the_actual_answer()
+            return
+
+        if TEXT_ONLY_MODE:
+            await self._complete_response()
+            return
+
+        self._response_finish_task = asyncio.create_task(
+            self._finish_response_after_playback(response_id)
+        )
+
+    def _should_defer_message(self, data: dict[str, Any]) -> bool:
+        """Whether to hold a message until the pending response has finished."""
+        task = self._response_finish_task
+        if task is None or task.done():
+            return False
+        if not self._client_managed_vad:
+            # Without client-managed VAD there is no local echo gate to keep
+            # accurate, so keep the original fully sequential behavior.
+            return True
+        t = data.get("type") or ""
+        if t in self.LIVE_INPUT_EVENT_TYPES:
+            return False
+        if t == "conversation.item.done":
+            item = data.get("item") or {}
+            return item.get("role") != "user"
+        return True
+
+    async def _finish_response_after_playback(self, response_id: str | None):
+        """Wait for local playback, then run post-response handling."""
+        try:
+            await self._wait_for_response_playback(response_id)
+        except asyncio.CancelledError:
+            self._deferred_messages.clear()
+            raise
+        except Exception as e:
+            logger.error(f"Error finishing response: {e}")
+            self.session_active.clear()
+        await self._flush_deferred_messages()
+
+    async def _flush_deferred_messages(self):
+        """Handle messages that arrived while the response was finishing."""
+        current = asyncio.current_task()
+        try:
+            while self._deferred_messages:
+                if self._response_finish_task is not current:
+                    # A deferred response.done started a new finish task; it
+                    # now owns the remaining messages.
+                    return
+                if not self.session_active.is_set():
+                    self._deferred_messages.clear()
+                    return
+                await self.handle_message(self._deferred_messages.popleft())
+        except Exception as e:
+            logger.error(f"Error handling deferred message: {e}")
+            self._deferred_messages.clear()
+            self.session_active.clear()
+
+    async def _wait_for_response_playback(self, response_id: str | None):
+        """Wait for queued speaker audio, then complete the response."""
+        try:
+            await asyncio.wait_for(
+                self.audio_handler.wait_for_playback_complete(),
+                timeout=PLAYBACK_DRAIN_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Playback queue did not drain within "
+                f"{PLAYBACK_DRAIN_TIMEOUT_SECONDS:.0f}s of response "
+                "completion; continuing without waiting further so "
+                "assistant_speaking/playback_done_event cannot stay "
+                "wedged.",
+                "⚠️",
+            )
+        # A local barge-in may have stopped queued playback while this
+        # handler was awaiting completion. That path already owns the mic
+        # handoff, so do not save an emptied buffer or transition twice.
+        if self.state._skip_post_response_once:
+            self._cancelled_response_ids.discard(response_id)
+            self.state._skip_post_response_once = False
+            self.audio_handler.signal_playback_done()
+            self.state.on_response_done()
+            logger.info(
+                "Skipping post-response handling after late playback interruption; mic handoff already active.",
+                "🔇",
+            )
+            return
+        # Any provider item still open from playback may only be answered
+        # on evidence captured from here on (after the speaker tail).
+        self.state.begin_post_playback_window(POST_PLAYBACK_ECHO_SETTLE_SECONDS)
+        self.audio_handler.save_response_audio()
+        self.audio_handler.clear_buffer()
+        self.audio_handler.signal_playback_done()
+        self.last_activity[0] = time.time()
+
+        await self._complete_response()
+
+    async def _complete_response(self):
         # Only mark assistant turn complete after local playback has finished.
         self.state.on_response_done()
 
@@ -1112,6 +1359,7 @@ class BillySession:
         self._pending_client_response_create = False
         self._next_response_follows_interruption = False
         self._pending_barge_in_mood_event = False
+        self._confirmed_barge_ins = 0
         self._active_server_speech_item_id = None
         self._assistant_overlap_speech_item_ids.clear()
         self._locally_confirmed_barge_in_item_ids.clear()
@@ -1297,6 +1545,9 @@ class BillySession:
                         )
                         self.mic_manager.start()
 
+                if self._should_defer_message(data):
+                    self._deferred_messages.append(data)
+                    continue
                 await self.handle_message(data)
 
         except Exception as e:
@@ -1310,6 +1561,12 @@ class BillySession:
             self.session_active.clear()
 
         finally:
+            # Let a pending response finish (playback drain + post-response
+            # handling) before tearing the stream down, as the inline await did.
+            finish_task = self._response_finish_task
+            if finish_task is not None and not finish_task.done():
+                with contextlib.suppress(Exception):
+                    await finish_task
             try:
                 self.mic_manager.stop()
                 logger.info("Mic stream closed.", "🎙️")
@@ -1348,6 +1605,8 @@ class BillySession:
             self._on_audio_out(data)
             return
         if t == "input_audio_buffer.committed":
+            self._asked_for_answer_this_turn = False
+            self._tool_answer_awaiting_speech = False
             self.state.on_audio_committed(self.state._pending_input_audio_chunks)
             return
         if t == "conversation.item.done":
@@ -1388,6 +1647,15 @@ class BillySession:
             if code == "conversation_already_has_active_response":
                 logger.verbose(
                     "Ignoring non-fatal race: response already in progress.",
+                    "ℹ️",
+                )
+                return
+            if code == "invalid_value" and "already shorter than" in normalized_message:
+                # The heard position no longer applies to this item (for
+                # example playback had already passed its end). Nothing is
+                # broken: the unheard tail simply stays in context.
+                logger.verbose(
+                    "Ignoring truncation past the end of the interrupted item.",
                     "ℹ️",
                 )
                 return
@@ -1440,19 +1708,70 @@ class BillySession:
         # Ensure run_stream is not left waiting on recv() keepalive timeouts.
         await self._close_ws(timeout=0.5)
 
+    def _barge_in_candidate_active(self) -> bool:
+        """Whether speech over Billy is still worth judging.
+
+        The stale-speech release clears the provider's speech flag when its
+        segment never resolves, which used to end every chance of confirming an
+        interruption: the user could talk for half a minute and nothing would
+        happen. Local evidence is still worth judging while Billy is audible
+        and the candidate is open.
+        """
+        if self.state._server_input_speaking:
+            return True
+        return bool(
+            self.mic_manager.candidate_open()
+            and (self.state.assistant_speaking or audio.is_billy_speaking())
+        )
+
     def schedule_server_barge_in_confirmation(self):
         """Promote a provider VAD candidate once local adaptive evidence agrees."""
         if (
             not self._client_managed_vad
             or self._server_barge_in_in_progress
             or self._barge_in_confirmation_scheduled
-            or not self.state._server_input_speaking
+            or not self._barge_in_candidate_active()
         ):
             return
-        confirmed, _details = self.mic_manager.has_barge_in_evidence(
-            AEC_BARGE_IN_SNR_DB
-        )
-        if not confirmed or self.loop is None:
+        confirmed, details = self.mic_manager.has_barge_in_evidence(AEC_BARGE_IN_SNR_DB)
+        if not confirmed:
+            # Say every couple of seconds why an open candidate is still not
+            # accepted, so a failed interruption leaves a trail instead of
+            # only the single line logged when it started.
+            now = time.time()
+            if now - self._last_barge_in_evidence_log >= 2.0:
+                self._last_barge_in_evidence_log = now
+                similarity = details.get("playback_similarity")
+                trend_limit = details.get("trend_limit")
+                baseline = details.get("candidate_echo_baseline")
+                logger.verbose(
+                    (
+                        "Barge-in candidate still unconfirmed "
+                        f"(energy={details['evidence']}/{details['required']}, "
+                        f"voice={details['voice_evidence']}/"
+                        f"{details['voice_required']}, "
+                        "independent="
+                        f"{details.get('independent_evidence', 0)}/"
+                        f"{details.get('independent_required', 0)}, "
+                        "trend="
+                        f"{details.get('trend_evidence', 0)} "
+                        + (
+                            "(limit=n/a)"
+                            if trend_limit is None
+                            else f"(limit={trend_limit:.2f})"
+                        )
+                        + ", similarity="
+                        + ("n/a" if similarity is None else f"{similarity:.2f}")
+                        + ", echo_baseline="
+                        + ("n/a" if baseline is None else f"{baseline:.2f}")
+                        + f" from {details.get('echo_samples', 0)} samples, "
+                        + f"peak={details['peak']:.1f}, "
+                        + f"threshold={details['threshold']:.1f})."
+                    ),
+                    "🎚️",
+                )
+            return
+        if self.loop is None:
             return
 
         self._barge_in_confirmation_scheduled = True
@@ -1464,7 +1783,7 @@ class BillySession:
 
     async def _run_server_barge_in_confirmation(self):
         try:
-            if not self.state._server_input_speaking:
+            if not self._barge_in_candidate_active():
                 return
             confirmed, details = self.mic_manager.has_barge_in_evidence(
                 AEC_BARGE_IN_SNR_DB
@@ -1526,6 +1845,23 @@ class BillySession:
         locally_confirmed = bool(
             item_id and item_id in self._locally_confirmed_barge_in_item_ids
         )
+        if (
+            not overlapped_assistant
+            and not locally_confirmed
+            and self.state.last_commit_overlapped_playback()
+        ):
+            # No speech_started was seen for this item - the provider opened it
+            # silently, which clearing the input buffer mid-playback causes -
+            # but the audio was captured over Billy, so judge it as echo.
+            overlapped_assistant = True
+            untagged_overlap = True
+            logger.verbose(
+                "Committed turn carries no speech-start tag but was captured "
+                "over playback; treating it as assistant overlap.",
+                "\U0001f507",
+            )
+        else:
+            untagged_overlap = False
 
         if item_id:
             self._assistant_overlap_speech_item_ids.discard(item_id)
@@ -1538,8 +1874,62 @@ class BillySession:
             self._manual_handoff_discard_item_ids.discard(item_id)
             meaningful = False
 
-        rejected_assistant_overlap = overlapped_assistant and not (
-            locally_confirmed and meaningful
+        # An item that began as echo during playback can still hold the user's
+        # real reply if the provider never split it. Accept it only on speech
+        # captured after playback ended; the rest of its audio is Billy's echo.
+        # An untagged overlap is audio the provider opened silently while Billy
+        # was talking: his own voice, near enough always. The rescues below are
+        # for turns that began with a real speech_started, so a room that is
+        # merely noisy cannot talk Billy into answering himself.
+        continued_after_playback = bool(
+            overlapped_assistant
+            and not untagged_overlap
+            and not locally_confirmed
+            and meaningful
+            and not rejected_manual_handoff_echo
+            and self.state.last_commit_continued_after_playback()
+        )
+        if continued_after_playback:
+            logger.info(
+                "Accepting assistant-overlap turn: speech continued after "
+                "playback ended ("
+                f"{self.state._last_committed_post_playback_loud_audio_chunks}/"
+                f"{self.state._last_committed_post_playback_audio_chunks} loud "
+                "post-playback chunks).",
+                "🎤",
+            )
+
+        # Barge-in confirmation needs several independent (non-echo) voice
+        # frames inside one short window. Real speech over Billy does not
+        # always land that way — an interruption can end before the window
+        # fills — and the whole turn used to be discarded as echo. Accept it
+        # here when the candidate's independent frames add up over the item
+        # and the audio carries real loud content.
+        independent_frames = self.mic_manager.candidate_independent_frames()
+        late_confirmed = bool(
+            overlapped_assistant
+            and not untagged_overlap
+            and not locally_confirmed
+            and not continued_after_playback
+            and not rejected_manual_handoff_echo
+            and independent_frames >= LATE_BARGE_IN_INDEPENDENT_FRAMES
+            and self.state.last_commit_has_speech_energy()
+        )
+        if late_confirmed:
+            self.mic_manager.clear_candidate_independent_frames()
+            meaningful = True
+            logger.info(
+                "Accepting assistant-overlap turn: "
+                f"{independent_frames} independent (non-echo) voice frames "
+                "during playback, but confirmation never landed inside one "
+                "window.",
+                "🗣️",
+            )
+        rejected_assistant_overlap = (
+            overlapped_assistant
+            and not (locally_confirmed and meaningful)
+            and not continued_after_playback
+            and not late_confirmed
         )
         if rejected_assistant_overlap:
             # Aggregate RMS over a completed assistant response mostly measures
@@ -1556,7 +1946,12 @@ class BillySession:
         if meaningful and assistant_active and not self._server_barge_in_in_progress:
             # Overlapping audio was validated by post-AEC voice detection. A
             # provider item that did not begin during playback is a normal turn.
-            meaningful = not overlapped_assistant or locally_confirmed
+            meaningful = (
+                not overlapped_assistant
+                or locally_confirmed
+                or continued_after_playback
+                or late_confirmed
+            )
 
         if not meaningful:
             # No response is automatically created in client-managed mode. Remove
@@ -1590,6 +1985,9 @@ class BillySession:
                 self._server_barge_in_response_id = None
                 self._pending_client_response_create = False
                 self._pending_barge_in_mood_event = False
+                # Same reason as in _on_response_created: a discarded candidate
+                # must not tag a later clean turn as an interruption.
+                self._next_response_follows_interruption = False
                 logger.info(
                     "AEC candidate did not continue after playback stopped; "
                     "remaining in listening mode.",
@@ -1597,9 +1995,20 @@ class BillySession:
                 )
             return
 
+        if late_confirmed and (
+            self.state.response_active
+            or self.state.assistant_speaking
+            or audio.is_billy_speaking()
+        ):
+            # Billy is still talking over what the user just said. Hand the
+            # turn over the same way a confirmed barge-in would.
+            await self._handle_server_barge_in(
+                track_continuation=False,
+                locally_confirmed=True,
+            )
         if self._pending_barge_in_mood_event:
-            await self.apply_mood_event("barge_in")
             self._pending_barge_in_mood_event = False
+            await self._register_barge_in()
         if self.state.response_active:
             self._pending_client_response_create = True
             logger.verbose(
@@ -1623,7 +2032,7 @@ class BillySession:
         if (
             self._client_managed_vad
             and track_continuation
-            and not self.state._server_input_speaking
+            and not self._barge_in_candidate_active()
         ):
             return
 
@@ -1637,6 +2046,16 @@ class BillySession:
 
         self._server_barge_in_in_progress = True
         self._next_response_follows_interruption = True
+        # Remember that this provider item is the interruption itself. Without
+        # it the turn comes back at commit time looking like any other audio
+        # that began during playback, and the overlap guard deletes the very
+        # speech that stopped Billy — he then says nothing and the session
+        # times out. Confirmations coming from the mic callback already tagged
+        # the item; ones confirmed straight from speech_started did not.
+        if self._active_server_speech_item_id:
+            self._locally_confirmed_barge_in_item_ids.add(
+                self._active_server_speech_item_id
+            )
         self._server_barge_in_response_id = self._current_response_id
         interrupted_response_id = self._current_response_id
         interruption_point = self.audio_handler.interruption_point()
@@ -1647,9 +2066,10 @@ class BillySession:
             "🗣️",
         )
         if self._client_managed_vad:
+            # Hold it until the committed turn proves the user actually spoke.
             self._pending_barge_in_mood_event = True
         else:
-            await self.apply_mood_event("barge_in")
+            await self._register_barge_in()
         if track_continuation:
             self.state.begin_confirmed_barge_in(evidence_threshold)
         if interrupted_response_id:
@@ -1699,7 +2119,7 @@ class BillySession:
             "🛑",
         )
         if source != "button":
-            await self.apply_mood_event("barge_in")
+            await self._register_barge_in()
         self._next_response_follows_interruption = True
         self.interrupt_event.clear()
 

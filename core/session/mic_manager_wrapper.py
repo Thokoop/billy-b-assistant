@@ -1,7 +1,9 @@
 """Microphone management wrapper for Billy session."""
 
 import asyncio
+import contextlib
 import math
+import os
 import time
 from collections import deque
 
@@ -15,6 +17,12 @@ from ..config import (
 )
 from ..logger import logger
 from ..mic import MicManager
+
+
+# AEC3 needs a few frames of Billy's own audio before it cancels it, and the
+# similarity reference is only meaningful once that audio has actually reached
+# the microphone. Confirmations inside this window are echo onset, not speech.
+_BARGE_IN_PLAYBACK_ONSET_SECONDS = 0.4
 
 
 class MicManagerWrapper:
@@ -44,6 +52,13 @@ class MicManagerWrapper:
         self._barge_in_voice_window = deque(maxlen=40)
         self._barge_in_similarity_window = deque(maxlen=40)
         self._barge_in_residual_samples = deque(maxlen=25)
+        # Similarity scores measured while only Billy is audible. They say what
+        # "this is Billy's own voice" looks like on this hardware right now,
+        # which is the only fair baseline for deciding that a frame is not.
+        self._barge_in_echo_similarity_samples = deque(maxlen=80)
+        # Frames of Billy's audio actually played during this response.
+        self._playback_frames_in_response = 0
+        self._barge_in_trace_file = None
         # Preserve a slowly adapting residual estimate across responses. AEC can
         # briefly produce near-zero cleaned samples after a response starts; if
         # those samples replace the baseline immediately, ordinary speaker
@@ -54,6 +69,14 @@ class MicManagerWrapper:
         # moment of independent (non-echo) voice evidence. Used to release
         # pure-echo candidates faster than the full stale-speech timeout.
         self._barge_in_candidate_ever_independent = False
+        # How many frames of this candidate looked like independent (non-echo)
+        # voice in total. Confirmation needs several of them inside one short
+        # window; this running total also credits speech whose evidence was
+        # real but too spread out for that window, so the turn can still be
+        # answered once it is committed.
+        self._barge_in_independent_frames = 0
+        self._barge_in_frame_index = 0
+        self._barge_in_last_counted_frame = -1
         # Similarity reading observed at (or just before) this candidate's
         # onset. Residual echo cancellation is imperfect on this hardware, so
         # playback_similarity starts elevated even for genuine barge-ins and
@@ -103,6 +126,21 @@ class MicManagerWrapper:
         self._timeout_countdown_active = False
         self._timeout_head_retracted = False
         self._clear_prebuffer()
+        self._close_barge_in_trace()
+
+    def _close_barge_in_trace(self):
+        """Release the barge-in trace file, if tracing opened one.
+
+        Clearing the attribute first keeps the audio thread from writing to a
+        handle that is on its way out; a frame that lands in the gap is caught
+        by the tracer's own guard, and the next one reopens the file.
+        """
+        trace_file = self._barge_in_trace_file
+        self._barge_in_trace_file = None
+        if trace_file is None:
+            return
+        with contextlib.suppress(Exception):
+            trace_file.close()
 
     def _clear_prebuffer(self):
         self._prebuffered_audio.clear()
@@ -114,6 +152,8 @@ class MicManagerWrapper:
         self._barge_in_voice_window.clear()
         self._barge_in_similarity_window.clear()
         self._barge_in_residual_samples.clear()
+        self._barge_in_echo_similarity_samples.clear()
+        self._playback_frames_in_response = 0
         self._barge_in_candidate_floor = None
         # Follow a later reduction in speaker volume or microphone gain without
         # letting a single quiet response erase useful calibration.
@@ -141,6 +181,72 @@ class MicManagerWrapper:
             (1.0 - alpha) * self._barge_in_residual_floor + alpha * observed_floor,
         )
 
+    def trace_barge_in_frame(
+        self,
+        rms: float,
+        voice: bool,
+        similarity: float | None,
+        reference: float | None,
+        playback_active: bool,
+    ):
+        """Append one frame to the barge-in trace file, when tracing is on.
+
+        Set BARGE_IN_TRACE=/path/to/file.csv to record what the microphone,
+        the voice detector and the echo reference actually did, so thresholds
+        can be chosen from measurements instead of guesses. Off by default.
+        """
+        path = os.getenv("BARGE_IN_TRACE", "").strip()
+        if not path:
+            return
+        try:
+            if self._barge_in_trace_file is None:
+                # Deliberately not a context manager: the trace is one file
+                # appended to on every audio frame for as long as the mic runs,
+                # and reopening it per frame would cost more than the
+                # measurement is worth. stop() closes it.
+                self._barge_in_trace_file = open(path, "a", buffering=1)  # noqa: SIM115
+                if self._barge_in_trace_file.tell() == 0:
+                    self._barge_in_trace_file.write(
+                        "time,rms,voice,similarity,reference,ratio,"
+                        "playback,candidate,server_speech\n"
+                    )
+            ratio = ""
+            if reference and reference > 1.0:
+                ratio = f"{rms / reference:.4f}"
+            self._barge_in_trace_file.write(
+                f"{time.time():.3f},{rms:.1f},{int(bool(voice))},"
+                f"{'' if similarity is None else f'{similarity:.4f}'},"
+                f"{'' if reference is None else f'{reference:.1f}'},{ratio},"
+                f"{int(bool(playback_active))},{int(self.candidate_open())},"
+                f"{int(bool(self.session.state._server_input_speaking))}\n"
+            )
+        except Exception as exc:  # pragma: no cover - tracing must never break audio
+            logger.warning(f"Could not write barge-in trace: {exc}", "\U0001f4c8")
+            self._barge_in_trace_file = None
+            os.environ["BARGE_IN_TRACE"] = ""
+
+    def observe_echo_similarity(self, similarity: float | None):
+        """Learn how much pure speaker echo resembles the playback reference."""
+        if similarity is None or self._barge_in_candidate_floor is not None:
+            return
+        self._barge_in_echo_similarity_samples.append(float(similarity))
+
+    def candidate_open(self) -> bool:
+        """Whether a provider-VAD candidate is still being judged locally."""
+        return self._barge_in_candidate_floor is not None
+
+    def note_playback_frame(self):
+        """Count a captured frame that carried Billy's own playback."""
+        self._playback_frames_in_response += 1
+
+    def _echo_similarity_baseline(self) -> float | None:
+        """A low percentile of pure-echo similarity: echo rarely scores below."""
+        samples = sorted(self._barge_in_echo_similarity_samples)
+        if len(samples) < 8:
+            return None
+        index = max(0, int(len(samples) * 0.2) - 1)
+        return samples[index]
+
     def start_barge_in_candidate(self):
         """Scope local evidence to the provider's current speech event."""
         # OpenAI reports speech_started with 300 ms of prefix audio. Preserve
@@ -164,10 +270,20 @@ class MicManagerWrapper:
             self._barge_in_residual_floor,
         )
         self._barge_in_candidate_ever_independent = False
-        recent_measured_similarity = [v for v in recent_similarity if v is not None]
-        self._barge_in_candidate_initial_similarity = (
-            recent_measured_similarity[0] if recent_measured_similarity else None
-        )
+        self._barge_in_independent_frames = 0
+        self._barge_in_last_counted_frame = -1
+        # Prefer what echo alone scored during this response. The old baseline
+        # was the single similarity reading at the moment the candidate opened;
+        # if the user started talking in a gap between Billy's words that
+        # reading came from near-silence, and the trend gate below then asked
+        # for a score no real speech ever reaches.
+        baseline = self._echo_similarity_baseline()
+        if baseline is None:
+            recent_measured_similarity = [v for v in recent_similarity if v is not None]
+            baseline = (
+                recent_measured_similarity[0] if recent_measured_similarity else None
+            )
+        self._barge_in_candidate_initial_similarity = baseline
 
     def has_barge_in_evidence(self, sensitivity_db: float) -> tuple[bool, dict]:
         """Confirm post-AEC voice and energy without disturbing playback."""
@@ -209,13 +325,15 @@ class MicManagerWrapper:
         )
         # VADs detect speech, not the speaker. Require the energetic voiced
         # chunks to be dissimilar to Billy's exact outgoing audio before they
-        # may stop playback. A missing score means there was no usable render
-        # reference, so the sound cannot be explained as current speaker echo.
+        # may stop playback. A missing score means the frame cannot be judged
+        # at all — at playback onset there is no usable reference yet and
+        # everything looks independent — so it does not count as evidence.
         playback_similarity_limit = 0.30
         independent_evidence = sum(
             rms >= adaptive_threshold
             and voice
-            and (similarity is None or similarity < playback_similarity_limit)
+            and similarity is not None
+            and similarity < playback_similarity_limit
             for rms, voice, similarity in zip(
                 candidate, voice_candidate, similarity_candidate
             )
@@ -234,7 +352,10 @@ class MicManagerWrapper:
         # still requiring the same energy+voice evidence as the strict check.
         trend_limit = None
         if self._barge_in_candidate_initial_similarity is not None:
-            trend_limit = min(0.55, self._barge_in_candidate_initial_similarity * 0.6)
+            trend_limit = max(
+                0.12,
+                min(0.55, self._barge_in_candidate_initial_similarity * 0.7),
+            )
         trend_evidence = 0
         if trend_limit is not None:
             trend_evidence = sum(
@@ -253,11 +374,34 @@ class MicManagerWrapper:
         )
         if independent_evidence > 0 or trend_evidence > 0:
             self._barge_in_candidate_ever_independent = True
+        # Count the newest frame once, however often this runs per chunk.
+        if (
+            candidate
+            and self._barge_in_last_counted_frame != self._barge_in_frame_index
+        ):
+            self._barge_in_last_counted_frame = self._barge_in_frame_index
+            newest_similarity = similarity_candidate[-1]
+            if (
+                candidate[-1] >= adaptive_threshold
+                and voice_candidate[-1]
+                and (
+                    newest_similarity is None
+                    or newest_similarity < playback_similarity_limit
+                    or (trend_limit is not None and newest_similarity <= trend_limit)
+                )
+            ):
+                self._barge_in_independent_frames += 1
         independent_confirmed = independent_confirmed or trend_confirmed
         measured_similarities = [
             value for value in similarity_candidate if value is not None
         ]
+        onset_frames = max(
+            1, math.ceil(_BARGE_IN_PLAYBACK_ONSET_SECONDS * 1000 / max(1, CHUNK_MS))
+        )
+        onset_ready = self._playback_frames_in_response >= onset_frames
         details = {
+            "playback_frames": self._playback_frames_in_response,
+            "onset_frames": onset_frames,
             "evidence": evidence,
             "required": required,
             "voice_evidence": voice_evidence,
@@ -268,7 +412,8 @@ class MicManagerWrapper:
             "trend_evidence": trend_evidence,
             "trend_limit": trend_limit,
             "trend_confirmed": trend_confirmed,
-            "candidate_initial_similarity": self._barge_in_candidate_initial_similarity,
+            "candidate_echo_baseline": self._barge_in_candidate_initial_similarity,
+            "echo_samples": len(self._barge_in_echo_similarity_samples),
             "playback_similarity": max(measured_similarities, default=None),
             "playback_similarity_min": min(measured_similarities, default=None),
             "playback_similarity_limit": playback_similarity_limit,
@@ -278,11 +423,20 @@ class MicManagerWrapper:
             "learning": len(values) < 6,
         }
         return (
-            len(values) >= 6
+            onset_ready
+            and len(values) >= 6
             and evidence >= required
             and voice_confirmed
             and independent_confirmed
         ), details
+
+    def candidate_independent_frames(self) -> int:
+        """Frames of independent (non-echo) voice seen in the open candidate."""
+        return self._barge_in_independent_frames
+
+    def clear_candidate_independent_frames(self):
+        """Forget the running total once a turn has been decided on it."""
+        self._barge_in_independent_frames = 0
 
     def _store_prebuffer(self, samples):
         if samples is None or len(samples) == 0:
@@ -463,9 +617,30 @@ class MicManagerWrapper:
         if full_duplex_barge_in:
             if not self.session.state._server_input_speaking:
                 self.observe_barge_in_residual(rms)
+            voice_detected = audio.aec_voice_detected() is True
             self._barge_in_rms_window.append(rms)
-            self._barge_in_voice_window.append(audio.aec_voice_detected() is True)
-            self._barge_in_similarity_window.append(audio.aec_playback_similarity())
+            self._barge_in_voice_window.append(voice_detected)
+            similarity = audio.aec_playback_similarity()
+            self._barge_in_similarity_window.append(similarity)
+            self._barge_in_frame_index += 1
+            self.trace_barge_in_frame(
+                rms,
+                voice_detected,
+                similarity,
+                audio.aec_playback_reference_level(),
+                playback_active,
+            )
+            if playback_active:
+                self.note_playback_frame()
+            if (
+                playback_active
+                and rms >= self._barge_in_residual_floor
+                and not self.session.state._server_input_speaking
+            ):
+                # Only frames that actually carry audible echo say what echo
+                # scores. Quiet gaps score low and would drag the baseline
+                # down until every echo frame looked independent.
+                self.observe_echo_similarity(similarity)
         else:
             self._barge_in_rms_window.clear()
             self._barge_in_voice_window.clear()
@@ -582,19 +757,13 @@ class MicManagerWrapper:
                     )
                     self.session.state._server_input_speaking = False
                     self.session.state._server_input_speech_started_at = 0.0
-                    # Local activity has already ended and nothing here was
-                    # ever confirmed as real speech, so there is no basis left
-                    # to keep treating this provider item as an assistant-echo
-                    # overlap. Without this, if the server never splits this
-                    # segment into a new item and the user's next real answer
-                    # lands in the same one, the whole thing — echo tail and
-                    # genuine answer alike — gets discarded on commit as
-                    # "assistant-overlap", silently dropping a real reply.
-                    stale_item_id = self.session._active_server_speech_item_id
-                    if stale_item_id:
-                        self.session._assistant_overlap_speech_item_ids.discard(
-                            stale_item_id
-                        )
+                    # The provider item keeps its assistant-overlap tag: its
+                    # aggregate RMS is mostly Billy's own echo, and releasing
+                    # the tag here let that echo be committed as a user turn
+                    # and answered once playback finished. If the user's real
+                    # reply lands in the same item, it is accepted on its own
+                    # post-playback evidence instead (see
+                    # SessionState.last_commit_continued_after_playback).
                     self.session.last_activity[0] = now
                     continue
 

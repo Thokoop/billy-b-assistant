@@ -178,19 +178,18 @@
             try {
                 const controller = new AbortController();
                 const requestTimeout = setTimeout(() => controller.abort(), 15000);
-                const res = await fetch("/update-simulate", {
-                    method: "POST",
-                    signal: controller.signal,
-                });
-                clearTimeout(requestTimeout);
-                let data = null;
+                let data;
                 try {
-                    data = await res.json();
-                } catch (_) {
-                    data = null;
-                }
-                if (!res.ok || !data || data.status === "error") {
-                    throw new Error((data && data.error) || "Reinstall failed");
+                    data = await requestJson("/update-simulate", {
+                        method: "POST",
+                        signal: controller.signal,
+                        accept: (body, res) => res.ok && body && body.status !== "error",
+                        error: "Reinstall failed",
+                    });
+                } finally {
+                    // Also on the failure path, where an abandoned abort timer
+                    // used to fire long after the request had already failed.
+                    clearTimeout(requestTimeout);
                 }
                 if (data.status === "restarting") {
                     showNotification(data.message || "Restarting services...", "success");
@@ -242,8 +241,8 @@
         });
     };
 
-    fetch("/version")
-        .then(res => res.json())
+    Promise.resolve(window.BootstrapData?.take("version"))
+        .then(bootstrapped => bootstrapped || fetch("/version").then(res => res.json()))
         .then(applyVersionInfo)
         .catch(err => {
             console.error("Failed to load version info", err);
@@ -285,6 +284,8 @@ const ReleaseNotes = (() => {
     const getLink = () => document.getElementById("release-link");
 
     async function fetchNote() {
+        const bootstrapped = await window.BootstrapData?.take("release_note");
+        if (bootstrapped) return bootstrapped;
         const res = await fetch("/release-note");
         if (!res.ok) throw new Error("Failed to fetch /release-note");
         return res.json();

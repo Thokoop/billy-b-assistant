@@ -2,7 +2,10 @@
 Instruction builder for generating AI prompts with user/persona context.
 """
 
+import time
+from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from ..config import (
@@ -51,6 +54,7 @@ class InstructionBuilder:
                 self._build_personality_section(persona_data),
                 self._build_backstory_section(persona_data),
                 mood_manager.get_prompt_section() if MOOD_INSTRUCTIONS_ENABLED else "",
+                self._build_time_section(),
             ]
             return "\n---\n".join(filter(None, sections))
 
@@ -64,6 +68,7 @@ class InstructionBuilder:
         )
         if MOOD_INSTRUCTIONS_ENABLED:
             fallback_instructions += f"\n---\n{mood_manager.get_prompt_section()}"
+        fallback_instructions += f"\n---\n{self._build_time_section()}"
         return _filter_vision_instruction_line(fallback_instructions)
 
     def _build_user_instructions(self, context: InstructionContext) -> str:
@@ -85,6 +90,7 @@ class InstructionBuilder:
                 self._build_backstory_section(persona_data),
                 self._build_user_context_section(user_profile),
                 mood_manager.get_prompt_section() if MOOD_INSTRUCTIONS_ENABLED else "",
+                self._build_time_section(),
             ]
             return "\n---\n".join(filter(None, sections))
 
@@ -95,7 +101,39 @@ class InstructionBuilder:
         )
         if MOOD_INSTRUCTIONS_ENABLED:
             fallback += f"\n---\n{mood_manager.get_prompt_section()}"
+        fallback += f"\n---\n{self._build_time_section()}"
         return _filter_vision_instruction_line(fallback)
+
+    def _build_time_section(self) -> str:
+        """Local date and time, as of the moment this prompt is built.
+
+        Deliberately the last section of the prompt. Instructions sit at the
+        start of the conversation, so anything that changes between sessions
+        invalidates the cached prefix from that point on; keeping this after
+        the persona, tools and user context leaves all of that cacheable.
+        """
+        try:
+            # The process keeps the zone it started with, so pick up a
+            # timezone changed in the Web UI since then.
+            with suppress(AttributeError):
+                time.tzset()
+            now = datetime.now().astimezone()
+        except Exception:
+            return ""
+        zone = now.tzname() or ""
+        offset = now.strftime("%z")
+        if offset:
+            offset = f"UTC{offset[:3]}:{offset[3:]}"
+        stamp = now.strftime("%A %d %B %Y, %H:%M")
+        where = " ".join(part for part in [zone, offset] if part)
+        return (
+            "# Current Time\n"
+            f"The conversation started on {stamp}"
+            f"{f' ({where})' if where else ''}. "
+            "Work out the time of day from that. It only moves forward while "
+            "you talk, so do not treat it as the exact time later in a long "
+            "conversation, and never read the date out unless asked."
+        )
 
     def _build_personality_section(self, persona_data: dict) -> str:
         """Build personality traits section."""

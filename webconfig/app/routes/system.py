@@ -1,3 +1,4 @@
+import contextlib
 import os
 import shutil
 import subprocess
@@ -8,6 +9,7 @@ import threading
 import time
 import uuid
 from base64 import b64decode
+from datetime import datetime
 from glob import glob
 from pathlib import Path
 
@@ -29,6 +31,7 @@ from ..state import (
     load_versions,
     save_versions,
 )
+from .misc import _restart_units
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -36,6 +39,9 @@ from core.logger import logger
 
 
 bp = Blueprint("system", __name__)
+
+# Timezone names never change while the service runs.
+_TIMEZONE_CACHE: list[str] | None = None
 
 # Find .env file in project root (not webconfig directory)
 ENV_PATH = find_dotenv(usecwd=True)
@@ -81,6 +87,9 @@ CONFIG_KEYS = [
     "FLAP_ON_BOOT",
     "SHOW_TOOLTIPS",
     "NEWS_REQUEST_TIMEOUT_SECONDS",
+    "HA_AGENT_ID",
+    "WEB_SEARCH_ENABLED",
+    "WEB_SEARCH_MODEL",
     "CAMERA_HARDWARE",
     "CAMERA_DEVICE_INDEX",
     "CAMERA_ROTATION",
@@ -100,6 +109,7 @@ CONFIG_KEYS = [
 ]
 BOOLEAN_CONFIG_KEYS = {
     "AEC_ENABLED",
+    "WEB_SEARCH_ENABLED",
     "WAKE_WORD_ENABLED",
     "STATUS_LED_ENABLED",
     "FLAP_ON_BOOT",
@@ -535,7 +545,9 @@ def _set_wifi_country(country: str) -> None:
     set_env_key(ENV_PATH, "WIFI_COUNTRY", normalized)
 
 
-def _get_wlan0_ip_address() -> str:
+def _get_wlan0_ip_address(device: str = "wlan0") -> str:
+    """First IPv4 address on the interface, without its prefix length."""
+    device = str(device or "wlan0").strip() or "wlan0"
     try:
         result = _run_wifi_command([
             "nmcli",
@@ -544,7 +556,7 @@ def _get_wlan0_ip_address() -> str:
             "IP4.ADDRESS",
             "device",
             "show",
-            "wlan0",
+            device,
         ])
         if result.returncode != 0:
             return ""
@@ -969,37 +981,49 @@ def _reset_git_worktree() -> dict:
     return {"errors": errors, "details": details}
 
 
-def delayed_restart():
-    time.sleep(1.5)
-    _restart_billy_service_gracefully()
-    subprocess.run(["sudo", "systemctl", "restart", "billy-webconfig.service"])
+# core.config is reloaded so the UI sees values written since this process
+# started. Doing that on every /config request reloaded a live module several
+# times per page load; the file's own mtime says when it is actually needed.
+_env_reload_stamp: tuple[int, int] | None = None
 
 
-def delayed_billy_restart():
-    time.sleep(1.0)
-    _restart_billy_service_gracefully()
+def _env_stamp() -> tuple[int, int]:
+    try:
+        stat = os.stat(ENV_PATH)
+    except OSError:
+        return (0, 0)
+    return (stat.st_mtime_ns, stat.st_size)
 
 
-def _restart_billy_service_gracefully():
-    subprocess.run(["sudo", "systemctl", "stop", "billy.service"], check=False)
-    deadline = time.time() + 8.0
-    while time.time() < deadline:
-        status = subprocess.run(
-            ["systemctl", "is-active", "billy.service"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if status.stdout.strip() in {"inactive", "failed", "unknown"}:
-            break
-        time.sleep(0.25)
-    time.sleep(0.5)
-    subprocess.run(["sudo", "systemctl", "start", "billy.service"], check=False)
+def _mark_core_config_fresh() -> None:
+    """Record that core.config matches the .env file as it is right now."""
+    global _env_reload_stamp
+    _env_reload_stamp = _env_stamp()
+
+
+def _reload_core_config_if_env_changed() -> None:
+    global _env_reload_stamp
+    stamp = _env_stamp()
+    if stamp == _env_reload_stamp:
+        return
+    from dotenv import load_dotenv
+
+    load_dotenv(ENV_PATH, override=True)
+    import importlib
+    import sys
+
+    if "core.config" in sys.modules:
+        importlib.reload(sys.modules["core.config"])
+    _env_reload_stamp = stamp
 
 
 def _config_value_for_ui(key: str, config_module=None) -> str:
     config_module = config_module or core_config
     value = getattr(config_module, key, "")
+    # A bool from core.config would render as "True", which no template or
+    # select option matches - they all compare against "true"/"false".
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if key == "AEC_BARGE_IN_SNR_DB":
         try:
             numeric_value = float(value)
@@ -1167,19 +1191,9 @@ def perform_update():
         threading.Thread(
             target=lambda: (
                 time.sleep(2),
-                subprocess.run([
-                    "sudo",
-                    "systemctl",
-                    "restart",
-                    "billy-webconfig.service",
-                ]),
-            )
-        ).start()
-        threading.Thread(
-            target=lambda: (
-                time.sleep(2),
-                subprocess.run(["sudo", "systemctl", "restart", "billy.service"]),
-            )
+                _restart_units("billy.service", "billy-webconfig.service"),
+            ),
+            daemon=True,
         ).start()
         return jsonify({"status": "updated", "version": latest})
     except subprocess.CalledProcessError as e:
@@ -1217,19 +1231,9 @@ def simulate_update():
         threading.Thread(
             target=lambda: (
                 time.sleep(2),
-                subprocess.run([
-                    "sudo",
-                    "systemctl",
-                    "restart",
-                    "billy-webconfig.service",
-                ]),
-            )
-        ).start()
-        threading.Thread(
-            target=lambda: (
-                time.sleep(2),
-                subprocess.run(["sudo", "systemctl", "restart", "billy.service"]),
-            )
+                _restart_units("billy.service", "billy-webconfig.service"),
+            ),
+            daemon=True,
         ).start()
 
         return jsonify({
@@ -1335,6 +1339,8 @@ def save():
     import importlib
 
     importlib.reload(core_config)
+    # /config would otherwise reload it a second time on the next request.
+    _mark_core_config_fresh()
     if audio_restart_required:
         response["audio_restart_required"] = True
     if changed_port:
@@ -1349,6 +1355,9 @@ def wifi_status():
     hotspot_active = active_name == WIFI_UNIFIED_HOTSPOT_CON_NAME
     return jsonify({
         "mac_address": wifi_mac_address(active.get("device") if active else "wlan0"),
+        "ip_address": _get_wlan0_ip_address(
+            active.get("device") if active else "wlan0"
+        ),
         "connected": bool(active),
         "ssid": active.get("name") if active else "",
         "device": active.get("device") if active else "",
@@ -1737,17 +1746,8 @@ def camera_preview():
 
 @bp.route("/config")
 def get_config():
-    # Reload .env file and core config to get latest values
-    from dotenv import load_dotenv
-
-    load_dotenv(ENV_PATH, override=True)
-
-    # Reload core config module to pick up new .env values
-    import importlib
-    import sys
-
-    if 'core.config' in sys.modules:
-        importlib.reload(sys.modules['core.config'])
+    # Only reloads when .env has actually changed since the last reload.
+    _reload_core_config_if_env_changed()
 
     # Re-import core_config to get fresh values
     from ..core_imports import core_config
@@ -2235,6 +2235,151 @@ def factory_reset():
     return jsonify(response)
 
 
+def _current_timezone() -> str:
+    """The device's configured timezone, empty when it cannot be determined."""
+    try:
+        result = subprocess.run(
+            ["timedatectl", "show", "-p", "Timezone", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        value = (result.stdout or "").strip()
+        if value:
+            return value
+    except Exception:
+        pass
+    # Systems without timedatectl (a dev machine, say) still have the symlink.
+    try:
+        link = os.path.realpath("/etc/localtime")
+        if "/zoneinfo/" in link:
+            return link.split("/zoneinfo/", 1)[1]
+    except Exception:
+        pass
+    return ""
+
+
+def _device_now() -> str:
+    """The device's own clock, ISO 8601 with its UTC offset."""
+    try:
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+    except Exception:
+        return ""
+
+
+def _available_timezones() -> list[str]:
+    """Timezone names this device accepts, newline-free and sorted."""
+    global _TIMEZONE_CACHE
+    if _TIMEZONE_CACHE is not None:
+        return _TIMEZONE_CACHE
+    zones: list[str] = []
+    try:
+        result = subprocess.run(
+            ["timedatectl", "list-timezones"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        zones = [
+            line.strip() for line in (result.stdout or "").splitlines() if line.strip()
+        ]
+    except Exception:
+        zones = []
+    if not zones:
+        try:
+            from zoneinfo import available_timezones
+
+            zones = sorted(available_timezones())
+        except Exception:
+            zones = []
+    _TIMEZONE_CACHE = zones
+    return zones
+
+
+@bp.route("/timezone", methods=["GET", "POST"])
+def timezone():
+    if request.method == "GET":
+        return jsonify({
+            "timezone": _current_timezone(),
+            "timezones": _available_timezones(),
+            "now": _device_now(),
+        })
+
+    data = request.get_json(silent=True) or {}
+    new_timezone = str(data.get("timezone") or "").strip()
+    if not new_timezone:
+        return jsonify({"error": "Invalid timezone"}), 400
+    available = _available_timezones()
+    # An empty list means this device could not report its zones; do not refuse
+    # the change on that basis - timedatectl validates it anyway.
+    if available and new_timezone not in available:
+        return jsonify({"error": f"Unknown timezone: {new_timezone}"}), 400
+    try:
+        subprocess.check_call(["sudo", "timedatectl", "set-timezone", new_timezone])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    # This process keeps the zone it started with until the C library is told to
+    # re-read it, so without this the time reported below stays on the old zone.
+    # Not every platform has tzset; the device this runs on does.
+    with contextlib.suppress(AttributeError):
+        time.tzset()
+    return jsonify({
+        "status": "ok",
+        "timezone": new_timezone,
+        "now": _device_now(),
+    })
+
+
+@bp.route("/ha/agents")
+def ha_agents():
+    """List the conversation agents this Home Assistant exposes.
+
+    Every agent is a `conversation.*` entity, so the states API is enough and
+    no websocket connection is needed.
+    """
+    host = str(getattr(core_config, "HA_HOST", "") or "").strip()
+    token = str(getattr(core_config, "HA_TOKEN", "") or "").strip()
+    if not host or not token:
+        return jsonify({"agents": [], "error": "Home Assistant is not configured"})
+    try:
+        import requests
+
+        response = requests.get(
+            f"{host.rstrip('/')}/api/states",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=6,
+        )
+        response.raise_for_status()
+        states = response.json()
+    except Exception as exc:
+        return jsonify({"agents": [], "error": str(exc)})
+
+    agents = []
+    for state in states if isinstance(states, list) else []:
+        entity_id = str(state.get("entity_id") or "")
+        if not entity_id.startswith("conversation."):
+            continue
+        attributes = state.get("attributes") or {}
+        agents.append({
+            "id": entity_id,
+            "name": str(attributes.get("friendly_name") or entity_id),
+        })
+    agents.sort(key=lambda agent: agent["name"].lower())
+    return jsonify({"agents": agents, "preferred": _preferred_ha_agent()})
+
+
+def _preferred_ha_agent() -> str:
+    """The agent Home Assistant itself prefers, or empty when unknown."""
+    try:
+        import asyncio
+
+        from core.ha import preferred_agent_id
+
+        return asyncio.run(preferred_agent_id(force=True))
+    except Exception:
+        return ""
+
+
 @bp.route("/hostname", methods=["GET", "POST"])
 def hostname():
     if request.method == "GET":
@@ -2251,3 +2396,154 @@ def hostname():
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     return jsonify({"error": "Unsupported method"}), 405
+
+
+# ---------------------------------------------------------------------------
+# Combined first-paint payload
+# ---------------------------------------------------------------------------
+# The settings page used to open with a round of separate requests - one each
+# for the configuration, the audio devices, the camera devices, the mic gain,
+# the volume, the Wi-Fi status, the timezone, the hostname, the version and the
+# device names. Each one costs a connection, a handler thread and, on a Pi, a
+# subprocess or two. This returns them together in one request.
+#
+# Sections run concurrently, so the request costs about as long as its slowest
+# section rather than the sum of all of them. That is what makes it worth
+# including the ones that shell out to nmcli, git or a device enumeration.
+#
+# Every individual route is still there and unchanged: this is an addition, not
+# a replacement, so an older page or an external caller keeps working.
+_BOOTSTRAP_SECTIONS = (
+    "config",
+    "hostname",
+    "timezone",
+    "version",
+    "release_note",
+    "mic_gain",
+    "volume",
+    "device_info",
+    "audio_devices",
+    "camera",
+    "wifi",
+    "ha_agents",
+    "wakeword_keywords",
+    "service",
+)
+
+_BOOTSTRAP_DEFAULT = _BOOTSTRAP_SECTIONS
+
+# A 1GB Pi should not get a thread per section. Four covers the slow ones -
+# which are all waiting on a subprocess rather than burning CPU - without
+# turning a page load into a fork storm.
+_BOOTSTRAP_MAX_WORKERS = 4
+
+# No section should be able to hold the whole response open. A section that
+# overruns is reported as failed and the rest of the payload still goes out.
+_BOOTSTRAP_SECTION_TIMEOUT = 15.0
+
+
+def _bootstrap_producer(name: str):
+    """The route function that owns one section's payload."""
+    from .audio import audio_devices, device_info, mic_gain, volume
+    from .misc import service_status
+
+    return {
+        "config": get_config,
+        "hostname": hostname,
+        "timezone": timezone,
+        "version": version_info,
+        "release_note": release_note,
+        "mic_gain": mic_gain,
+        "volume": volume,
+        "device_info": device_info,
+        "audio_devices": audio_devices,
+        "camera": list_camera_devices,
+        "wifi": wifi_status,
+        "ha_agents": ha_agents,
+        "wakeword_keywords": list_wakeword_keywords,
+        "service": service_status,
+    }[name]
+
+
+def _bootstrap_section(name: str):
+    """Produce one section's payload by calling the route that owns it."""
+    result = _bootstrap_producer(name)()
+    # A route may answer (body, status); only the body is of interest here.
+    response = result[0] if isinstance(result, tuple) else result
+    return response.get_json()
+
+
+def _bootstrap_section_safely(name: str):
+    try:
+        return _bootstrap_section(name)
+    except Exception as exc:
+        # One failing section must not cost the page all the others.
+        logger.warning(f"[bootstrap] {name} failed: {exc}")
+        return {"error": str(exc)}
+
+
+@bp.route("/ui/bootstrap")
+def ui_bootstrap():
+    requested = (request.args.get("include") or "").strip()
+    names = (
+        [n for n in requested.split(",") if n]
+        if requested
+        else list(_BOOTSTRAP_DEFAULT)
+    )
+    unknown = [n for n in names if n not in _BOOTSTRAP_SECTIONS]
+    if unknown:
+        return jsonify({
+            "error": f"Unknown section(s): {', '.join(unknown)}",
+            "sections": list(_BOOTSTRAP_SECTIONS),
+        }), 400
+
+    payload: dict = {}
+
+    # "config" is the one section that mutates process-wide state: it reloads
+    # core.config when .env has changed. Running it here, before any worker
+    # starts, keeps that reload away from threads reading the same module.
+    if "config" in names:
+        payload["config"] = _bootstrap_section_safely("config")
+        names = [n for n in names if n != "config"]
+
+    if not names:
+        return jsonify(payload)
+    if len(names) == 1:
+        payload[names[0]] = _bootstrap_section_safely(names[0])
+        return jsonify(payload)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from flask import copy_current_request_context
+
+    # The producers are ordinary view functions and expect a request context,
+    # which does not follow a call onto another thread by itself.
+    def job(section: str):
+        @copy_current_request_context
+        def run():
+            return _bootstrap_section_safely(section)
+
+        return run
+
+    workers = min(len(names), _BOOTSTRAP_MAX_WORKERS)
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        futures = {name: pool.submit(job(name)) for name in names}
+        deadline = time.monotonic() + _BOOTSTRAP_SECTION_TIMEOUT
+        for name, future in futures.items():
+            try:
+                payload[name] = future.result(
+                    timeout=max(0.0, deadline - time.monotonic())
+                )
+            except Exception as exc:
+                # Reported as failed so the page falls back to this section's
+                # own endpoint rather than waiting any longer for it.
+                logger.warning(f"[bootstrap] {name} did not finish: {exc}")
+                payload[name] = {"error": str(exc)}
+    finally:
+        # Not a "with" block: that waits for every worker, which would let one
+        # slow section hold the whole response open and make the deadline
+        # above pointless. Sections that have not started are dropped; one
+        # already running finishes on its own and its result is discarded.
+        pool.shutdown(wait=False, cancel_futures=True)
+    return jsonify(payload)
