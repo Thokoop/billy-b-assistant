@@ -170,6 +170,25 @@ function fetchWithTimeout(url, timeoutMs = 5000, options = {}) {
 
 window.fetchWithTimeout = fetchWithTimeout;
 
+// Keep the deadline active through the response body as well as the headers.
+// A webconfig restart can interrupt either part of the response.
+async function fetchJsonWithTimeout(url, timeoutMs = 5000, options = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, {
+            cache: "no-store", ...options, signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+window.fetchJsonWithTimeout = fetchJsonWithTimeout;
+
+
 // A fetch whose failure path is its own concern. Call sites used to write
 //     if (!res.ok) throw new Error(...)
 // inside the very try/catch that handles it, which reads as control flow
@@ -201,6 +220,7 @@ const LoadingOverlay = (() => {
     const reloadFlagKey = "billy:reload_on_ws_reconnect";
     let reloadPollTimeout = null;
     let restartSawUnavailable = false;
+    let restartPolling = false;
 
     const shouldReloadOnReconnect = () => (
         sessionStorage.getItem(reloadFlagKey) === "1"
@@ -211,6 +231,7 @@ const LoadingOverlay = (() => {
     };
 
     const reloadSoon = () => {
+        restartPolling = false;
         clearReloadFlag();
         if (reloadPollTimeout) {
             clearTimeout(reloadPollTimeout);
@@ -254,11 +275,12 @@ const LoadingOverlay = (() => {
         // belongs to the run being replaced, not the one coming back.
         restartRequestedAt = null,
     ) => {
+        restartPolling = true;
         const startedAt = Date.now();
         let announcedWaitingForBilly = false;
-        // Billy only reports readiness on builds that write the marker. Until
-        // one is seen, fall back to the service state as before.
-        let sawReadyMarker = false;
+        // A null marker means Billy is still starting, not that readiness is
+        // unsupported. Only older responses without this field use unit state.
+        let supportsReadiness = false;
 
         // Returns true when the overlay is finished with (a reload is on its
         // way, or the wait timed out); anything else means poll again.
@@ -273,18 +295,19 @@ const LoadingOverlay = (() => {
                 // which leaves the socket open and this fetch hanging. Without
                 // a deadline the poll below never runs again and the overlay
                 // sits there for good.
-                const res = await fetchWithTimeout("/health", 2500);
-                reachable = res.ok;
-                const data = res.ok ? await res.json().catch(() => ({})) : {};
+                const data = await fetchJsonWithTimeout("/health", 2500);
+                reachable = data.status === "ok" && !!data.webconfig_instance;
                 billyState = data.billy_service || null;
                 billyReadyAt = Number(data.billy_ready_at) || null;
-                if (billyReadyAt) sawReadyMarker = true;
+                if (Object.prototype.hasOwnProperty.call(data, "billy_ready_at")) {
+                    supportsReadiness = true;
+                }
                 instanceChanged = Boolean(
                     previousWebconfigInstance
                     && data.webconfig_instance
                     && data.webconfig_instance !== previousWebconfigInstance
                 );
-                if (!res.ok) {
+                if (!reachable) {
                     restartSawUnavailable = true;
                 }
             } catch (err) {
@@ -298,7 +321,7 @@ const LoadingOverlay = (() => {
             // (it came back between two polls, or it never went down), fall back
             // to trusting that it is up after a while.
             const interfaceBack = reachable && (
-                restartSawUnavailable
+                (restartSawUnavailable && !previousWebconfigInstance)
                 || instanceChanged
                 || elapsed >= fallbackReloadMs
             );
@@ -316,7 +339,7 @@ const LoadingOverlay = (() => {
                     && (!restartRequestedAt || billyReadyAt > restartRequestedAt)
                 );
                 const billyReady = readyAfterRestart
-                    || (!sawReadyMarker && (
+                    || (!supportsReadiness && (
                         !billyState
                         || billyState === "active"
                         || billyState === "failed"
@@ -333,6 +356,8 @@ const LoadingOverlay = (() => {
             }
 
             if (elapsed >= timeoutMs) {
+                restartPolling = false;
+                restartSawUnavailable = false;
                 clearReloadFlag();
                 hide();
                 window.dispatchEvent(new CustomEvent("billy:restart-timeout"));
@@ -346,6 +371,7 @@ const LoadingOverlay = (() => {
         // ones it takes by throwing. A single failed poll can slow recovery
         // down; it must never be able to stop it.
         const poll = async () => {
+            reloadPollTimeout = null;
             let done = false;
             try {
                 done = await pollOnce();
@@ -368,6 +394,11 @@ const LoadingOverlay = (() => {
     });
 
     window.addEventListener("billy:websocket:connected", () => {
+        // A socket may connect to the old process before systemd stops it.
+        // The restart poll owns recovery, including Billy's readiness check.
+        if (shouldReloadOnReconnect() && (
+            restartPolling || window.ServiceStatus?.isRestartInProgress?.()
+        )) return;
         if (isVisible()) {
             hide();
         }

@@ -157,6 +157,28 @@ class EchoCanceller:
                     self._failure_logged = True
                 return False
 
+    def recover(self) -> bool:
+        """Retry a failed engine between sessions, retaining playback accounting.
+
+        The caller must have stopped AI capture. Bluetooth owns a different
+        instance and never invokes this recovery path during a call.
+        """
+        if self.healthy:
+            return True
+        with self._initialize_lock, self._lock:
+            self._processor = None
+            self._initialization_attempted = False
+            self._processing_failure_logged = False
+            self._failure_logged = False
+            self._render_pending = np.empty(0, dtype=np.int16)
+            self._render_history.clear()
+            self._render_frames = 0
+            self._stream_delay_ms = 0
+            self._last_voice_detected = None
+            self._last_playback_similarity = None
+            self._last_reference_rms = None
+        return self.initialize() and self.healthy
+
     @staticmethod
     def _to_mono_int16(samples) -> np.ndarray:
         data = np.asarray(samples)
@@ -289,7 +311,7 @@ class EchoCanceller:
 
     def feed_render(self, samples, source_rate: int, generation=None) -> None:
         """Feed the exact mono PCM that is about to be written to the speaker."""
-        if not self.initialize():
+        if not self.initialize() or not self.healthy:
             return
         mono = self._to_mono_int16(samples)
         render = self._resample(mono, source_rate, self.sample_rate)
@@ -357,7 +379,7 @@ class EchoCanceller:
     ) -> np.ndarray:
         """Return AEC3-cleaned mono PCM at the microphone's original rate."""
         mono = self._to_mono_int16(samples)
-        if not self.initialize():
+        if not self.initialize() or not self.healthy:
             return mono
         capture = self._resample(mono, source_rate, self.sample_rate)
         usable = len(capture) - (len(capture) % self.frame_samples)

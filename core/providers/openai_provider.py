@@ -1,7 +1,7 @@
 import json
 from typing import Any, Optional
 
-from ..realtime_ai_provider import RealtimeAIProvider
+from ..realtime_ai_provider import RealtimeAIProvider, bounded_audio_generation
 
 
 class OpenAIProvider(RealtimeAIProvider):
@@ -22,6 +22,7 @@ class OpenAIProvider(RealtimeAIProvider):
     def default_voice(self) -> str:
         return "ballad"
 
+    @bounded_audio_generation
     async def generate_audio_clip(
         self,
         prompt: str,

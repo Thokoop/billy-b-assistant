@@ -56,58 +56,28 @@ class MicManager:
             )
             self.stream.start()
             audio.set_aec_capture_latency(getattr(self.stream, "latency", 0.0))
-        except Exception as e:
-            err = str(e)
-            device_unavailable = (
-                "Device unavailable" in err or "PaErrorCode -9985" in err
+        except Exception as exc:
+            # Selection and rate validation happen before startup. Falling back
+            # to an unrelated default device can capture the wrong microphone.
+            self.stop()
+            logger.error(
+                f"Could not open selected microphone {audio.MIC_DEVICE_INDEX}: {exc}"
             )
-            if device_unavailable:
-                logger.error(
-                    "Mic device unavailable on selected device; skipping default-device fallback.",
-                )
-                raise e
-
-            # If device-specific opening fails, try with default device
-            if audio.MIC_DEVICE_INDEX is not None:
-                logger.warning(
-                    f"Failed to open mic with device {audio.MIC_DEVICE_INDEX}, trying default device..."
-                )
-                try:
-                    self.stream = sd.InputStream(
-                        samplerate=audio.MIC_RATE,
-                        device=None,  # Use default device
-                        channels=audio.MIC_CHANNELS,
-                        dtype='int16',
-                        blocksize=audio.CHUNK_SIZE,
-                        callback=callback,
-                    )
-                    self.stream.start()
-                    audio.set_aec_capture_latency(getattr(self.stream, "latency", 0.0))
-                    logger.success("Mic opened with default device")
-                except Exception as fallback_error:
-                    logger.error(f"Fallback mic open also failed: {fallback_error}")
-                    # For ALSA device unavailable errors, provide more helpful error message
-                    if "Device unavailable" in str(e):
-                        logger.error("ALSA device unavailable. This usually means:")
-                        logger.error("1. Another process is using the audio device")
-                        logger.error("2. Audio driver needs to be reset")
-                        logger.error("3. Hardware connection issue")
-                        diagnose_audio_issues()
-                    raise e  # Re-raise original error
-            else:
-                raise e
+            raise
 
     def stop(self):
-        if self.stream:
+        stream, self.stream = self.stream, None
+        if stream is None:
+            return
+        try:
             try:
-                # Prefer abort for teardown robustness: stop() can block on some
-                # ALSA/PortAudio states during timeout-driven shutdown.
-                try:
-                    self.stream.abort()
-                except Exception:
-                    # Fallback to stop if abort is unavailable/fails.
-                    self.stream.stop()
-                self.stream.close()
-            except Exception as e:
-                logger.warning(f"Error closing mic stream: {e}")
-            self.stream = None
+                stream.abort()
+            except Exception:
+                stream.stop()
+        except Exception as exc:
+            logger.warning(f"Error stopping mic stream: {exc}")
+        finally:
+            try:
+                stream.close()
+            except Exception as exc:
+                logger.warning(f"Error closing mic stream: {exc}")

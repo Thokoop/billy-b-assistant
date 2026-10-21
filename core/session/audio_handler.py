@@ -68,6 +68,27 @@ class AudioHandler:
             "audio_end_ms": position_ms,
         }
 
+    def interruption_points(self):
+        """Include later, wholly unheard items in the same interrupted response."""
+        point = self.interruption_point()
+        if point is None:
+            return []
+        points = [point]
+        found = False
+        for item in self._playback_items:
+            if found:
+                points.append({
+                    "item_id": item["item_id"],
+                    "content_index": item["content_index"],
+                    "audio_end_ms": 0,
+                })
+            elif (item["item_id"], item["content_index"]) == (
+                point["item_id"],
+                point["content_index"],
+            ):
+                found = True
+        return points
+
     def on_audio_delta(self, data: dict[str, Any]):
         """Handle incoming audio delta from assistant."""
         if TEXT_ONLY_MODE:

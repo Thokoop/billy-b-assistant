@@ -4,7 +4,7 @@
         Bluetooth
         <span class="material-icons transition-transform duration-200 ml-2">expand_more</span>
     </h3>
-    <div id="bluetooth-settings" data-token="{{ bluetooth_token }}" class="space-y-4">
+    <div id="bluetooth-settings" data-token="{{ bluetooth_token }}" class="bt-panel">
         <p id="bt-setup" role="status" aria-live="polite">Checking Bluetooth installation…</p>
         <button type="button" id="bt-setup-retry" data-action="setup-retry" class="secondary-action secondary-action--hover--cyan h-11 px-3" hidden>
             <span class="material-icons text-base" aria-hidden="true">refresh</span>
@@ -12,9 +12,8 @@
         </button>
         <p id="bt-audio" role="status" aria-live="polite" class="text-slate-400">Checking Bluetooth…</p>
         <h2 id="bt-devices-title" class="text-lg font-semibold" hidden>Devices</h2>
-        <ul id="bt-devices" class="space-y-3"></ul>
-        <p id="bt-pair-hint" hidden>Select Billy Bass in your device’s Bluetooth settings, then confirm the request here.</p>
-        <div class="flex flex-wrap gap-3">
+        <ul id="bt-devices" class="bt-devices"></ul>
+        <div class="bt-pairing-toolbar">
             <button type="button" data-action="pair" id="bt-pair" class="secondary-action secondary-action--hover--cyan h-11 px-3">
                 <span class="material-icons text-base" aria-hidden="true">bluetooth_searching</span>
                 Pair new device
@@ -23,17 +22,14 @@
                 <span class="material-icons text-base" aria-hidden="true">close</span>
                 Stop pairing
             </button>
+            <span id="bt-pair-status" class="bt-pair-status" hidden></span>
         </div>
-        <div id="bt-pending" hidden class="border border-emerald-500 rounded-lg p-3 space-y-3">
+        <p id="bt-pair-hint" class="bt-pair-hint" hidden>Select Billy Bassistant in your device’s Bluetooth settings, then confirm pairing on your phone.</p>
+        <div id="bt-pending" hidden class="bt-pending" role="group" aria-labelledby="bt-request">
+            <div class="bt-request-heading"><span class="material-icons" aria-hidden="true">verified_user</span>Pairing request</div>
             <p id="bt-request"></p>
-            <button type="button" id="bt-accept" class="secondary-action secondary-action--hover--emerald h-11 px-3">
-                <span class="material-icons text-base" aria-hidden="true">check</span>
-                Accept
-            </button>
-            <button type="button" id="bt-reject" class="secondary-action secondary-action--hover--rose h-11 px-3">
-                <span class="material-icons text-base" aria-hidden="true">close</span>
-                Reject
-            </button>
+            <p id="bt-code" class="bt-code" aria-label="Pairing code" hidden></p>
+            <p id="bt-confirm-hint" class="bt-confirm-hint">Check the code and tap Pair on your phone.</p>
         </div>
         <p id="bt-error" role="alert" class="text-rose-400"></p>
     </div>

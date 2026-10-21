@@ -8,7 +8,7 @@ import threading
 
 
 class UplinkTiming:
-    """One pump writer and one reporting reader; no locks in the mic callback."""
+    """Capture and output workers plus reporting; no locks in the mic callback."""
 
     def __init__(self, now):
         self._lock = threading.Lock()
@@ -25,23 +25,36 @@ class UplinkTiming:
         )
         self._audio_ms = 0.0
 
-    def record(self, captured_at, started_at, processed_at, sent_at, audio_seconds):
+    def record_capture(self, captured_at, started_at, processed_at):
         with self._lock:
-            values = {
-                "queue_ms": (started_at - captured_at) * 1000,
-                "process_ms": (processed_at - started_at) * 1000,
-                "write_ms": (sent_at - processed_at) * 1000,
-            }
+            self._maxima["queue_ms"] = max(
+                self._maxima["queue_ms"], (started_at - captured_at) * 1000
+            )
+            self._maxima["process_ms"] = max(
+                self._maxima["process_ms"], (processed_at - started_at) * 1000
+            )
             if self._last_capture is not None:
-                # Retained callbacks only: queue drops also increase this gap.
-                values["capture_gap_ms"] = (captured_at - self._last_capture) * 1000
-            if self._last_sent is not None:
-                values["send_gap_ms"] = (sent_at - self._last_sent) * 1000
-            for name, value in values.items():
-                self._maxima[name] = max(self._maxima[name], value)
+                self._maxima["capture_gap_ms"] = max(
+                    self._maxima["capture_gap_ms"],
+                    (captured_at - self._last_capture) * 1000,
+                )
             self._last_capture = captured_at
+
+    def record_send(self, started_at, sent_at, audio_seconds):
+        with self._lock:
+            self._maxima["write_ms"] = max(
+                self._maxima["write_ms"], (sent_at - started_at) * 1000
+            )
+            if self._last_sent is not None:
+                self._maxima["send_gap_ms"] = max(
+                    self._maxima["send_gap_ms"], (sent_at - self._last_sent) * 1000
+                )
             self._last_sent = sent_at
             self._audio_ms += audio_seconds * 1000
+
+    def record(self, captured_at, started_at, processed_at, sent_at, audio_seconds):
+        self.record_capture(captured_at, started_at, processed_at)
+        self.record_send(processed_at, sent_at, audio_seconds)
 
     def snapshot(self, now, counters, queued):
         with self._lock:
@@ -86,6 +99,21 @@ def format_timing(values, expected_per_s):
                 "send_gap_ms",
                 "since_send_ms",
             )
+        )
+        + "".join(
+            f" {key}={values[key]:.1f}"
+            for key in (
+                "buffer_ms",
+                "buffer_min_ms",
+                "buffer_max_ms",
+                "buffer_underruns",
+                "buffer_overruns",
+                "buffer_dropped_ms",
+                "startup_silence_ms",
+                "rebuffer_silence_ms",
+                "clock_adjust_ppm",
+            )
+            if key in values
         )
         + " (timing maxima; delivery to phone unmeasured)"
     )

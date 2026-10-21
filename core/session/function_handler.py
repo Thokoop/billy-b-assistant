@@ -125,6 +125,8 @@ class FunctionHandler:
                 )
         except Exception as e:
             logger.error(f"Function {function_name} failed: {e}")
+            if self.session.tool_calls.in_call():
+                raise
 
     def _parse_json_args(
         self, raw_args: str | None, tool_name: str, *, strict: bool = False

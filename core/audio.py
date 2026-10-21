@@ -7,7 +7,6 @@ import json
 import os
 import random
 import re
-import sys
 import threading
 import time
 import wave
@@ -108,7 +107,12 @@ echo_canceller = EchoCanceller(AEC_ENABLED)
 
 def echo_cancellation_active() -> bool:
     """Return whether AEC initialized successfully and barge-in is safe."""
-    return echo_canceller.initialize()
+    return echo_canceller.initialize() and echo_canceller.healthy
+
+
+def recover_echo_cancellation() -> bool:
+    """Allow one recovery attempt at the start of a new AI session, never in a callback."""
+    return echo_canceller.recover()
 
 
 def process_mic_with_aec(samples, *, render_active=True):
@@ -219,7 +223,7 @@ def _pick_mic_rate(device_index: int, channels: int, preferred_rate=PROVIDER_MIC
     for rate in [preferred_rate, 48000, 44100]:
         try:
             sd.check_input_settings(
-                device=device_index, samplerate=rate, channels=channels
+                device=device_index, samplerate=rate, channels=channels, dtype="int16"
             )
         except Exception:
             continue
@@ -228,43 +232,78 @@ def _pick_mic_rate(device_index: int, channels: int, preferred_rate=PROVIDER_MIC
 
 
 def detect_devices(debug=False):
+    """Select by preference before probing, publishing settings only on success."""
     global MIC_DEVICE_INDEX, MIC_RATE, MIC_CHANNELS, CHUNK_SIZE
     global OUTPUT_DEVICE_INDEX, OUTPUT_RATE, OUTPUT_CHANNELS
 
-    devices: sd.DeviceList = sd.query_devices()
-
+    devices = sd.query_devices()
     logger.info("Enumerating audio devices...", "🔢")
-    for i, d in enumerate(devices):
+    mic_index = output_index = None
+    for index, device in enumerate(devices):
+        name = str(device["name"])
         if debug:
             logger.verbose(
-                f"  {i}: {d['name']} (inputs: {d['max_input_channels']}, outputs: {d['max_output_channels']})"
+                f"  {index}: {name} (inputs: {device['max_input_channels']}, "
+                f"outputs: {device['max_output_channels']})"
             )
+        if (
+            mic_index is None
+            and device["max_input_channels"] > 0
+            and _preference_matches_device(MIC_PREFERENCE, name)
+        ):
+            mic_index = index
+        if (
+            output_index is None
+            and device["max_output_channels"] > 0
+            and _preference_matches_device(SPEAKER_PREFERENCE, name)
+        ):
+            output_index = index
 
-        if MIC_DEVICE_INDEX is None and d['max_input_channels'] > 0:
-            if _preference_matches_device(MIC_PREFERENCE, str(d['name'])):
-                MIC_DEVICE_INDEX = i
-                logger.success(f"Input device index {i} selected.")
+    if mic_index is None:
+        raise RuntimeError(f"No microphone matches {MIC_PREFERENCE!r}")
+    if output_index is None and not TEXT_ONLY_MODE:
+        raise RuntimeError(f"No speaker matches {SPEAKER_PREFERENCE!r}")
+    mic_channels = devices[mic_index]["max_input_channels"]
+    mic_rate = _pick_mic_rate(mic_index, mic_channels)
+    if output_index is not None and not TEXT_ONLY_MODE:
+        # Both AI and Bluetooth render 48 kHz stereo. Fail before either starts.
+        sd.check_output_settings(
+            device=output_index, samplerate=48000, channels=2, dtype="int16"
+        )
+    MIC_DEVICE_INDEX, MIC_CHANNELS, MIC_RATE = mic_index, mic_channels, mic_rate
+    CHUNK_SIZE = int(mic_rate * CHUNK_MS / 1000)
+    OUTPUT_DEVICE_INDEX = output_index
+    OUTPUT_RATE = 48000 if output_index is not None else None
+    OUTPUT_CHANNELS = 2 if output_index is not None else 0
+    logger.success(f"Input device index {mic_index} selected.")
+    if output_index is not None:
+        logger.success(f"Output device index {output_index} selected.")
+    if mic_rate != PROVIDER_MIC_RATE:
+        logger.warning(
+            f"Mic does not support {PROVIDER_MIC_RATE}Hz; using {mic_rate}Hz "
+            f"and resampling to {PROVIDER_MIC_RATE}Hz."
+        )
 
-            MIC_CHANNELS = d['max_input_channels']
-            MIC_RATE = _pick_mic_rate(i, MIC_CHANNELS)
-            if MIC_RATE != PROVIDER_MIC_RATE:
-                logger.warning(
-                    f"Mic does not support {PROVIDER_MIC_RATE}Hz; "
-                    f"using {MIC_RATE}Hz and resampling to {PROVIDER_MIC_RATE}Hz."
-                )
-            CHUNK_SIZE = int(MIC_RATE * CHUNK_MS / 1000)
 
-        if OUTPUT_DEVICE_INDEX is None and d['max_output_channels'] > 0:
-            if _preference_matches_device(SPEAKER_PREFERENCE, str(d['name'])):
-                OUTPUT_DEVICE_INDEX = i
-                logger.success(f"Output device index {i} selected.")
-
-            OUTPUT_RATE = int(d['default_samplerate'])
-            OUTPUT_CHANNELS = d['max_output_channels']
-
-    if MIC_DEVICE_INDEX is None or (OUTPUT_DEVICE_INDEX is None and not TEXT_ONLY_MODE):
-        logger.error("No suitable input/output devices found.")
-        sys.exit(1)
+def initialize_devices():
+    """Verify selected streams can open before background audio users start."""
+    detect_devices(debug=True)
+    with sd.InputStream(
+        device=MIC_DEVICE_INDEX,
+        samplerate=MIC_RATE,
+        channels=MIC_CHANNELS,
+        dtype="int16",
+        blocksize=CHUNK_SIZE,
+    ):
+        if not TEXT_ONLY_MODE:
+            with sd.OutputStream(
+                device=OUTPUT_DEVICE_INDEX,
+                samplerate=48000,
+                channels=2,
+                dtype="int16",
+            ):
+                pass
+    echo_cancellation_active()
 
 
 # === External PCM mouth driver ===
@@ -579,6 +618,41 @@ def handle_incoming_audio_chunk(audio_b64, buffer):
     return len(audio_chunk)
 
 
+def mic_audio_payload(samples):
+    """Encode the existing mono PCM conversion at the provider's 24 kHz rate."""
+    # Ensure samples is a proper numpy array
+    if not isinstance(samples, np.ndarray):
+        samples = np.array(samples)
+
+    # Ensure samples is 1D
+    if samples.ndim > 1:
+        samples = samples.flatten()
+
+    # Check if samples is empty
+    if len(samples) == 0:
+        return None
+
+    if np.issubdtype(samples.dtype, np.floating):
+        max_abs = float(np.max(np.abs(samples))) if samples.size else 0.0
+        if max_abs <= 1.5:
+            # Normalized float stream (-1..1) -> int16 PCM scale.
+            samples = np.clip(samples, -1.0, 1.0) * 32767.0
+        samples = np.clip(samples, -32768.0, 32767.0)
+        samples = samples.astype(np.int16)
+    else:
+        samples = samples.astype(np.int16)
+
+    if MIC_RATE and MIC_RATE != PROVIDER_MIC_RATE:
+        # Normalize mic input to 24KHz for provider expectations.
+        target_len = int(len(samples) * PROVIDER_MIC_RATE / MIC_RATE)
+        samples = resample(samples.astype(np.float32), target_len).astype(np.int16)
+    pcm = samples.tobytes()
+    return json.dumps({
+        "type": "input_audio_buffer.append",
+        "audio": base64.b64encode(pcm).decode("utf-8"),
+    })
+
+
 def send_mic_audio(ws, samples, loop):
     try:
         # Session teardown races can call this with invalid websocket/loop.
@@ -589,41 +663,12 @@ def send_mic_audio(ws, samples, loop):
         if getattr(loop, "is_closed", lambda: False)():
             return None
 
-        # Ensure samples is a proper numpy array
-        if not isinstance(samples, np.ndarray):
-            samples = np.array(samples)
-
-        # Ensure samples is 1D
-        if samples.ndim > 1:
-            samples = samples.flatten()
-
-        # Check if samples is empty
-        if len(samples) == 0:
+        payload = mic_audio_payload(samples)
+        if payload is None:
             return None
 
-        if np.issubdtype(samples.dtype, np.floating):
-            max_abs = float(np.max(np.abs(samples))) if samples.size else 0.0
-            if max_abs <= 1.5:
-                # Normalized float stream (-1..1) -> int16 PCM scale.
-                samples = np.clip(samples, -1.0, 1.0) * 32767.0
-            samples = np.clip(samples, -32768.0, 32767.0)
-            samples = samples.astype(np.int16)
-        else:
-            samples = samples.astype(np.int16)
-
-        if MIC_RATE and MIC_RATE != PROVIDER_MIC_RATE:
-            # Normalize mic input to 24KHz for provider expectations.
-            target_len = int(len(samples) * PROVIDER_MIC_RATE / MIC_RATE)
-            samples = resample(samples.astype(np.float32), target_len).astype(np.int16)
-        pcm = samples.tobytes()
-
         return asyncio.run_coroutine_threadsafe(
-            ws.send(
-                json.dumps({
-                    "type": "input_audio_buffer.append",
-                    "audio": base64.b64encode(pcm).decode("utf-8"),
-                })
-            ),
+            ws.send(payload),
             loop,
         )
 

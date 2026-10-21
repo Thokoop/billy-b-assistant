@@ -1,7 +1,7 @@
 import json
 from typing import Any, Optional
 
-from ..realtime_ai_provider import RealtimeAIProvider
+from ..realtime_ai_provider import RealtimeAIProvider, bounded_audio_generation
 
 
 XAI_BUILT_IN_VOICES = (
@@ -69,6 +69,7 @@ class XAIProvider(RealtimeAIProvider):
     def get_provider_name(self) -> str:
         return "xai"
 
+    @bounded_audio_generation
     async def generate_audio_clip(
         self,
         prompt: str,

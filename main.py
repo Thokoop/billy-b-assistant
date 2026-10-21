@@ -37,7 +37,7 @@ load_dotenv()
 from pathlib import Path
 
 import core.button
-from core.audio import playback_queue
+from core.audio import initialize_devices, playback_queue
 from core.bluetooth import watcher as bluetooth_watcher
 
 # --- Reload logger level after environment is loaded ---
@@ -71,6 +71,7 @@ def signal_handler(sig, frame):
 
 
 def main():
+    clear_ready()
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     initialize_status_led()
@@ -82,13 +83,17 @@ def main():
 
     user_manager.load_default_user()
 
-    threading.Thread(target=start_mqtt, daemon=True).start()
+    initialize_devices()
     start_motor_watchdog()
-    bluetooth_watcher.start()
-    # Everything slow is behind us: the imports, the profile and the hardware.
-    # Anything waiting for Billy to come back can stop waiting here.
-    mark_ready()
-    core.button.start_loop()
+
+    def ready():
+        # Button setup and the boot animation finish before a connected phone
+        # or MQTT command can take the audio hardware over.
+        bluetooth_watcher.start()
+        threading.Thread(target=start_mqtt, daemon=True).start()
+        mark_ready()
+
+    core.button.start_loop(on_ready=ready)
 
 
 if __name__ == "__main__":

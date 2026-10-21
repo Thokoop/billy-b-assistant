@@ -1,10 +1,27 @@
+import asyncio
 import base64
 import json
 from abc import ABC, abstractmethod
+from functools import wraps
 from typing import Any, Optional
 
 import websockets.asyncio.client
 import websockets.exceptions
+
+
+CLIP_TIMEOUT_SECONDS = 90.0
+MAX_CLIP_BYTES = 24000 * 2 * 120
+
+
+def bounded_audio_generation(method):
+    """Bound connect, setup, collection and teardown of a one-shot clip."""
+
+    @wraps(method)
+    async def bounded(*args, **kwargs):
+        async with asyncio.timeout(CLIP_TIMEOUT_SECONDS):
+            return await method(*args, **kwargs)
+
+    return bounded
 
 
 class RealtimeAIProvider(ABC):
@@ -97,18 +114,40 @@ class RealtimeAIProvider(ABC):
         pass
 
     async def _collect_audio_response(self, ws):
-        """Helper method to collect audio data from websocket response"""
+        """Return only a completed clip; fail promptly on provider errors or EOF."""
         audio_bytes = bytearray()
-        async for message in ws:
-            data = json.loads(message)
-            t = data.get("type") or ""
-            if t in {"response.output_audio", "response.output_audio.delta"}:
-                b64 = data.get("audio") or data.get("delta")
-                if b64:
-                    audio_bytes.extend(base64.b64decode(b64))
-            elif t == "response.done":
-                break
-        return bytes(audio_bytes)
+        async with asyncio.timeout(CLIP_TIMEOUT_SECONDS):
+            async for message in ws:
+                data = json.loads(message)
+                event = data.get("type") or ""
+                if event == "error":
+                    error = data.get("error") or {}
+                    raise RuntimeError(
+                        f"Audio generation failed: {error.get('message', error)}"
+                    )
+                if event in {
+                    "response.output_audio",
+                    "response.output_audio.delta",
+                    "response.audio.delta",
+                }:
+                    encoded = data.get("audio") or data.get("delta")
+                    if encoded:
+                        audio_bytes.extend(base64.b64decode(encoded))
+                        if len(audio_bytes) > MAX_CLIP_BYTES:
+                            raise RuntimeError(
+                                "Generated audio clip exceeded the size limit"
+                            )
+                elif event == "response.done":
+                    response = data.get("response") or {}
+                    status = response.get("status")
+                    details = response.get("status_details") or {}
+                    # Older compatible providers can omit status entirely.
+                    if status not in (None, "completed") or details.get("error"):
+                        raise RuntimeError(f"Audio response {status}: {details}")
+                    if not audio_bytes:
+                        raise RuntimeError("Audio response completed without audio")
+                    return bytes(audio_bytes)
+        raise RuntimeError("Connection closed before audio response completed")
 
 
 class RealtimeAIProviderRegistry:

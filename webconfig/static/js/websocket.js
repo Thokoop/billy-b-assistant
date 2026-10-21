@@ -1,6 +1,8 @@
 // WebSocket connection for real-time updates
 let ws = null;
 let reconnectTimeout = null;
+let bluetoothStatus = null;
+let deviceInfo = null;
 
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -23,7 +25,17 @@ function connectWebSocket() {
             
             if (message.type === 'status') {
                 const statusData = message.data;
-                
+                if (statusData && typeof statusData === 'object') {
+                    if (statusData.bluetooth && typeof statusData.bluetooth === 'object') {
+                        bluetoothStatus = statusData.bluetooth;
+                        window.dispatchEvent(new CustomEvent('billy:bluetooth:status', {detail: bluetoothStatus}));
+                    }
+                    if (statusData.device_info && typeof statusData.device_info === 'object') {
+                        deviceInfo = statusData.device_info;
+                        window.dispatchEvent(new CustomEvent('billy:device-info:status', {detail: deviceInfo}));
+                    }
+                }
+
                 // Update service status display
                 if (window.updateServiceStatus) {
                     window.updateServiceStatus(statusData.status || statusData);
@@ -52,8 +64,10 @@ function connectWebSocket() {
     };
     
     ws.onclose = () => {
-        window.dispatchEvent(new CustomEvent('billy:websocket:disconnected'));
+        bluetoothStatus = null;
+        deviceInfo = null;
         ws = null;
+        window.dispatchEvent(new CustomEvent('billy:websocket:disconnected'));
         if (window.LoadingOverlay?.shouldReloadOnReconnect?.()) {
             window.dispatchEvent(new CustomEvent('billy:restart-unavailable'));
             console.log('WebSocket disconnected during restart; waiting for interface reload.');
@@ -74,7 +88,13 @@ if (document.readyState === 'loading') {
 // Export for use in other scripts
 window.billyWebSocket = {
     connect: connectWebSocket,
+    // Only a received Bluetooth snapshot proves the backend supports this.
+    // Older backends and installations without WebSockets retain HTTP fallback.
+    getBluetoothStatus: () => ws?.readyState === WebSocket.OPEN ? bluetoothStatus : null,
+    getDeviceInfo: () => ws?.readyState === WebSocket.OPEN ? deviceInfo : null,
     disconnect: () => {
+        bluetoothStatus = null;
+        deviceInfo = null;
         if (ws) {
             ws.close();
             ws = null;

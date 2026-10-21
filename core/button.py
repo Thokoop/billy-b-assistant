@@ -8,6 +8,7 @@ import time
 from concurrent.futures import CancelledError
 
 from . import audio, config
+from .bluetooth import controls as bluetooth_controls
 from .bluetooth import mode as bluetooth_mode
 from .logger import logger
 from .movements import move_head, move_tail
@@ -418,14 +419,15 @@ def trigger_session_start(source: str = "button"):
         # Above the is_active branch on purpose: during a Bluetooth session
         # there is no BillySession to interrupt, and routing the press into
         # _handle_active_session_button_press() would call is_assistant_turn()
-        # on None. The button's meaning during a call is answer/hang-up, which
-        # phase 4d builds here.
+        # on None. Physical presses are handled by on_button() before reaching
+        # here; wake-word, MQTT and UI triggers must not control the phone.
         logger.info(
             f"Ignoring {source} trigger: Bluetooth audio owns the speaker and mic.",
             "🔕",
         )
         return False
 
+    bluetooth_controls.clear_resume()
     if is_active:
         if source == "button":
             _handle_active_session_button_press()
@@ -679,7 +681,8 @@ def on_button(source: str = "gpio-edge"):
             "🛠️",
         )
 
-    trigger_session_start(source="button")
+    if not bluetooth_controls.handle_button(ai_active=is_active):
+        trigger_session_start(source="button")
 
 
 def _force_wifi_setup():
@@ -728,13 +731,14 @@ def stop_background_services():
     # Before the playback worker is retired: a live session would otherwise
     # keep handing frames to a queue nothing is draining.
     bluetooth_watcher.stop()
+    bluetooth_controls.clear_resume()
     _setup_monitor_stop.set()
     if wakeword_listener:
         wakeword_listener.stop()
         wakeword_listener = None
 
 
-def start_loop():
+def start_loop(*, on_ready=None):
     global wakeword_listener, _button_was_pressed, _setup_monitor_thread
 
     if (
@@ -748,7 +752,7 @@ def start_loop():
         )
         _setup_monitor_thread.start()
 
-    audio.detect_devices(debug=True)
+    # main() initializes audio before starting any hardware consumers.
     _ensure_button_hold_thread()
 
     if config.FLAP_ON_BOOT:
@@ -789,11 +793,14 @@ def start_loop():
         except Exception as e:
             logger.warning(f"Wake-word listener failed to start: {e}", "⚠️")
 
+    set_status_led_state("idle")
+    if on_ready is not None:
+        on_ready()
+
     logger.info(
         "Ready. Press button to start a voice session. Press Ctrl+C to quit.", "🎦"
     )
     logger.info("Waiting for button press...", "🕐")
-    set_status_led_state("idle")
     if config.MOCKFISH:
         logger.info("Mockfish mode: use Enter to simulate button press", "🐟")
         try:

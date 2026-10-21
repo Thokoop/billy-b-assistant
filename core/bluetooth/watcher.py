@@ -97,10 +97,21 @@ def active_route():
     that is a reason to stay out of the way, not to crash the watcher.
     """
     try:
-        return select_route(discover())
+        route = select_route(discover())
+        return route if mode.observe_route(route) else None
     except Exception as exc:
         logger.verbose(f"Bluetooth route discovery skipped: {exc}", "ℹ️")
         return None
+
+
+def exit_media(snapshot, address):
+    """End only the requested media session; let normal cleanup release ALSA."""
+    with _session_lock:
+        if not mode.dismiss_media(snapshot, address):
+            return False
+        if _session_stop is not None:
+            _session_stop.set()
+    return True
 
 
 def _run():
@@ -124,6 +135,8 @@ def _run():
         try:
             _run_session(route)
             restarts = 0
+        except mode.MediaDismissed:
+            continue
         except runtime.StreamRestart as exc:
             restarts += 1
             if restarts >= runtime.MAX_CONSECUTIVE_RESTARTS:
@@ -149,12 +162,16 @@ def _run_session(route):
     global _session_stop
 
     source, sink = route
-    with mode.claim() as running:
+    with mode.claim(route) as running:
         session_stop = threading.Event()
         with _session_lock:
             _session_stop = session_stop
         try:
             button.stop_for_takeover("bluetooth")
+            # A double press may have arrived between claiming the mode and
+            # publishing _session_stop. Do not open a dismissed audio route.
+            if not mode.media_allowed(route) or session_stop.is_set():
+                return
             logger.info(
                 f"Bluetooth {'call' if sink else 'media'} taking over audio.", "📞"
             )

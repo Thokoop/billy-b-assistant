@@ -1482,10 +1482,9 @@ def volume():
         return jsonify({"error": str(e)}), 500
 
 
-@bp.route("/device-info")
-def device_info():
+def device_info_snapshot(max_attempts=6):
+    """Read device labels for HTTP and live updates without Flask context."""
     try:
-        max_attempts = 6
         for attempt in range(max_attempts):
             mic_name = "Unknown"
             speaker_name = "Unknown"
@@ -1520,9 +1519,15 @@ def device_info():
             if speaker_name == "Unknown" and fallback_speaker:
                 speaker_name = fallback_speaker
             if mic_name != "Unknown" or speaker_name != "Unknown":
-                return jsonify({"mic": mic_name, "speaker": speaker_name})
+                return {"mic": mic_name, "speaker": speaker_name}, 200
             if attempt < max_attempts - 1:
                 time.sleep(0.4)
-        return jsonify({"mic": mic_name, "speaker": speaker_name})
+        return {"mic": mic_name, "speaker": speaker_name}, 200
     except Exception as e:
-        return jsonify({"mic": "Unknown", "speaker": "Unknown", "error": str(e)}), 500
+        return {"mic": "Unknown", "speaker": "Unknown", "error": str(e)}, 500
+
+
+@bp.route("/device-info")
+def device_info():
+    result, code = device_info_snapshot()
+    return jsonify(result), code

@@ -738,13 +738,45 @@ const AudioPanel = (() => {
 
     refreshMicRecordingStatus();
 
+    function renderDeviceInfo(data) {
+        for (const [id, value] of [['mic-label', data.mic], ['speaker-label', data.speaker]]) {
+            const label = document.getElementById(id);
+            if (!label) continue;
+            label.textContent = value || "Unknown";
+            label.parentElement?.classList.toggle("text-emerald-500", Boolean(value && value !== "Unknown" && !data.error));
+        }
+    }
+
+    function receiveDeviceInfo(event) {
+        deviceInfoGeneration += 1;
+        deviceInfoInFlight = null;
+        clearTimeout(deviceInfoRetryTimer);
+        if (!document.hidden) renderDeviceInfo(event.detail);
+    }
+    window.addEventListener('billy:device-info:status', receiveDeviceInfo);
+    window.addEventListener('billy:websocket:disconnected', () => updateDeviceLabels());
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            deviceInfoGeneration += 1;
+            deviceInfoInFlight = null;
+            clearTimeout(deviceInfoRetryTimer);
+        } else {
+            updateDeviceLabels();
+        }
+    });
+
     // Resolves once the labels reflect a /device-info answer. Concurrent
     // callers get the same promise; the chain retries only while the device
     // names are genuinely still unknown, and stops as soon as they are not.
     function updateDeviceLabels() {
         const micLabel = document.getElementById("mic-label");
         const speakerLabel = document.getElementById("speaker-label");
-        if (!micLabel && !speakerLabel) return Promise.resolve();
+        if (document.hidden || (!micLabel && !speakerLabel)) return Promise.resolve();
+        const live = window.billyWebSocket?.getDeviceInfo?.();
+        if (live) {
+            receiveDeviceInfo({detail: live});
+            return Promise.resolve();
+        }
         if (deviceInfoInFlight) return deviceInfoInFlight;
 
         clearTimeout(deviceInfoRetryTimer);
@@ -754,20 +786,15 @@ const AudioPanel = (() => {
             try {
                 // Only the first attempt can come from the bootstrap payload;
                 // a retry exists because that answer was not good enough.
-                const data = (retries === 0
-                        && await window.BootstrapData?.take("device_info"))
-                    || await (await fetchWithTimeout("/device-info", 8000)).json();
+                const initial = retries === 0
+                    && await window.BootstrapData?.take("device_info");
+                // Live status may arrive while the initial bootstrap is still
+                // loading. Do not start a redundant fallback request then.
+                if (generation !== deviceInfoGeneration) return;
+                const data = initial || await fetchJsonWithTimeout("/device-info", 8000);
                 if (generation !== deviceInfoGeneration) return;
 
-                const updateParentClass = (id, value) => {
-                    const el = document.getElementById(id);
-                    if (el && el.parentElement) {
-                        el.textContent = value;
-                        el.parentElement.classList.add("text-emerald-500");
-                    }
-                };
-                updateParentClass("mic-label", data.mic);
-                updateParentClass("speaker-label", data.speaker);
+                renderDeviceInfo(data);
 
                 const unknown = (value) =>
                     String(value || "").toLowerCase() === "unknown";
@@ -787,7 +814,8 @@ const AudioPanel = (() => {
             const delay = 1500 * 2 ** retries;
             clearTimeout(deviceInfoRetryTimer);
             deviceInfoRetryTimer = setTimeout(() => {
-                if (generation !== deviceInfoGeneration) return;
+                if (generation !== deviceInfoGeneration || document.hidden) return;
+                if (!document.getElementById("mic-label") && !document.getElementById("speaker-label")) return;
                 deviceInfoInFlight = attempt(retries + 1).finally(() => {
                     if (generation === deviceInfoGeneration) {
                         deviceInfoInFlight = null;

@@ -27,6 +27,7 @@ from .config import (
     TURN_EAGERNESS,
     is_conversation_state_enabled,
 )
+from .tool_calls import ToolCalls
 
 
 MANUAL_HANDOFF_ECHO_SETTLE_SECONDS = 1.5
@@ -216,6 +217,7 @@ class BillySession:
         self._response_done_event = asyncio.Event()
         self._current_response_id: str | None = None
         self._cancelled_response_ids: set[str] = set()
+        self._interrupted_response_ids: deque[str] = deque(maxlen=64)
         self._server_barge_in_enabled = False
         self._server_barge_in_in_progress = False
         self._server_barge_in_response_id: str | None = None
@@ -254,6 +256,7 @@ class BillySession:
         )
 
         self.function_handler = FunctionHandler(self)
+        self.tool_calls = ToolCalls(self)
         self.audio_handler = AudioHandler(self)
         self.state = SessionState(self)
         self.user_handler = UserHandler(self)
@@ -298,19 +301,32 @@ class BillySession:
         This method is a small convenience to avoid repeating the lock and
         json.dumps boilerplate across the codebase.
         """
+        self.tool_calls.guard()
         if payload.get("type") == "response.create":
+            if self.tool_calls.in_call():
+                await asyncio.wait_for(self._response_done_event.wait(), timeout=5.0)
+                self.tool_calls.guard()
             await self.refresh_mood_instructions()
+            self.tool_calls.guard()
 
         lock_acquired = False
         try:
             await asyncio.wait_for(self.ws_lock.acquire(), timeout=2.0)
             lock_acquired = True
+            self.tool_calls.guard()
             if self.ws is not None:
-                await self.realtime_ai_provider.send_message(self.ws, payload)
+                if (
+                    payload.get("type") == "response.create"
+                    and self.tool_calls.in_call()
+                ):
+                    self._next_response_is_tool_continuation = True
+                await asyncio.wait_for(
+                    self.realtime_ai_provider.send_message(self.ws, payload),
+                    timeout=5.0,
+                )
         except asyncio.TimeoutError:
-            logger.warning(
-                "Timed out acquiring ws_lock for send; dropping payload", "⚠️"
-            )
+            logger.warning("Timed out sending a session event", "⚠️")
+            raise
         finally:
             if lock_acquired:
                 self.ws_lock.release()
@@ -479,6 +495,10 @@ class BillySession:
 
     # ---- Private handlers -----------------------------------------------
     def _on_response_created(self, data: dict[str, Any]):
+        self.tool_calls.cancel_input_wait()
+        if not self._next_response_is_tool_continuation:
+            self.tool_calls.cancel()
+            self._tool_args_buffer.clear()
         response = data.get("response") or {}
         response_id = response.get("id")
         if (
@@ -655,7 +675,10 @@ class BillySession:
         self.state.on_transcript_done(data)
 
     def _on_audio_out(self, data: dict[str, Any]):
-        if data.get("response_id") in self._cancelled_response_ids:
+        if (
+            data.get("response_id") in self._cancelled_response_ids
+            or data.get("response_id") in self._interrupted_response_ids
+        ):
             return
         self.audio_handler.on_audio_delta(data)
 
@@ -667,41 +690,86 @@ class BillySession:
         self.state.on_transcript_delta(t, delta, data.get("item_id"))
 
     def _on_tool_args_delta(self, data: dict[str, Any]):
-        name = data.get("name")
-        if not name:
+        key = data.get("item_id") or data.get("call_id") or data.get("name")
+        if not key:
             return
-        self._tool_args_buffer.setdefault(name, "")
-        self._tool_args_buffer[name] += data.get("arguments", "")
-        if (
-            len(self._tool_args_buffer[name]) > MAX_TOOL_ARGUMENT_CHARS
-            and not self._runaway_tool_args
-        ):
+        if self._runaway_tool_args:
+            return
+        self._tool_args_buffer[key] = self._tool_args_buffer.get(key, "") + data.get(
+            "arguments", ""
+        )
+        if len(self._tool_args_buffer[key]) > MAX_TOOL_ARGUMENT_CHARS:
+            self._tool_args_buffer.pop(key, None)
             self._runaway_tool_args = True
-            logger.warning(
-                f"{name}: arguments passed {MAX_TOOL_ARGUMENT_CHARS} characters "
-                "and are still growing; cancelling this response.",
-                "\U0001f6d1",
-            )
+            logger.warning("Tool arguments exceeded the limit; cancelling response.")
             asyncio.create_task(self._cancel_runaway_response())
 
     async def _cancel_runaway_response(self):
-        """Stop a response whose tool arguments ran away with themselves."""
+        self.tool_calls.cancel()
         with contextlib.suppress(Exception):
             await self._ws_send_json({"type": "response.cancel"})
 
     async def _on_tool_args_done(self, data: dict[str, Any]):
         name = data.get("name")
-        raw_args = data.get("arguments")
         call_id = data.get("call_id")
-        if not raw_args and name:
-            raw_args = self._tool_args_buffer.pop(name, "{}")
-
-        if name and name != "conversation_state":
-            # From here until something speaks, an answer is owed to the user.
+        key = data.get("item_id") or call_id or name
+        buffered = self._tool_args_buffer.pop(key, "{}")
+        raw_args = data.get("arguments") or buffered
+        response_id = data.get("response_id") or self._current_response_id
+        if (
+            not name
+            or self._runaway_tool_args
+            or response_id in self._interrupted_response_ids
+            or not self.session_active.is_set()
+        ):
+            return
+        if len(raw_args) > MAX_TOOL_ARGUMENT_CHARS:
+            await self._cancel_runaway_response()
+            return
+        if name not in {
+            "web_search",
+            "get_news_digest",
+            "describe_scene",
+            "search_local_knowledge",
+            "smart_home_command",
+        }:
+            # Local turn/profile/song controls retain their existing ordering.
+            # Only external work runs independently of the receive loop.
+            await self.function_handler.handle(name, raw_args, call_id)
+        elif call_id:
             self._tool_answer_awaiting_speech = True
+            self.tool_calls.start(name, raw_args, call_id, response_id)
 
-        # Delegate to function handler
-        await self.function_handler.handle(name, raw_args, call_id)
+    def _on_tool_calls_finished(self, response_id):
+        if (
+            self.session_active.is_set()
+            and response_id == self._current_response_id
+            and not self.state.response_active
+            and not self.state._triggered_new_response
+        ):
+            self._response_finish_task = asyncio.create_task(
+                self._finish_response_after_playback(response_id)
+            )
+
+    async def _report_tool_failure(self, call_id, name, error):
+        logger.warning(f"Tool {name} failed or timed out: {error}")
+        await self._ws_send_json({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": json.dumps({
+                    "ok": False,
+                    "error": "Tool failed or timed out; completion is unknown.",
+                }),
+            },
+        })
+        self.state._triggered_new_response = True
+        self._next_response_is_tool_continuation = True
+        await self._ws_send_json({
+            "type": "response.create",
+            "response": {"tool_choice": "none"},
+        })
 
     @staticmethod
     def _response_spoke_an_answer(response: dict[str, Any]) -> bool:
@@ -881,6 +949,11 @@ class BillySession:
             logger.error(f"OpenAI API Error [{error_type}]: {error_message}")
             mapped_code = "noapikey" if "invalid_api_key" in error_type else "error"
             await self.error_handler.play_error_sound(mapped_code, error_message)
+            return
+        if self.tool_calls.pending(response_id):
+            # The tool owns completion/continuation. Do not reopen the mic or
+            # end an announcement just because its initial response has ended.
+            self.tool_calls.release_input_after_playback(response_id)
             return
         logger.success("Assistant response complete.", "✿")
 
@@ -1355,7 +1428,11 @@ class BillySession:
 
         await self.persona_handler.reload_persona_from_profile()
 
-        aec_active = not TEXT_ONLY_MODE and audio.echo_cancellation_active()
+        # One bounded retry per new session. Never construct the DSP in the
+        # realtime microphone callback or repeatedly retry a broken engine.
+        aec_active = not TEXT_ONLY_MODE and await asyncio.to_thread(
+            audio.recover_echo_cancellation
+        )
         provider_name = self.realtime_ai_provider.get_provider_name()
         self._server_barge_in_enabled = aec_active
         self._client_managed_vad = aec_active and provider_name == "openai"
@@ -1570,6 +1647,7 @@ class BillySession:
             self.session_active.clear()
 
         finally:
+            self.tool_calls.cancel()
             # Let a pending response finish (playback drain + post-response
             # handling) before tearing the stream down, as the inline await did.
             finish_task = self._response_finish_task
@@ -1614,8 +1692,11 @@ class BillySession:
             self._on_audio_out(data)
             return
         if t == "input_audio_buffer.committed":
-            self._asked_for_answer_this_turn = False
-            self._tool_answer_awaiting_speech = False
+            # A commit can still be rejected as echo/noise below. It must not
+            # cancel a valid pending search before that decision is made.
+            if not self.tool_calls.pending(self._current_response_id):
+                self._asked_for_answer_this_turn = False
+                self._tool_answer_awaiting_speech = False
             self.state.on_audio_committed(self.state._pending_input_audio_chunks)
             return
         if t == "conversation.item.done":
@@ -1684,6 +1765,8 @@ class BillySession:
         if self._stopping:
             return
         self._stopping = True
+        self.tool_calls.cancel()
+        self._tool_args_buffer.clear()
         if not reason:
             with contextlib.suppress(Exception):
                 caller = inspect.stack()[1]
@@ -1721,6 +1804,8 @@ class BillySession:
 
     async def request_stop(self):
         logger.info("Stop requested via external signal.", "🛑")
+        self.tool_calls.cancel()
+        self._tool_args_buffer.clear()
         self.session_active.clear()
         # Ensure run_stream is not left waiting on recv() keepalive timeouts.
         await self._close_ws(timeout=0.5)
@@ -2012,6 +2097,9 @@ class BillySession:
                 )
             return
 
+        self.tool_calls.cancel()
+        self._tool_args_buffer.clear()
+        self._next_response_is_tool_continuation = False
         if late_confirmed and (
             self.state.response_active
             or self.state.assistant_speaking
@@ -2061,6 +2149,9 @@ class BillySession:
                 return
             evidence_threshold = float(details.get("threshold") or 0.0)
 
+        self.tool_calls.cancel()
+        self._tool_args_buffer.clear()
+        self._next_response_is_tool_continuation = False
         self._server_barge_in_in_progress = True
         self._next_response_follows_interruption = True
         # Remember that this provider item is the interruption itself. Without
@@ -2075,7 +2166,7 @@ class BillySession:
             )
         self._server_barge_in_response_id = self._current_response_id
         interrupted_response_id = self._current_response_id
-        interruption_point = self.audio_handler.interruption_point()
+        interruption_points = self.audio_handler.interruption_points()
         provider_name = self.realtime_ai_provider.get_provider_name()
 
         logger.info(
@@ -2091,6 +2182,7 @@ class BillySession:
             self.state.begin_confirmed_barge_in(evidence_threshold)
         if interrupted_response_id:
             self._cancelled_response_ids.add(interrupted_response_id)
+            self._interrupted_response_ids.append(interrupted_response_id)
         self.state._skip_post_response_once = True
 
         show_status_led_interruption()
@@ -2103,19 +2195,20 @@ class BillySession:
 
         # WebSocket clients own playback, so tell OpenAI exactly how much of the
         # item was heard. This removes the unheard tail from conversation context.
-        if provider_name == "openai" and interruption_point:
-            try:
-                await self._ws_send_json({
-                    "type": "conversation.item.truncate",
-                    **interruption_point,
-                })
-                logger.info(
-                    "Truncated interrupted assistant audio at "
-                    f"{interruption_point['audio_end_ms']} ms.",
-                    "✂️",
-                )
-            except Exception as exc:
-                logger.warning(f"Could not truncate interrupted audio: {exc}")
+        if provider_name == "openai":
+            for interruption_point in interruption_points:
+                try:
+                    await self._ws_send_json({
+                        "type": "conversation.item.truncate",
+                        **interruption_point,
+                    })
+                    logger.info(
+                        "Truncated interrupted assistant audio at "
+                        f"{interruption_point['audio_end_ms']} ms.",
+                        "✂️",
+                    )
+                except Exception as exc:
+                    logger.warning(f"Could not truncate interrupted audio: {exc}")
 
         # Client-managed OpenAI VAD deliberately disables automatic interruption
         # so echo-only speech events cannot cancel playback. Confirmed speech and
@@ -2140,6 +2233,9 @@ class BillySession:
         self._next_response_follows_interruption = True
         self.interrupt_event.clear()
 
+        self.tool_calls.cancel()
+        self._tool_args_buffer.clear()
+        self._next_response_is_tool_continuation = False
         handoff_at = time.monotonic()
         # Reject provider items that begin while speaker tail/room echo settles.
         self._manual_handoff_accept_after = (
@@ -2156,6 +2252,9 @@ class BillySession:
         provider_response_active = self.state.response_active
         provider_name = self.realtime_ai_provider.get_provider_name()
         interrupted_response_id = self._current_response_id
+        # stop_playback invalidates the generation; clear_buffer erases item
+        # boundaries. Snapshot what was heard before either one runs.
+        interruption_points = self.audio_handler.interruption_points()
 
         # Stop capture forwarding before clearing the provider buffer. Without
         # this short gate, speech immediately after the button can be appended to
@@ -2182,7 +2281,9 @@ class BillySession:
 
         if interrupted_response_id:
             self._cancelled_response_ids.add(interrupted_response_id)
+            self._interrupted_response_ids.append(interrupted_response_id)
         self.state._skip_post_response_once = True
+        await self.mic_manager.reset_uplink()
         if provider_name == "openai" and self._client_managed_vad:
             with contextlib.suppress(Exception):
                 await self._ws_send_json({"type": "input_audio_buffer.clear"})
@@ -2195,6 +2296,17 @@ class BillySession:
         if provider_response_active:
             with contextlib.suppress(Exception):
                 await self._ws_send_json({"type": "response.cancel"})
+        if provider_name == "openai":
+            for interruption_point in interruption_points:
+                try:
+                    await self._ws_send_json({
+                        "type": "conversation.item.truncate",
+                        **interruption_point,
+                    })
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not truncate manually interrupted audio: {exc}"
+                    )
 
         self.state.allow_mic_input = True
         if provider_response_active:

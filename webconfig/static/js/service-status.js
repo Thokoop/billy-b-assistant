@@ -150,11 +150,11 @@ const ServiceStatus = (() => {
     const handleServiceAction = async (action, buttonEl = null) => {
         const statusEl = document.getElementById("service-status");
         const logoEl = document.getElementById("status-logo");
-        let previousWebconfigInstance = null;
+        let previousWebconfigInstance = statusCache?.webconfig_instance || null;
         let restartRequestedAt = null;
 
         if (action === "restart") {
-            markRestartInProgress();
+            markRestartInProgress(60000);
             sessionStorage.setItem("billy:reload_on_ws_reconnect", "1");
             if (buttonEl) {
                 restartButtonRef = buttonEl;
@@ -184,9 +184,11 @@ const ServiceStatus = (() => {
 
         try {
             if (action === "restart") {
-                const response = await fetch("/restart", {method: "POST"});
-                const data = await response.json().catch(() => ({}));
-                previousWebconfigInstance = data.webconfig_instance || null;
+                // Do not wait for the browser's TCP timeout if the service
+                // disappears before sending its full response. Never retry the
+                // POST: the restart may already have been accepted.
+                const data = await fetchJsonWithTimeout("/restart", 2500, {method: "POST"});
+                previousWebconfigInstance = data.webconfig_instance || previousWebconfigInstance;
                 restartRequestedAt = Number(data.restart_requested_at) || null;
             } else {
                 await fetch(`/service/${action}`);
@@ -226,7 +228,15 @@ const ServiceStatus = (() => {
     window.ServiceStatus = api;
 
     window.addEventListener("billy:websocket:connected", () => {
+        if (!window.LoadingOverlay?.shouldReloadOnReconnect?.()) {
+            setRestartButtonLoading(false);
+        }
+    });
+
+    window.addEventListener("billy:restart-timeout", () => {
+        restartInProgressUntil = 0;
         setRestartButtonLoading(false);
+        showNotification("Restart is taking longer than expected. Reload the page to reconnect.", "warning", 8000);
     });
 
     return api;

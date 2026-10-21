@@ -35,6 +35,7 @@ from .transport import (
     pipewire_env,
     select_route,
 )
+from .uplink_buffer import UplinkBuffer
 
 
 STATUS_PATH = (
@@ -60,6 +61,11 @@ ROUTE_CHECK_TICKS = 5
 # Requested PipeWire latency, not a guaranteed prefilled jitter buffer.
 # Pump timing measures delivery to pw-cat only, not downstream SCO underruns.
 MIC_SEND_LATENCY_MS = 60
+MIC_CAPTURE_TIMEOUT_SECONDS = 1.0
+# Two 10 ms packets plus a little space for partial consumer reads. Keeping
+# this below 4096 also reduces pw-cat/stdin read-ahead bursts. The PCM
+# reservoir, rather than a large pipe, absorbs the 40 ms capture cadence.
+MIC_PIPE_LIMIT_BYTES = 2048
 
 
 class StreamRestart(RuntimeError):
@@ -88,21 +94,55 @@ def stop_process(process):
             process.wait(timeout=2)
 
 
+def pipe_queued_bytes(fd):
+    """Unread bytes, independent of the kernel's minimum pipe page size."""
+    import array
+    import fcntl
+    import termios
+
+    size = array.array("i", [0])
+    fcntl.ioctl(fd, termios.FIONREAD, size, True)
+    return size[0]
+
+
 def write_pcm(process, data, stop=STOP):
-    """Never accumulate delayed microphone audio if Bluetooth stops consuming."""
+    """Bound both pipe occupancy and waits; never accumulate stale speech."""
     view = memoryview(data)
     deadline = time.monotonic() + 0.1
+    fd = process.stdin.fileno()
     while view:
         remaining = deadline - time.monotonic()
         if stop.is_set() or remaining <= 0 or process.poll() is not None:
             raise TransportGone("Bluetooth microphone transport stopped")
-        if not select.select([], [process.stdin], [], remaining)[1]:
-            raise TransportGone("Bluetooth microphone transport stalled")
-        try:
-            written = os.write(process.stdin.fileno(), view)
-        except BlockingIOError:
+        chunk = view[:MIC_PIPE_LIMIT_BYTES]
+        # F_SETPIPE_SZ alone cannot bound latency on kernels with 16 KiB pages.
+        # Poll actual occupancy, not a nominal audio clock; leave a reservoir
+        # in the pipe while the separate capture worker keeps processing.
+        if pipe_queued_bytes(fd) + len(chunk) > MIC_PIPE_LIMIT_BYTES:
+            stop.wait(min(0.002, remaining))
             continue
+        try:
+            # Linux can merge into a partially filled pipe page even when
+            # select reports no free slots. Try before waiting for readiness.
+            written = os.write(fd, chunk)
+        except BlockingIOError:
+            select.select([], [process.stdin], [], min(0.002, remaining))
+            continue
+        if written <= 0:
+            raise TransportGone("Bluetooth microphone pipe accepted no data")
         view = view[written:]
+
+
+def configure_uplink_pipe(process):
+    """Validate occupancy reporting; use the same byte limit on 4/16 KiB pages."""
+    import fcntl
+
+    fd = process.stdin.fileno()
+    os.set_blocking(fd, False)
+    pipe_queued_bytes(fd)
+    if hasattr(fcntl, "F_GETPIPE_SZ"):
+        return fcntl.fcntl(fd, fcntl.F_GETPIPE_SZ)
+    return None
 
 
 def session(route, endpoints=None, stop=None):
@@ -153,6 +193,7 @@ def session(route, endpoints=None, stop=None):
             stack.callback(stop_process, incoming)
             stack.callback(incoming.stdout.close)
             outgoing = None
+            pipe_bytes = None
             if sink:
                 outgoing = subprocess.Popen(
                     command(sink, record=False, latency_ms=MIC_SEND_LATENCY_MS),
@@ -163,7 +204,7 @@ def session(route, endpoints=None, stop=None):
                 )
                 stack.callback(stop_process, outgoing)
                 stack.callback(outgoing.stdin.close)
-                os.set_blocking(outgoing.stdin.fileno(), False)
+                pipe_bytes = configure_uplink_pipe(outgoing)
             captures = None
             if UPLINK_CAPTURE and outgoing:
                 captures = (
@@ -180,20 +221,42 @@ def session(route, endpoints=None, stop=None):
             session_stop = threading.Event()
             last_frame = [time.monotonic()]
             timing = UplinkTiming(time.monotonic())
+            uplink = UplinkBuffer() if outgoing else None
+            if outgoing:
+                pipe_ms = f"{pipe_bytes / 96:.1f}" if pipe_bytes else "unknown"
+                print(
+                    "bluetooth mic: "
+                    f"buffer_prefill_ms={UplinkBuffer.prefill_samples / 48:.0f} "
+                    f"buffer_target_ms={UplinkBuffer.target_samples / 48:.0f} "
+                    f"buffer_limit_ms={UplinkBuffer.capacity / 48:.0f} "
+                    f"pipe_capacity_ms={pipe_ms} "
+                    f"pipe_limit_ms={MIC_PIPE_LIMIT_BYTES / 96:.1f}",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
             def pump():
-                """Mic -> AEC -> phone, off the render loop.
+                """Mic -> AEC -> bounded reservoir, off the render loop.
 
                 The render path blocks on the ALSA write. Draining the mic queue
                 behind that block stalled it long enough to overflow and drop
                 frames, which the far end hears as stutter.
                 """
                 try:
+                    last_capture = time.monotonic()
                     while not (stop.is_set() or session_stop.is_set()):
                         try:
                             captured_at, samples = mic_queue.get(timeout=0.05)
                         except queue.Empty:
+                            if (
+                                time.monotonic() - last_capture
+                                > MIC_CAPTURE_TIMEOUT_SECONDS
+                            ):
+                                raise RuntimeError(
+                                    "Bluetooth microphone capture stalled"
+                                )
                             continue
+                        last_capture = time.monotonic()
                         started_at = time.monotonic()
                         cleaned = aec.process_capture(
                             samples,
@@ -219,46 +282,71 @@ def session(route, endpoints=None, stop=None):
                                 48000 // divisor,
                                 int(mic_rate) // divisor,
                             )
-                        payload = (
-                            np.clip(converted, -32768, 32767).astype(np.int16).tobytes()
-                        )
+                        pcm = np.clip(converted, -32768, 32767).astype(np.int16)
                         processed_at = time.monotonic()
-                        write_pcm(outgoing, payload, stop)
-                        sent_at = time.monotonic()
-                        mic_stats["sent"] += 1
-                        timing.record(
-                            captured_at,
-                            started_at,
-                            processed_at,
-                            sent_at,
-                            len(payload) / (48000 * 2),
-                        )
+                        timing.record_capture(captured_at, started_at, processed_at)
+                        uplink.push(pcm)
                         if captures:
-                            # Accepted by pw-cat; this is not an on-air capture.
                             captures[0].write(samples.astype(np.int16).tobytes())
-                            captures[1].write(payload)
                 except BaseException as exc:  # re-raised by the render loop
                     mic_error.append(exc)
+                    session_stop.set()
+
+            def send_microphone():
+                """Demand-paced output, including silence while the buffer fills.
+
+                Do not sleep on a nominal 10 ms wall clock: pw-cat's pipe
+                backpressure follows the actual consumer clock. Capture/AEC
+                can continue while a write waits for space.
+                """
+                try:
+                    while not (stop.is_set() or session_stop.is_set()):
+                        payload = uplink.read()
+                        started_at = time.monotonic()
+                        write_pcm(outgoing, payload, session_stop)
+                        sent_at = time.monotonic()
+                        mic_stats["sent"] += 1
+                        timing.record_send(started_at, sent_at, len(payload) / 96000)
+                        if captures:
+                            # Exact PCM accepted by pw-cat, including startup/
+                            # recovery silence and clock correction; not on air.
+                            captures[1].write(payload)
+                except BaseException as exc:
+                    if not (stop.is_set() or session_stop.is_set()):
+                        mic_error.append(exc)
+                    session_stop.set()
 
             if outgoing:
-                pump_thread = threading.Thread(
-                    target=pump, name="bluetooth-microphone", daemon=True
-                )
-                pump_thread.start()
+                workers = []
 
                 def stop_pump():
                     session_stop.set()
-                    pump_thread.join(timeout=1)
+                    for worker in workers:
+                        worker.join(timeout=1)
+                    # Surface a stuck native capture/processing call on teardown.
+                    if any(worker.is_alive() for worker in workers):
+                        raise RuntimeError("Bluetooth microphone worker did not stop")
 
-                # Registered last so it runs first: the pump must be gone before
-                # the pipe it writes to is closed.
+                # Registered before starting either worker so partial startup
+                # also cancels/joins them, before closing pipes and endpoints.
                 stack.callback(stop_pump)
+                for target, name in (
+                    (pump, "bluetooth-microphone"),
+                    (send_microphone, "bluetooth-uplink"),
+                ):
+                    worker = threading.Thread(target=target, name=name, daemon=True)
+                    worker.start()
+                    workers.append(worker)
             status(
                 "call_audio" if sink else "media_audio",
                 aec=aec.active,
                 source=source,
                 mic_rate=mic_rate if sink else None,
                 send_latency_ms=MIC_SEND_LATENCY_MS if sink else None,
+                uplink_prefill_ms=UplinkBuffer.prefill_samples / 48 if sink else None,
+                uplink_target_ms=UplinkBuffer.target_samples / 48 if sink else None,
+                uplink_pipe_bytes=pipe_bytes,
+                uplink_pipe_limit_bytes=MIC_PIPE_LIMIT_BYTES if sink else None,
             )
             next_check = time.monotonic() + 1
             warmed = False
@@ -304,9 +392,12 @@ def session(route, endpoints=None, stop=None):
                         metrics = timing.snapshot(
                             now, dict(mic_stats), mic_queue.qsize()
                         )
+                        metrics.update(uplink.snapshot())
                         dropped = metrics["overflow"] + metrics["full"]
                         anomalous = (
                             dropped
+                            or metrics["buffer_underruns"]
+                            or metrics["buffer_overruns"]
                             or metrics["sent_per_s"] < blocks_per_second * 0.9
                             or metrics["send_gap_ms"] > MIC_SEND_LATENCY_MS
                             or metrics["since_send_ms"] > MIC_SEND_LATENCY_MS
@@ -326,6 +417,10 @@ def session(route, endpoints=None, stop=None):
                             source=source,
                             mic_rate=mic_rate,
                             send_latency_ms=MIC_SEND_LATENCY_MS,
+                            uplink_prefill_ms=UplinkBuffer.prefill_samples / 48,
+                            uplink_target_ms=UplinkBuffer.target_samples / 48,
+                            uplink_pipe_bytes=pipe_bytes,
+                            uplink_pipe_limit_bytes=MIC_PIPE_LIMIT_BYTES,
                             timing=metrics,
                         )
                         # Overflows count events, not an exact lost-sample count.

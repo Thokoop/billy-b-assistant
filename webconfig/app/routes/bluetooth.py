@@ -72,21 +72,27 @@ def page():
     return redirect('/settings#section-bluetooth')
 
 
-@bp.get('/api/bluetooth')
-def get_status():
+def status_snapshot():
+    """Read the same status for HTTP and live updates, without Flask context."""
     from core.bluetooth.provisioning import setup_status
 
     setup = setup_status()
     if setup['state'] != 'ready':
-        return jsonify(setup=setup, available=False)
+        return {'setup': setup, 'available': False}, 200
     try:
         manager = controller()
         result = manager.run(manager.status())
         result['setup'] = setup
         result['audio'] = audio_status()
-        return jsonify(result)
+        return result, 200
     except Exception as exc:
-        return jsonify(error=str(exc), available=False), 503
+        return {'error': str(exc), 'available': False}, 503
+
+
+@bp.get('/api/bluetooth')
+def get_status():
+    result, code = status_snapshot()
+    return jsonify(result), code
 
 
 @bp.post('/api/bluetooth/<action>')
@@ -110,9 +116,7 @@ def action(action):
         elif action == 'pair-stop':
             result = manager.run(manager.stop_pairing())
         elif action == 'confirm':
-            if type(data.get('accepted')) is not bool:
-                raise ValueError('Expected an accept/reject choice')
-            result = manager.run(manager.respond(data.get('id'), data['accepted']))
+            raise ValueError('Confirm pairing on your phone; reload System Settings')
         elif action in {'connect', 'disconnect', 'forget'}:
             result = manager.run(manager.device_action(data.get('address'), action))
         else:

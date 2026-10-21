@@ -17,6 +17,7 @@ from ..config import (
 )
 from ..logger import logger
 from ..mic import MicManager
+from ..mic_uplink import MicUplink
 
 
 # AEC3 needs a few frames of Billy's own audio before it cancels it, and the
@@ -34,6 +35,7 @@ class MicManagerWrapper:
         self.mic_running = False
         self.mic_timeout_task = None
         self._retry_task = None
+        self._uplink = None
         self._mic_generation = 0
         self.last_rms = 0.0
         self._mic_guard_until = 0.0
@@ -87,11 +89,53 @@ class MicManagerWrapper:
         # trend confirm faster than waiting for the absolute 0.30 floor.
         self._barge_in_candidate_initial_similarity: float | None = None
 
+    def _ensure_uplink(self):
+        if self._uplink is None or self._uplink.closed:
+            self._uplink = MicUplink(
+                self.session.loop,
+                self._send_audio,
+                self._uplink_failed,
+                self._report_uplink,
+                capacity=max(
+                    8,
+                    math.ceil(
+                        (self._prebuffer_seconds + 1.0) * 1000 / max(1, CHUNK_MS)
+                    ),
+                ),
+            )
+
+    async def _send_audio(self, samples):
+        if not self.session.session_active.is_set() or self.session.ws is None:
+            raise asyncio.CancelledError
+        payload = audio.mic_audio_payload(samples)
+        if payload is not None:
+            await self.session.ws.send(payload)
+
+    async def _uplink_failed(self, error):
+        logger.warning(f"Realtime microphone uplink failed: {error}")
+        await self.session.stop_session(reason="mic_uplink_failed")
+
+    @staticmethod
+    def _report_uplink(metrics):
+        logger.info(f"realtime mic timing: {metrics}")
+
+    async def reset_uplink(self):
+        """Cancel old pending/in-flight input before clearing the provider buffer."""
+        old = self._uplink
+        if old is not None:
+            old.close()
+            if old._task is not None:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await old._task
+        if self.session.session_active.is_set():
+            self._ensure_uplink()
+
     def start(self, *, retry=True):
         """Try to open the mic with optional retry on failure."""
         if self.mic_running or not self.session.session_active.is_set():
             return
 
+        self._ensure_uplink()
         try:
             self._mic_data_started = False
             self._logged_waiting_for_wakeup = False
@@ -124,6 +168,8 @@ class MicManagerWrapper:
     def stop(self):
         """Stop the microphone and invalidate pending reopen attempts."""
         self._mic_generation += 1
+        if self._uplink is not None:
+            self._uplink.close()
         task = self._retry_task
         if task is not None and not task.done():
             # stop() can run in an executor thread during session teardown.
@@ -472,11 +518,7 @@ class MicManagerWrapper:
         chunks = len(self._prebuffered_audio)
         samples = self._prebuffered_audio_samples
         while self._prebuffered_audio:
-            audio.send_mic_audio(
-                self.session.ws,
-                self._prebuffered_audio.popleft(),
-                self.session.loop,
-            )
+            self._uplink.submit(self._prebuffered_audio.popleft())
         self._prebuffered_audio_samples = 0
         logger.info(
             f"Flushed startup mic prebuffer ({chunks} chunks, {samples} samples).",
@@ -485,6 +527,9 @@ class MicManagerWrapper:
 
     async def start_after_playback(self, delay: float = 0.6, retries: int = 3) -> bool:
         """Open mic after playback with retry logic."""
+        if not self.session.session_active.is_set():
+            return False
+        self._ensure_uplink()
         # Fast path: in normal interactive sessions the mic stream is already open
         # and only input gating was disabled while Billy spoke.
         if self.mic_running:
@@ -552,7 +597,18 @@ class MicManagerWrapper:
         logger.error("Mic failed to open after retries.")
         return False
 
-    def callback(self, indata, *_):
+    def callback(self, indata, *callback_args):
+        started = time.monotonic()
+        try:
+            self._process_microphone(indata)
+        finally:
+            if self._uplink is not None:
+                flags = callback_args[-1] if callback_args else None
+                self._uplink.record_callback(
+                    started, bool(getattr(flags, "input_overflow", False))
+                )
+
+    def _process_microphone(self, indata):
         """Handle incoming audio data from microphone."""
         if not self.session.session_active.is_set():
             return
@@ -570,6 +626,12 @@ class MicManagerWrapper:
                 samples,
                 render_active=playback_active,
             )
+            # A failed DSP call returns raw audio. Recheck this very block,
+            # before either forwarding it or treating it as barge-in evidence.
+            aec_active = audio.echo_cancellation_active()
+            if not aec_active:
+                self.reset_barge_in_evidence()
+                self._clear_prebuffer()
 
         full_duplex_barge_in = (
             aec_active
@@ -692,7 +754,7 @@ class MicManagerWrapper:
             return
         if self._prebuffered_audio:
             self.flush_prebuffer()
-        audio.send_mic_audio(self.session.ws, samples, self.session.loop)
+        self._uplink.submit(samples)
 
     async def timeout_checker(self):
         """Monitor mic activity and timeout if idle too long."""
@@ -712,6 +774,10 @@ class MicManagerWrapper:
             if not self.mic_running:
                 await asyncio.sleep(0.2)
                 continue
+
+            if self.session.tool_calls.pending(self.session._current_response_id):
+                self.session.last_activity[0] = now
+                self._timeout_countdown_active = False
 
             # This stale-speech release must run even while a response/playback
             # is nominally still active. It exists specifically to unstick a

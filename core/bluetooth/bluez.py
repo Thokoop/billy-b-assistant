@@ -1,6 +1,7 @@
 """BlueZ pairing agent. Runs on one persistent asyncio loop, without GPIO imports."""
 
 import asyncio
+import logging
 import secrets
 import threading
 import time
@@ -39,7 +40,17 @@ class PairingAgent(ServiceInterface):
         objects = await self.owner.objects()
         props = objects.get(device, {}).get("org.bluez.Device1", {})
         trusted = props.get("Trusted")
-        if uuid.lower() not in AUDIO_SERVICES or not (trusted and trusted.value):
+        paired = props.get("Paired")
+        requested = (
+            self.owner.pending
+            and self.owner.pending.get("device") == device
+            and time.monotonic() < self.owner.deadline
+            and paired
+            and paired.value
+        )
+        if uuid.lower() not in AUDIO_SERVICES or not (
+            (trusted and trusted.value) or requested
+        ):
             raise DBusError(
                 "org.bluez.Error.Rejected", "Device is not trusted for audio"
             )
@@ -146,7 +157,7 @@ class BluezController:
         self.reject_pending()
         for name, sig, value in [
             ("Powered", "b", True),
-            ("Alias", "s", "Billy Bass"),
+            ("Alias", "s", "Billy Bassistant"),
             ("DiscoverableTimeout", "u", 120),
             ("PairableTimeout", "u", 120),
             ("Pairable", "b", True),
@@ -160,49 +171,87 @@ class BluezController:
         return {"ok": True}
 
     async def expire(self):
-        await asyncio.sleep(120)
-        await self.stop_pairing()
+        # Independent of UI polling: closing the browser must not leave the
+        # adapter discoverable after the phone completes pairing.
+        while self.deadline:
+            await asyncio.sleep(min(1, max(0.25, self.deadline - time.monotonic())))
+            async with self.pairing_lock:
+                try:
+                    if time.monotonic() >= self.deadline:
+                        await self._stop_pairing()
+                        return
+                    await asyncio.wait_for(self.finish_connected_pairing(), timeout=3)
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "Could not finish Bluetooth pairing; retrying", exc_info=True
+                    )
+
+    async def finish_connected_pairing(self):
+        target = self.pending.get("device") if self.pending else None
+        for path, interfaces in (await self.objects()).items():
+            props = interfaces.get("org.bluez.Device1", {})
+            if target and path != target:
+                continue
+            if all(
+                props.get(key, Variant("b", False)).value
+                for key in ("Paired", "Connected")
+            ):
+                await self.set_property(path, "org.bluez.Device1", "Trusted", "b", True)
+                await self._stop_pairing(cancel_timer=False)
+                return
 
     async def stop_pairing(self):
-        self.deadline = 0
-        self.reject_pending()
+        async with self.pairing_lock:
+            return await self._stop_pairing()
+
+    async def _stop_pairing(self, *, cancel_timer=True):
+        if self.pending:
+            device_path = self.pending["device"]
+            props = (
+                (await self.objects()).get(device_path, {}).get("org.bluez.Device1", {})
+            )
+            if props and not props.get("Paired", Variant("b", False)).value:
+                device = await self.interface(device_path, "org.bluez.Device1")
+                try:
+                    await device.call_cancel_pairing()
+                except DBusError as exc:
+                    if exc.type not in {
+                        "org.bluez.Error.DoesNotExist",
+                        "org.bluez.Error.NotReady",
+                    }:
+                        raise
         path = await self.adapter()
         for name in ("Discoverable", "Pairable"):
             await self.set_property(path, "org.bluez.Adapter1", name, "b", False)
+        self.deadline = 0
+        self.reject_pending()
+        if cancel_timer and self.timer and self.timer is not asyncio.current_task():
+            self.timer.cancel()
+        self.timer = None
         return {"ok": True}
 
     async def confirm(self, device, passkey):
-        if time.monotonic() >= self.deadline or self.pending:
-            raise DBusError("org.bluez.Error.Rejected", "Pairing window closed or busy")
-        props = (await self.objects()).get(device, {}).get("org.bluez.Device1", {})
-        future = self.loop.create_future()
-        self.pending = {
-            "id": secrets.token_hex(16),
-            "passkey": passkey,
-            "name": props.get("Alias", Variant("s", "Phone")).value,
-            "future": future,
-        }
-        try:
-            if not await asyncio.wait_for(
-                future, min(60, self.deadline - time.monotonic())
-            ):
-                raise DBusError("org.bluez.Error.Rejected", "Pairing rejected")
-            await self.set_property(device, "org.bluez.Device1", "Trusted", "b", True)
-        except TimeoutError:
-            raise DBusError("org.bluez.Error.Rejected", "Pairing timed out") from None
-        finally:
-            self.pending = None
+        async with self.pairing_lock:
+            if time.monotonic() >= self.deadline or self.pending:
+                raise DBusError(
+                    "org.bluez.Error.Rejected", "Pairing window closed or busy"
+                )
+            props = (await self.objects()).get(device, {}).get("org.bluez.Device1", {})
+            # Discovery may have taken us past the end of the pairing window.
+            if time.monotonic() >= self.deadline:
+                raise DBusError("org.bluez.Error.Rejected", "Pairing window closed")
+            self.pending = {
+                "id": secrets.token_hex(16),
+                "device": device,
+                "passkey": passkey,
+                "name": props.get("Alias", Variant("s", "Phone")).value,
+            }
+            # Opening the short pairing window is Billy's local consent.
+            # Return immediately; the phone still asks its user to pair.
+            # Trust is saved only once BlueZ reports Paired AND Connected.
 
     def reject_pending(self):
-        if self.pending and not self.pending["future"].done():
-            self.pending["future"].set_result(False)
-
-    async def respond(self, request_id, accepted):
-        if not self.pending or self.pending["id"] != request_id:
-            raise ValueError("Pairing request expired")
-        if not self.pending["future"].done():
-            self.pending["future"].set_result(accepted)
-        return {"ok": True}
+        self.pending = None
 
     async def device_action(self, address, action):
         objects = await self.objects()

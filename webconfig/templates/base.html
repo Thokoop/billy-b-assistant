@@ -82,6 +82,7 @@
     </div>
 
     {% block scripts %}
+    {% include "components/script-recovery.html" %}
     <script src="{{ url_for('static', filename='js/marked-min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/ui-helpers.js') }}"></script>
     <script src="{{ url_for('static', filename='js/searchable-select.js') }}"></script>
@@ -106,6 +107,7 @@
     <script src="{{ url_for('static', filename='js/bluetooth.js') }}"></script>
     <script src="{{ url_for('static', filename='js/page-router.js') }}"></script>
     <script src="{{ url_for('static', filename='js/init.js') }}"></script>
+    <script>window.ScriptLoadRecovery.complete();</script>
     {% endblock %}
 </body>
 </html>

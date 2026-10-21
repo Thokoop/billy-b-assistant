@@ -13,7 +13,7 @@ the moment audio flows. The window it exists to cover is the handover itself
 handle - because that is precisely when a wake-word resume or a queued MQTT
 session would collide on the microphone (-9985).
 
-Nothing claims the mode yet. The route watcher (phase 4c) is what will.
+The route watcher claims the mode and records the route for button controls.
 """
 
 import contextlib
@@ -26,6 +26,50 @@ RUNNING = "running"
 
 _lock = threading.Lock()
 _state = IDLE
+_route = None
+_generation = 0
+_dismissed_media = None
+
+
+class MediaDismissed(RuntimeError):
+    """A physical double press returned control to the assistant."""
+
+
+def dismiss_media(snapshot, address):
+    """Suppress this phone's lingering media route without releasing hardware."""
+    global _dismissed_media
+    with _lock:
+        if (_route, _generation) != snapshot[1:] and not (
+            _state == IDLE and _generation == snapshot[2] + 1
+        ):
+            return False
+        if _route and _route[1]:
+            return False
+        _dismissed_media = f"bluez_input.{address.replace(':', '_')}.".lower()
+        return True
+
+
+def media_allowed(route):
+    with _lock:
+        return _media_allowed(route)
+
+
+def _media_allowed(route):
+    return not (
+        route
+        and not route[1]
+        and _dismissed_media
+        and route[0].lower().startswith(_dismissed_media)
+    )
+
+
+def observe_route(route):
+    """Re-arm automatic media takeover once the old transport has disappeared."""
+    global _dismissed_media
+    with _lock:
+        if route is None:
+            _dismissed_media = None
+        return _media_allowed(route)
 
 
 def state():
@@ -39,8 +83,14 @@ def active():
     return state() != IDLE
 
 
+def snapshot():
+    """Atomically identify the current takeover, including its audio route."""
+    with _lock:
+        return _state, _route, _generation
+
+
 @contextlib.contextmanager
-def claim():
+def claim(route=None):
     """Own the audio path for one Bluetooth session.
 
     Yields a callable that promotes STARTING to RUNNING once audio is
@@ -52,16 +102,22 @@ def claim():
     Claiming twice is a bug rather than a race to tolerate: one watcher runs
     one session at a time, so a second claim means two watchers.
     """
-    global _state
+    global _state, _route, _generation
     with _lock:
         if _state != IDLE:
             raise RuntimeError(f"Bluetooth audio session already {_state}")
+        if not _media_allowed(route):
+            raise MediaDismissed("Bluetooth media was dismissed by the button")
         _state = STARTING
+        _route = route
+        _generation += 1
     try:
         yield _promote
     finally:
         with _lock:
             _state = IDLE
+            _route = None
+            _generation += 1
 
 
 def _promote():

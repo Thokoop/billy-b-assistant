@@ -37,10 +37,7 @@ window.BluetoothSettings = (() => {
 
     const PLAYING_STATES = new Set(['media_audio', 'call_audio']);
 
-    // .secondary-action has no :disabled rule in the built stylesheet, so a
-    // disabled button is indistinguishable from a live one. The knowledge and
-    // song panels carry the state as utility classes for the same reason; both
-    // are already in styles.css, so this needs no CSS rebuild.
+    // Keep disabled controls visually distinct, including during setup.
     function setDisabled(button, disabled) {
         button.disabled = disabled;
         button.classList.toggle('opacity-50', disabled);
@@ -54,7 +51,7 @@ window.BluetoothSettings = (() => {
         const root = document.getElementById('bluetooth-settings');
         if (!root) return;
         if (root.dataset.bluetoothBound === 'true') {
-            // Reconnect initialization reuses the current controls and polling.
+            // Reconnect initialization reuses the controls and status subscription.
             cleanup = root.bluetoothCleanup;
             root.bluetoothResume();
             return;
@@ -64,10 +61,14 @@ window.BluetoothSettings = (() => {
         let pending = null;
         let busy = false;
         let polling = false;
+        let active = false;
+        let revision = 0;
+        let refreshQueued = false;
 
         async function act(action, data = {}) {
             if (busy) return;
             busy = true;
+            revision += 1;
             root.querySelectorAll('button').forEach((button) => { button.disabled = true; });
             el('bt-error').textContent = '';
             try {
@@ -83,186 +84,258 @@ window.BluetoothSettings = (() => {
             } finally {
                 busy = false;
                 root.querySelectorAll('button').forEach((button) => { button.disabled = false; });
-                await refresh();
+                // One fresh snapshot after an action; do not reuse a pre-action cache.
+                await refresh(true);
             }
         }
 
-        async function refresh() {
-            if (polling || busy || document.hidden || !root.isConnected) return;
+        function showError(error) {
+            el('bt-audio').textContent = `Bluetooth unavailable: ${error.message}`;
+            el('bt-pending').hidden = true;
+            pending = null;
+        }
+
+        function render(state) {
+            if (state.error) {
+                showError(new Error(state.error));
+                return;
+            }
+            const setup = state.setup || {};
+            el('bt-setup').textContent = setup.message || '';
+            el('bt-setup').hidden = setup.state === 'ready';
+            el('bt-setup-retry').hidden = setup.state !== 'error';
+            root.querySelectorAll('button').forEach((button) => {
+                // bt-pair is decided below, by whether pairing is possible.
+                if (button.id === 'bt-pair') return;
+                setDisabled(button, setup.state !== 'ready' && button.id !== 'bt-setup-retry');
+            });
+            setDisabled(el('bt-pair'), setup.state !== 'ready');
+            if (setup.state !== 'ready') {
+                el('bt-audio').textContent = 'Bluetooth will be available when setup completes.';
+                el('bt-pending').hidden = true;
+                el('bt-pair-hint').hidden = true;
+                el('bt-pair-stop').hidden = true;
+                el('bt-pair-status').hidden = true;
+                el('bt-pair').hidden = false;
+                el('bt-devices-title').hidden = true;
+                pending = null;
+                return;
+            }
+            // Stopping pairing and the "go to your device's settings" hint
+            // only mean anything while the pairing window is open.
+            const pairing = state.pairing_seconds > 0;
+            // "Ready to pair." said nothing a disabled button cannot say
+            // better. What is left - no adapter, or a powered-down one - is
+            // a fault rather than a status, so it goes in the one status
+            // line at the top, and the button explains itself on hover.
+            const blocked = !state.adapter ? 'No Bluetooth adapter found.'
+                : state.adapter.Powered ? '' : 'Bluetooth is off.';
+            setDisabled(el('bt-pair'), Boolean(blocked) || pairing);
+            el('bt-pair').title = blocked || (pairing
+                ? 'Already visible to nearby devices'
+                : 'Make Billy visible to nearby devices');
+            el('bt-pair-status').textContent = pairing
+                ? `Visible for ${state.pairing_seconds}s` : '';
+            el('bt-pair-status').hidden = !pairing;
+            el('bt-pair-hint').hidden = !pairing;
+            el('bt-pair-stop').hidden = !pairing;
+            el('bt-pair').hidden = pairing;
+            pending = state.pending;
+            el('bt-pending').hidden = !pending;
+            el('bt-code').textContent = pending?.passkey || '';
+            el('bt-code').hidden = !pending?.passkey;
+            if (pending) {
+                el('bt-request').textContent = pending.name;
+                el('bt-confirm-hint').textContent = pending.passkey
+                    ? 'Check the code and tap Pair on your phone.'
+                    : 'Complete pairing on your phone.';
+            }
+            const audioState = state.audio || {};
+            const list = el('bt-devices');
+            list.replaceChildren();
+            for (const device of state.devices.filter((d) => d.Paired || d.Connected)) {
+                const connected = Boolean(device.Connected);
+                const state_label = connected
+                    ? (device.Paired ? 'Connected' : 'Pairing…') : 'Disconnected';
+                const item = document.createElement('li');
+                item.className = 'bt-device';
+
+                const orb = document.createElement('span');
+                // Written as whole class names so Tailwind's scan finds
+                // them, and only ones already in the built styles.css, so
+                // this needs no CSS rebuild.
+                orb.className = 'inline-block h-3 w-3 shrink-0 rounded-full '
+                    + (connected ? 'bg-emerald-500' : 'bg-zinc-500');
+                // Colour alone must not be the only carrier of the state.
+                orb.setAttribute('role', 'img');
+                orb.setAttribute('aria-label', state_label);
+                orb.title = state_label;
+                const identity = document.createElement('div');
+                identity.className = 'bt-device-identity';
+                identity.append(orb);
+                item.append(identity);
+                const details = document.createElement('div');
+                details.className = 'bt-device-details';
+                identity.append(details);
+
+                const name = document.createElement('span');
+                name.className = 'bt-device-name';
+                name.textContent = device.Alias || device.Address;
+                details.append(name);
+                const connection = document.createElement('span');
+                connection.className = 'bt-device-state';
+                connection.textContent = state_label;
+                details.append(connection);
+
+                // Which phone owns the speaker right now. Worth saying on
+                // the row rather than only in the status line: select_route()
+                // fails closed on two streaming phones, and this explains
+                // the refusal before it happens.
+                if (
+                    PLAYING_STATES.has(audioState.state)
+                    && audioDeviceAddress(audioState) === (device.Address || '').toUpperCase()
+                ) {
+                    const badge = document.createElement('span');
+                    badge.className = 'bt-device-badge';
+                    badge.textContent = audioState.state === 'call_audio' ? 'on a call' : 'playing';
+                    connection.textContent = connected ? 'Connected · ' : '';
+                    connection.append(badge);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'bt-device-actions';
+                item.append(actions);
+                for (const action of [connected ? 'disconnect' : 'connect', 'forget']) {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = `secondary-action ${DEVICE_ACTIONS[action].hover} bt-device-action`;
+                    if (action === 'forget') button.classList.add('bt-forget');
+                    const icon = document.createElement('span');
+                    icon.className = 'material-icons text-base';
+                    icon.textContent = DEVICE_ACTIONS[action].icon;
+                    // The label already says it; the icon is decoration.
+                    icon.setAttribute('aria-hidden', 'true');
+                    button.append(icon);
+                    const label = document.createElement('span');
+                    label.textContent = action[0].toUpperCase() + action.slice(1);
+                    button.append(label);
+                    button.title = DEVICE_ACTIONS[action].title(name.textContent);
+                    button.setAttribute('aria-label', button.title);
+                    button.addEventListener('click', () => {
+                        // Forgetting drops the pairing on Billy's side
+                        // only: the phone still lists him, and it has to be
+                        // forgotten there too before pairing again. Every
+                        // other destructive action in the UI confirms.
+                        if (action === 'forget' && !window.confirm(
+                            `Forget ${name.textContent}? You will need to pair it again, `
+                            + 'and remove Billy from the phone\u2019s Bluetooth settings first.',
+                        )) return;
+                        act(action, { address: device.Address });
+                    });
+                    actions.append(button);
+                }
+                list.append(item);
+            }
+            // With rows on screen the heading only repeats what they
+            // already show; with none it is what labels the empty state.
+            const empty_list = !list.children.length;
+            el('bt-devices-title').hidden = !empty_list;
+            if (empty_list) {
+                const empty = document.createElement('li');
+                empty.className = 'text-slate-400';
+                empty.textContent = 'No devices paired yet.';
+                list.append(empty);
+            }
+            const audio = audioState;
+            // Switching is automatic, so this reports rather than offers:
+            // what Billy's audio path is doing right now. Billy writes it
+            // from inside billy.service as the mode changes; it is not a
+            // property of any service being up, which is why nothing here
+            // consults systemd any more.
+            //
+            // Echo cancellation is named because it can be turned off, and
+            // a call that sounds echoey is the first thing to check.
+            const labels = {
+                idle: 'Ready for audio from your phone.',
+                waiting: 'Waiting for phone audio',
+                media_audio: `Playing media${audioDeviceName(state, audio) || ''}`,
+                call_audio: `On a call${audioDeviceName(state, audio) || ''} · echo cancellation ${audio.aec ? 'active' : 'off'}`,
+                error: 'Bluetooth audio failed',
+                stopped: 'Stopped',
+            };
+            el('bt-audio').textContent = blocked || labels[audio.state] || labels.idle;
+            if (audio.state === 'error') el('bt-audio').textContent += `: ${audio.error}`;
+        }
+
+        async function refresh(force = false) {
+            if (force && polling) {
+                refreshQueued = true;
+                return;
+            }
+            if (!active || polling || busy || document.hidden || !root.isConnected) return;
             polling = true;
+            const receivedRevision = revision;
             try {
                 const response = await fetch('/api/bluetooth', { signal: AbortSignal.timeout(18000) });
                 const state = await response.json();
-                if (!root.isConnected) return;
+                if (!active || !root.isConnected) return;
                 if (!response.ok) throw new Error(state.error || 'Bluetooth unavailable');
-                const setup = state.setup || {};
-                el('bt-setup').textContent = setup.message || '';
-                el('bt-setup').hidden = setup.state === 'ready';
-                el('bt-setup-retry').hidden = setup.state !== 'error';
-                root.querySelectorAll('button').forEach((button) => {
-                    // bt-pair is decided below, by whether pairing is possible.
-                    if (button.id === 'bt-pair') return;
-                    setDisabled(button, setup.state !== 'ready' && button.id !== 'bt-setup-retry');
-                });
-                setDisabled(el('bt-pair'), setup.state !== 'ready');
-                if (setup.state !== 'ready') {
-                    el('bt-audio').textContent = 'Bluetooth will be available when setup completes.';
-                    el('bt-pending').hidden = true;
-                    el('bt-pair-hint').hidden = true;
-                    el('bt-pair-stop').hidden = true;
-                    el('bt-devices-title').hidden = true;
-                    pending = null;
-                    return;
-                }
-                // Stopping pairing and the "go to your device's settings" hint
-                // only mean anything while the pairing window is open.
-                const pairing = state.pairing_seconds > 0;
-                // "Ready to pair." said nothing a disabled button cannot say
-                // better. What is left - no adapter, or a powered-down one - is
-                // a fault rather than a status, so it goes in the one status
-                // line at the top, and the button explains itself on hover.
-                const blocked = !state.adapter ? 'No Bluetooth adapter found.'
-                    : state.adapter.Powered ? '' : 'Bluetooth is off.';
-                setDisabled(el('bt-pair'), Boolean(blocked) || pairing);
-                el('bt-pair').title = blocked || (pairing
-                    ? 'Already visible to nearby devices'
-                    : 'Make Billy visible to nearby devices');
-                el('bt-pair-hint').textContent = pairing
-                    ? `Visible as Billy Bass for ${state.pairing_seconds} seconds. `
-                        + 'Select Billy Bass in your device\u2019s Bluetooth settings, '
-                        + 'then confirm the request here.'
-                    : '';
-                el('bt-pair-hint').hidden = !pairing;
-                el('bt-pair-stop').hidden = !pairing;
-                pending = state.pending;
-                el('bt-pending').hidden = !pending;
-                if (pending) el('bt-request').textContent = pending.passkey
-                    ? `${pending.name}: does code ${pending.passkey} match your phone?`
-                    : `Allow ${pending.name} to pair?`;
-                const audioState = state.audio || {};
-                const list = el('bt-devices');
-                list.replaceChildren();
-                for (const device of state.devices.filter((d) => d.Paired || d.Connected)) {
-                    const connected = Boolean(device.Connected);
-                    const state_label = connected ? 'Connected' : 'Disconnected';
-                    const item = document.createElement('li');
-                    item.className = 'flex items-center gap-3';
-
-                    const orb = document.createElement('span');
-                    // Written as whole class names so Tailwind's scan finds
-                    // them, and only ones already in the built styles.css, so
-                    // this needs no CSS rebuild.
-                    orb.className = 'inline-block h-3 w-3 shrink-0 rounded-full '
-                        + (connected ? 'bg-emerald-500' : 'bg-zinc-500');
-                    // Colour alone must not be the only carrier of the state.
-                    orb.setAttribute('role', 'img');
-                    orb.setAttribute('aria-label', state_label);
-                    orb.title = state_label;
-                    item.append(orb);
-
-                    const name = document.createElement('span');
-                    name.className = 'grow truncate';
-                    name.textContent = device.Alias || device.Address;
-                    item.append(name);
-
-                    // Which phone owns the speaker right now. Worth saying on
-                    // the row rather than only in the status line: select_route()
-                    // fails closed on two streaming phones, and this explains
-                    // the refusal before it happens.
-                    if (
-                        PLAYING_STATES.has(audioState.state)
-                        && audioDeviceAddress(audioState) === (device.Address || '').toUpperCase()
-                    ) {
-                        const badge = document.createElement('span');
-                        badge.className = 'text-emerald-400 text-sm shrink-0';
-                        badge.textContent = audioState.state === 'call_audio' ? 'on a call' : 'playing';
-                        item.append(badge);
-                    }
-
-                    for (const action of [connected ? 'disconnect' : 'connect', 'forget']) {
-                        const button = document.createElement('button');
-                        button.type = 'button';
-                        // Same shape as the knowledge and wake-up row actions:
-                        // fixed height, a hover colour carrying the weight of
-                        // the action, and an icon beside the label. Only class
-                        // names already in the built styles.css, so this needs
-                        // no CSS rebuild.
-                        button.className = `secondary-action ${DEVICE_ACTIONS[action].hover} h-11 px-3 shrink-0`;
-                        const icon = document.createElement('span');
-                        icon.className = 'material-icons text-base';
-                        icon.textContent = DEVICE_ACTIONS[action].icon;
-                        // The label already says it; the icon is decoration.
-                        icon.setAttribute('aria-hidden', 'true');
-                        button.append(icon);
-                        const label = document.createElement('span');
-                        label.textContent = action[0].toUpperCase() + action.slice(1);
-                        button.append(label);
-                        button.title = DEVICE_ACTIONS[action].title(name.textContent);
-                        button.addEventListener('click', () => {
-                            // Forgetting drops the pairing on Billy's side
-                            // only: the phone still lists him, and it has to be
-                            // forgotten there too before pairing again. Every
-                            // other destructive action in the UI confirms.
-                            if (action === 'forget' && !window.confirm(
-                                `Forget ${name.textContent}? You will need to pair it again, `
-                                + 'and remove Billy from the phone\u2019s Bluetooth settings first.',
-                            )) return;
-                            act(action, { address: device.Address });
-                        });
-                        item.append(button);
-                    }
-                    list.append(item);
-                }
-                // With rows on screen the heading only repeats what they
-                // already show; with none it is what labels the empty state.
-                const empty_list = !list.children.length;
-                el('bt-devices-title').hidden = !empty_list;
-                if (empty_list) {
-                    const empty = document.createElement('li');
-                    empty.className = 'text-slate-400';
-                    empty.textContent = 'No devices paired yet.';
-                    list.append(empty);
-                }
-                const audio = audioState;
-                // Switching is automatic, so this reports rather than offers:
-                // what Billy's audio path is doing right now. Billy writes it
-                // from inside billy.service as the mode changes; it is not a
-                // property of any service being up, which is why nothing here
-                // consults systemd any more.
-                //
-                // Echo cancellation is named because it can be turned off, and
-                // a call that sounds echoey is the first thing to check.
-                const labels = {
-                    idle: 'Not playing. Billy takes over automatically when your phone does.',
-                    waiting: 'Waiting for phone audio',
-                    media_audio: `Playing media${audioDeviceName(state, audio) || ''}`,
-                    call_audio: `On a call${audioDeviceName(state, audio) || ''} · echo cancellation ${audio.aec ? 'active' : 'off'}`,
-                    error: 'Bluetooth audio failed',
-                    stopped: 'Stopped',
-                };
-                el('bt-audio').textContent = blocked || labels[audio.state] || labels.idle;
-                if (audio.state === 'error') el('bt-audio').textContent += `: ${audio.error}`;
+                if (receivedRevision === revision) render(state);
             } catch (error) {
-                el('bt-audio').textContent = `Bluetooth unavailable: ${error.message}`;
-                el('bt-pending').hidden = true;
-                pending = null;
+                if (active && root.isConnected && receivedRevision === revision) showError(error);
             } finally {
                 polling = false;
+                if (refreshQueued) {
+                    refreshQueued = false;
+                    refresh();
+                }
             }
         }
         root.querySelectorAll('[data-action]').forEach((button) => {
             button.addEventListener('click', () => act(button.dataset.action));
         });
-        el('bt-accept').addEventListener('click', () => pending && act('confirm', { id: pending.id, accepted: true }));
-        el('bt-reject').addEventListener('click', () => pending && act('confirm', { id: pending.id, accepted: false }));
-        refresh();
-        let timer = setInterval(refresh, 2000);
-        cleanup = () => clearInterval(timer);
+        let timer = null;
+        const stopPolling = () => {
+            if (timer !== null) clearInterval(timer);
+            timer = null;
+        };
+        const onStatus = (event) => {
+            revision += 1;
+            stopPolling();
+            if (active && !busy && !document.hidden && root.isConnected) render(event.detail);
+        };
+        const resume = () => {
+            if (!active || !root.isConnected || document.hidden) {
+                stopPolling();
+                return;
+            }
+            const snapshot = window.billyWebSocket?.getBluetoothStatus?.();
+            if (snapshot) {
+                stopPolling();
+                if (!busy) render(snapshot);
+            } else if (timer === null) {
+                // Initial load, older backends and a disconnected socket only.
+                refresh();
+                timer = setInterval(refresh, 2000);
+            }
+        };
+        cleanup = () => {
+            active = false;
+            revision += 1;
+            stopPolling();
+            window.removeEventListener('billy:bluetooth:status', onStatus);
+            window.removeEventListener('billy:websocket:disconnected', resume);
+            document.removeEventListener('visibilitychange', resume);
+        };
         root.bluetoothCleanup = cleanup;
         root.bluetoothResume = () => {
-            refresh();
-            timer = setInterval(refresh, 2000);
+            active = true;
+            window.addEventListener('billy:bluetooth:status', onStatus);
+            window.addEventListener('billy:websocket:disconnected', resume);
+            document.addEventListener('visibilitychange', resume);
+            resume();
         };
+        root.bluetoothResume();
     }
 
     return { init };
