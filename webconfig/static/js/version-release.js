@@ -1,8 +1,5 @@
 // ===================== VERSION & UPDATE =====================
 (() => {
-    let websocketDisconnectedDuringUpdate = false;
-    let simulateWatchdogTimer = null;
-    let simulateForceReloadTimer = null;
 
     window.BillyVersionInfo = window.BillyVersionInfo || {
         current: "unknown",
@@ -28,9 +25,6 @@
         return !!info.update_available && current && latest && current !== latest;
     };
 
-    window.addEventListener("billy:websocket:disconnected", () => {
-        websocketDisconnectedDuringUpdate = true;
-    });
 
     const setButtonLoading = (button, loading) => {
         if (!button) return;
@@ -83,163 +77,155 @@
         }));
     };
 
-    const bindUpdateButton = () => {
-        const updateBtn = getUpdateBtn();
-        if (!updateBtn || updateBtn.dataset.bound === "true") return;
-        updateBtn.dataset.bound = "true";
-
-        updateBtn.addEventListener("click", () => {
-            if (!confirm("Are you sure you want to update Billy to the latest version?\n\nThis can take a few minutes. Don't power off the device.")) return;
-            setButtonLoading(updateBtn, true);
-            sessionStorage.setItem("billy:reload_on_ws_reconnect", "1");
-            if (window.LoadingOverlay && window.LoadingOverlay.show) {
-                window.LoadingOverlay.show("Updating software... this can take a few minutes.");
-            }
-            showNotification("Update started");
-            fetch("/update", {method: "POST"})
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === "up-to-date") {
-                        showNotification("Already up to date.", "info");
-                        setButtonLoading(updateBtn, false);
-                        if (window.LoadingOverlay && window.LoadingOverlay.hide) {
-                            window.LoadingOverlay.hide();
-                        }
-                        return;
-                    }
-                    if (data.message) {
-                        showNotification(data.message);
-                    }
-                    let attempts = 0;
-                    const maxAttempts = 24;
-                    const checkForUpdate = async () => {
-                        try {
-                            const res = await fetch("/version");
-                            const versionData = await res.json();
-                            applyVersionInfo(versionData);
-                            if (versionData.update_available === false) {
-                                showNotification("Update complete. Reloading...", "info");
-                                setButtonLoading(updateBtn, false);
-                                setTimeout(() => location.reload(), 1500);
-                                return;
-                            }
-                        } catch (err) {
-                            console.error("Version check failed:", err);
-                        }
-                        attempts += 1;
-                        if (attempts < maxAttempts) {
-                            setTimeout(checkForUpdate, 5000);
-                        } else {
-                            showNotification("Update timed out after 2 minutes. Reloading");
-                            setButtonLoading(updateBtn, false);
-                            setTimeout(() => location.reload(), 1500);
-                        }
-                    };
-                    setTimeout(checkForUpdate, 5000);
-                })
-                .catch(err => {
-                    console.error("Failed to update:", err);
-                    showNotification("Failed to update", "error");
-                    setButtonLoading(updateBtn, false);
-                    if (window.LoadingOverlay && window.LoadingOverlay.hide) {
-                        window.LoadingOverlay.hide();
-                    }
-                });
-        });
+    let recoveryVersions = {current: 'Checking…', previous: null, available: false};
+    const setText = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = value;
     };
+    const setSoftwareProgress = message => {
+        setText('software-operation-status', message);
+        setText('recovery-software-status', message);
+    };
+    const renderRecovery = () => {
+        setText('recovery-current-version', recoveryVersions.current);
+        setText('recovery-previous-version', recoveryVersions.available
+            ? (recoveryVersions.previous || 'Version unknown') : 'No previous version saved');
+        setText('recovery-previous-help', recoveryVersions.available
+            ? 'Return to this saved installation.' : 'Available after a successful software installation.');
+    };
+    let softwareTimer = null;
+    let softwareBusy = false;
+    let sawSoftwareJob = false;
+    let softwarePolling = false;
+    let softwareStatusKnown = false;
+    let submittingSoftware = false;
+    let packagesChecking = false;
+    let lastJobId = null;
+    let awaitingNewJob = false;
+    let requestDeadline = 0;
+    const busyStates = new Set(['queued', 'preparing', 'installing_packages', 'activating', 'validating', 'rolling_back']);
+    const actionButtons = () => [getUpdateBtn(), getSimulateUpdateBtn(), document.getElementById('rollback-software-btn'), document.getElementById('repair-packages-btn')];
 
-    const bindSimulateUpdateButton = () => {
-        const simulateUpdateBtn = getSimulateUpdateBtn();
-        if (!simulateUpdateBtn || simulateUpdateBtn.dataset.bound === "true") return;
-        simulateUpdateBtn.dataset.bound = "true";
+    async function softwareJson(url, options = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        try {
+            const response = await fetch(url, {...options, cache: 'no-store', signal: controller.signal});
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error || 'Software operation failed');
+            return body;
+        } finally { clearTimeout(timer); }
+    }
 
-        simulateUpdateBtn.addEventListener("click", async () => {
-            setButtonLoading(simulateUpdateBtn, true);
-            sessionStorage.setItem("billy:reload_on_ws_reconnect", "1");
-            if (window.LoadingOverlay && window.LoadingOverlay.show) {
-                window.LoadingOverlay.show("Reinstalling current version...");
+    async function pollSoftware() {
+        if (softwarePolling) return;
+        softwarePolling = true;
+        clearTimeout(softwareTimer);
+        try {
+            const data = await softwareJson('/software/status');
+            softwareStatusKnown = true;
+            recoveryVersions = {current: data.current || window.BillyVersionInfo.current || 'Version unknown',
+                previous: data.previous || null, available: !!data.rollback_available};
+            renderRecovery();
+            const job = data.job || {};
+            if (awaitingNewJob && (!job.id || job.id === lastJobId)) {
+                if (Date.now() < requestDeadline) return;
+                awaitingNewJob = false;
+                sawSoftwareJob = false;
+                showNotification('The request could not be confirmed. Check the status before trying again.', 'warning');
+            } else if (awaitingNewJob) awaitingNewJob = false;
+            lastJobId = job.id || null;
+            softwareBusy = submittingSoftware || busyStates.has(job.state);
+            setSoftwareProgress(job.message || '');
+            actionButtons().forEach(button => setButtonLoading(button, softwareBusy));
+            const rollback = document.getElementById('rollback-software-btn');
+            if (rollback) rollback.disabled = softwareBusy || !data.rollback_available;
+            const packages = data.packages || {};
+            packagesChecking = packages.state === 'checking';
+            const packageMessage = document.getElementById('system-packages-status');
+            const packageSummary = document.getElementById('system-packages-summary');
+            const message = packages.message || 'System-component checks require the compatibility update.';
+            const needsAttention = packages.state === 'attention';
+            if (packageSummary) packageSummary.textContent = needsAttention
+                ? 'Check and repair the components Billy needs to run.' : message;
+            if (packageMessage) packageMessage.textContent = needsAttention || !packageSummary ? message : '';
+            const packageDetails = document.getElementById('system-packages-details');
+            if (packageDetails) packageDetails.textContent = [...(packages.missing || []), ...(packages.damaged || []), ...(packages.updates || [])].join(', ');
+            const repair = document.getElementById('repair-packages-btn');
+            if (repair) {
+                repair.hidden = !packages.repairable;
+                repair.disabled = softwareBusy || !packages.repairable;
             }
-            showNotification("Reinstall current version started", "info");
-            let waitForReconnect = false;
-            websocketDisconnectedDuringUpdate = false;
-            if (simulateWatchdogTimer) clearTimeout(simulateWatchdogTimer);
-            if (simulateForceReloadTimer) {
-                clearTimeout(simulateForceReloadTimer);
-                simulateForceReloadTimer = null;
+            const packageOperation = job.state === 'installing_packages'
+                || (job.action === 'packages' && (softwareBusy || (job.state === 'failed' && packages.state !== 'ready')));
+            setText('system-packages-operation', packageOperation ? (job.message || '') : '');
+            if (softwareBusy) sawSoftwareJob = true;
+            else if (sawSoftwareJob) {
+                sawSoftwareJob = false;
+                if (job.state === 'complete' || job.state === 'rolled_back') {
+                    showNotification(job.message, job.state === 'complete' ? 'success' : 'warning');
+                    setTimeout(() => location.reload(), 1200);
+                } else if (job.state === 'failed') showNotification(job.message, 'error');
             }
-            simulateWatchdogTimer = setTimeout(() => {
-                setButtonLoading(simulateUpdateBtn, false);
-                if (window.LoadingOverlay && window.LoadingOverlay.hide) {
-                    window.LoadingOverlay.hide();
-                }
-                showNotification("Reinstall timeout reached. Reloading page...", "warning", 3000);
-                setTimeout(() => location.reload(), 1200);
-            }, 30000);
-            try {
-                const controller = new AbortController();
-                const requestTimeout = setTimeout(() => controller.abort(), 15000);
-                let data;
-                try {
-                    data = await requestJson("/update-simulate", {
-                        method: "POST",
-                        signal: controller.signal,
-                        accept: (body, res) => res.ok && body && body.status !== "error",
-                        error: "Reinstall failed",
-                    });
-                } finally {
-                    // Also on the failure path, where an abandoned abort timer
-                    // used to fire long after the request had already failed.
-                    clearTimeout(requestTimeout);
-                }
-                if (data.status === "restarting") {
-                    showNotification(data.message || "Restarting services...", "success");
-                    waitForReconnect = true;
-                    simulateForceReloadTimer = setTimeout(() => {
-                        showNotification("Reinstall complete. Reloading page...", "info", 2500);
-                        location.reload();
-                    }, 10000);
-                    setTimeout(() => {
-                        if (!websocketDisconnectedDuringUpdate) {
-                            if (simulateWatchdogTimer) {
-                                clearTimeout(simulateWatchdogTimer);
-                                simulateWatchdogTimer = null;
-                            }
-                            setButtonLoading(simulateUpdateBtn, false);
-                            if (window.LoadingOverlay && window.LoadingOverlay.hide) {
-                                window.LoadingOverlay.hide();
-                            }
-                            if (simulateForceReloadTimer) {
-                                clearTimeout(simulateForceReloadTimer);
-                                simulateForceReloadTimer = null;
-                            }
-                            showNotification("No restart detected. Reloading page...", "warning", 3000);
-                            setTimeout(() => location.reload(), 1200);
-                        }
-                    }, 8000);
+        } catch (error) {
+            // The job continues independently. Never resend a POST after timeout.
+            if (sawSoftwareJob) setSoftwareProgress('Reconnecting to Billy… The software operation continues.');
+        } finally {
+            softwarePolling = false;
+            if (softwareBusy || sawSoftwareJob || packagesChecking) softwareTimer = setTimeout(pollSoftware, 2000);
+        }
+    }
+
+    function bindSoftwareButton(button, url, confirmation) {
+        if (!button || button.dataset.bound === 'true') return;
+        button.dataset.bound = 'true';
+        button.addEventListener('click', async () => {
+            if (!softwareStatusKnown) {
+                await pollSoftware();
+                if (!softwareStatusKnown) {
+                    showNotification('Waiting for the software status. Please try again shortly.', 'info');
                     return;
                 }
-                showNotification(data.message || "Reinstall complete", "success");
-            } catch (err) {
-                console.error("Failed to reinstall current version:", err);
-                showNotification("Failed to reinstall current version", "error");
-            } finally {
-                if (!waitForReconnect) {
-                    if (simulateWatchdogTimer) {
-                        clearTimeout(simulateWatchdogTimer);
-                        simulateWatchdogTimer = null;
-                    }
-                    if (simulateForceReloadTimer) {
-                        clearTimeout(simulateForceReloadTimer);
-                        simulateForceReloadTimer = null;
-                    }
-                    setButtonLoading(simulateUpdateBtn, false);
-                    if (window.LoadingOverlay && window.LoadingOverlay.hide) {
-                        window.LoadingOverlay.hide();
-                    }
-                }
             }
+            if (softwareBusy || submittingSoftware || !confirm(typeof confirmation === 'function' ? confirmation() : confirmation)) return;
+            softwareBusy = true;
+            submittingSoftware = true;
+            awaitingNewJob = true;
+            requestDeadline = Date.now() + 30000;
+            sawSoftwareJob = true;
+            actionButtons().forEach(item => setButtonLoading(item, true));
+            try { sessionStorage.removeItem('billy:reload_on_ws_reconnect'); } catch (_) { /* Storage may be disabled. */ }
+            try {
+                const data = await softwareJson(url, {method: 'POST', headers: {'X-Billy-Update': '1'}});
+                if (data.job?.id) awaitingNewJob = false;
+                if (data.status === 'up-to-date') {
+                    awaitingNewJob = false;
+                    sawSoftwareJob = false;
+                    showNotification('Already up to date.', 'info');
+                }
+            } catch (error) {
+                if (error.name !== 'AbortError' && !(error instanceof TypeError)) {
+                    sawSoftwareJob = false;
+                    awaitingNewJob = false;
+                    softwareBusy = false;
+                }
+                showNotification(error.name === 'AbortError'
+                    ? 'Checking whether Billy accepted the request…'
+                    : error.message, 'warning');
+            }
+            submittingSoftware = false;
+            await pollSoftware();
         });
-    };
+    }
+
+    const bindUpdateButton = () => bindSoftwareButton(getUpdateBtn(), '/update',
+        'Update Billy? The new software is prepared first. Billy restarts briefly when it is ready. Keep the power connected.');
+    const bindSimulateUpdateButton = () => bindSoftwareButton(getSimulateUpdateBtn(), '/update-simulate',
+        () => `Reinstall ${recoveryVersions.current}? Your settings, profiles and memories are kept.`);
+    const bindPackagesButton = () => bindSoftwareButton(document.getElementById('repair-packages-btn'), '/software/packages',
+        'Install or repair Billy’s required system components? Billy may pause briefly. Your settings are kept. Keep the power connected.');
+    const bindRollbackButton = () => bindSoftwareButton(document.getElementById('rollback-software-btn'), '/software/rollback',
+        () => `Restore ${recoveryVersions.previous || 'the previous installation'}? Current version: ${recoveryVersions.current}. Your settings, profiles and memories are kept.`);
 
     Promise.resolve(window.BootstrapData?.take("version"))
         .then(bootstrapped => bootstrapped || fetch("/version").then(res => res.json()))
@@ -249,18 +235,9 @@
             refreshUi();
         });
 
-    window.addEventListener("billy:websocket:connected", () => {
-        setButtonLoading(getUpdateBtn(), false);
-        setButtonLoading(getSimulateUpdateBtn(), false);
-        websocketDisconnectedDuringUpdate = false;
-        if (simulateWatchdogTimer) {
-            clearTimeout(simulateWatchdogTimer);
-            simulateWatchdogTimer = null;
-        }
-        if (simulateForceReloadTimer) {
-            clearTimeout(simulateForceReloadTimer);
-            simulateForceReloadTimer = null;
-        }
+    window.addEventListener('billy:websocket:connected', pollSoftware);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) pollSoftware();
     });
 
     window.BillyVersionUI = {
@@ -268,6 +245,9 @@
             refreshUi();
             bindUpdateButton();
             bindSimulateUpdateButton();
+            bindRollbackButton();
+            bindPackagesButton();
+            pollSoftware();
         },
     };
 })();

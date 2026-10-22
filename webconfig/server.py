@@ -1,28 +1,58 @@
+"""Supervised web UI with a hardware-independent recovery mode."""
+
 import os
-
-from dotenv import load_dotenv
-
-
-# Ensure .env is loaded before any imports that depend on it
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-env_path = os.path.join(project_root, ".env")
-load_dotenv(dotenv_path=env_path, override=True)
-
-from app import create_app
-from app.core_imports import core_config
-
-# Initialize user manager to load default user and persona
-from core.profile_manager import user_manager
+import sys
+from pathlib import Path
 
 
-user_manager.load_default_user()
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+# Prefer webconfig/app over any legacy app/ directory in the project root.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-app = create_app()
 
-if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(core_config.FLASK_PORT),
-        debug=False,
-        use_reloader=False,
-    )
+def normal_app():
+    from app import create_app
+
+    from core.profile_manager import user_manager
+
+    user_manager.load_default_user()
+    app = create_app()
+    from flask import redirect
+
+    from billy_runtime.paths import INSTALL_ROOT
+    from billy_runtime.recovery import Recovery
+
+    # Normal recovery lives in Advanced Settings. The independent emergency
+    # app is launched only by the supervisor when the normal app cannot run.
+    @app.get('/repair/')
+    @app.get('/repair/recovery')
+    def repair_settings():
+        return redirect('/settings#section-advanced-settings')
+
+    @app.get('/__runtime_health')
+    def runtime_health():
+        return {'status': 'ok', 'revision': os.environ.get('BILLY_APPLIED_REVISION')}
+
+    @app.context_processor
+    def recovery_context():
+        return {'recovery_notice': Recovery(INSTALL_ROOT).notice()}
+
+    return app
+
+
+if __name__ == '__main__':
+    from billy_runtime.supervisor import monitor, serve, worker_environment
+
+    if '--billy-worker' not in sys.argv:
+        monitor(Path(__file__), 'web')
+    else:
+        worker_environment()
+        if os.environ['BILLY_WORKER_MODE'] == 'recovery':
+            from billy_runtime.paths import INSTALL_ROOT
+            from billy_runtime.recovery import Recovery
+            from billy_runtime.recovery_ui import create_recovery_app
+
+            serve(create_recovery_app(Recovery(INSTALL_ROOT)), wait_for_start=False)
+        else:
+            serve(normal_app())

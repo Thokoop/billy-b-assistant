@@ -12,6 +12,8 @@ from typing import Any
 
 import websockets.exceptions
 
+from billy_runtime.worker import monitored_session
+
 from . import audio
 from .config import (
     AEC_BARGE_IN_SNR_DB,
@@ -1417,6 +1419,7 @@ class BillySession:
         await self._close_ws()
 
     # ---- Mic helpers -------------------------------------------------
+    @monitored_session
     async def start(self):
         self.loop = asyncio.get_running_loop()
         logger.info("Session starting...", "⏱️")

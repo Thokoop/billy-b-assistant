@@ -2,8 +2,10 @@
 
 from pathlib import Path
 
+from billy_runtime.paths import INSTALL_ROOT
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+PROJECT_ROOT = INSTALL_ROOT
 ONBOARDING_FLAG = PROJECT_ROOT / "setup" / ".wifi_onboarding_active"
 
 

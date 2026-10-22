@@ -11,6 +11,32 @@ from dbus_next.aio import MessageBus
 from dbus_next.errors import DBusError
 from dbus_next.service import ServiceInterface, method
 
+from billy_runtime import bluetooth_preferences
+
+
+A2DP_SOURCE = "0000110a-0000-1000-8000-00805f9b34fb"
+A2DP_SINK = "0000110b-0000-1000-8000-00805f9b34fb"
+CONNECT_TIMEOUT_SECONDS = 12
+MEDIA_CONNECT_TIMEOUT_SECONDS = 10
+MEDIA_CONNECT_ATTEMPTS = 4
+MEDIA_RETRY_ERRORS = {
+    "org.bluez.Error.InProgress",
+    "org.bluez.Error.NotReady",
+    "org.bluez.Error.NotAvailable",
+    "org.bluez.Error.Failed",
+}
+
+
+def media_connected(objects, device_path):
+    """An idle A2DP transport counts too; playback need not have started."""
+    for interfaces in objects.values():
+        props = interfaces.get("org.bluez.MediaTransport1", {})
+        if props.get("Device", Variant("o", "/")).value == device_path and props.get(
+            "UUID", Variant("s", "")
+        ).value.lower() in {A2DP_SOURCE, A2DP_SINK}:
+            return True
+    return False
+
 
 AUDIO_SERVICES = {
     "0000110a-0000-1000-8000-00805f9b34fb",  # A2DP source
@@ -66,11 +92,14 @@ class PairingAgent(ServiceInterface):
 
 
 class BluezController:
-    def __init__(self):
-        self.loop = asyncio.new_event_loop()
-        threading.Thread(
-            target=self.loop.run_forever, daemon=True, name="bluetooth-pairing"
-        ).start()
+    def __init__(self, *, threaded=True):
+        if threaded:
+            self.loop = asyncio.new_event_loop()
+            threading.Thread(
+                target=self.loop.run_forever, daemon=True, name="bluetooth-pairing"
+            ).start()
+        else:
+            self.loop = asyncio.get_running_loop()
         self.bus = None
         self.registered = False
         self.pending = None
@@ -108,8 +137,10 @@ class BluezController:
         await props.call_set(interface, name, Variant(signature, value))
 
     async def status(self):
+        sampled_at = time.monotonic()
         objects = await self.objects()
         devices = []
+        selected = bluetooth_preferences.selected()
         adapter = None
         for path, interfaces in objects.items():
             if "org.bluez.Adapter1" in interfaces and adapter is None:
@@ -121,15 +152,26 @@ class BluezController:
                 }
             if "org.bluez.Device1" in interfaces:
                 props = interfaces["org.bluez.Device1"]
-                devices.append({
+                device = {
                     key: value.value
                     for key, value in props.items()
                     if key in {"Address", "Alias", "Paired", "Connected"}
-                })
+                }
+                device["AutoConnect"] = (
+                    bool(device.get("Paired")) and device.get("Address") in selected
+                )
+                device["MediaSupported"] = A2DP_SOURCE in {
+                    uuid.lower() for uuid in props.get("UUIDs", Variant("as", [])).value
+                }
+                device["MediaConnected"] = bool(
+                    device.get("Connected")
+                ) and media_connected(objects, path)
+                devices.append(device)
         pending = None
         if self.pending:
             pending = {k: v for k, v in self.pending.items() if k != "future"}
         return {
+            "sampled_at": sampled_at,
             "adapter": adapter,
             "devices": devices,
             "pending": pending,
@@ -253,6 +295,118 @@ class BluezController:
     def reject_pending(self):
         self.pending = None
 
+    async def connect_audio(self, device, path, initial_props):
+        try:
+            await device.call_connect()
+        except DBusError as exc:
+            if exc.type not in {
+                "org.bluez.Error.AlreadyConnected",
+                "org.bluez.Error.InProgress",
+            }:
+                raise
+        # Connect can complete with HFP while discovery/A2DP is still starting.
+        # Keep the existing call/link intact and retry only the media profile.
+        deadline = time.monotonic() + MEDIA_CONNECT_TIMEOUT_SECONDS
+        next_attempt = 0
+        attempts = 0
+        accepted = False
+        saw_connected = bool(initial_props.get("Connected", Variant("b", False)).value)
+        while time.monotonic() < deadline:
+            current = await self.objects()
+            props = current.get(path, {}).get("org.bluez.Device1", {})
+            if not props or not props.get("Paired", Variant("b", False)).value:
+                raise RuntimeError("Bluetooth device is no longer paired or available")
+            connected = props.get("Connected", Variant("b", False)).value
+            if saw_connected and not connected:
+                raise RuntimeError("Phone disconnected while connecting media audio")
+            saw_connected = saw_connected or connected
+            if connected and media_connected(current, path):
+                return
+            resolved = props.get("ServicesResolved")
+            uuids = props.get("UUIDs", initial_props.get("UUIDs", Variant("as", [])))
+            supports_media = A2DP_SOURCE in {uuid.lower() for uuid in uuids.value}
+            if connected and (resolved is None or resolved.value):
+                if not supports_media:
+                    return  # A device without A2DP needs no media connection.
+                if (
+                    not accepted
+                    and attempts < MEDIA_CONNECT_ATTEMPTS
+                    and time.monotonic() >= next_attempt
+                ):
+                    attempts += 1
+                    try:
+                        await device.call_connect_profile(A2DP_SOURCE)
+                        accepted = True
+                    except DBusError as exc:
+                        if exc.type == "org.bluez.Error.AlreadyConnected":
+                            accepted = True
+                        elif exc.type in MEDIA_RETRY_ERRORS:
+                            logging.getLogger(__name__).info(
+                                "Bluetooth media attempt %s/%s deferred: %s (%s)",
+                                attempts,
+                                MEDIA_CONNECT_ATTEMPTS,
+                                exc.type,
+                                exc.text,
+                            )
+                            next_attempt = time.monotonic() + min(
+                                2 ** (attempts - 1), 4
+                            )
+                        else:
+                            raise RuntimeError(
+                                "Media audio could not connect. Check Bluetooth on your phone."
+                            ) from exc
+            # A successful D-Bus return alone does not mean audio is ready yet.
+            await asyncio.sleep(0.25)
+        logging.getLogger(__name__).warning(
+            "Bluetooth media transport did not become ready after %s profile attempts",
+            attempts,
+        )
+        raise TimeoutError("Bluetooth media transport not ready")
+
+    async def disconnect_audio(self, device, path):
+        """One UI action tears down the whole link, including racing profiles."""
+        deadline = time.monotonic() + 6
+        next_attempt = 0
+        attempts = 0
+        disconnected_since = None
+        while time.monotonic() < deadline:
+            now = time.monotonic()
+            if disconnected_since is None and now >= next_attempt and attempts < 3:
+                attempts += 1
+                try:
+                    await device.call_disconnect()
+                except DBusError as exc:
+                    if exc.type not in {
+                        "org.bluez.Error.NotConnected",
+                        "org.bluez.Error.InProgress",
+                    }:
+                        raise
+                next_attempt = time.monotonic() + 1
+            props = (await self.objects()).get(path, {}).get("org.bluez.Device1", {})
+            if not props.get("Connected", Variant("b", False)).value:
+                # A just-completing profile connection may bring the link back.
+                # Do not report success on that brief disconnected transition.
+                if disconnected_since is None:
+                    disconnected_since = time.monotonic()
+                if time.monotonic() - disconnected_since >= 0.5:
+                    return
+            else:
+                disconnected_since = None
+            await asyncio.sleep(0.1)
+        raise TimeoutError("Bluetooth device is still connected")
+
+    async def set_auto_connect(self, address, enabled):
+        for interfaces in (await self.objects()).values():
+            props = interfaces.get("org.bluez.Device1", {})
+            if props.get("Address", Variant("s", "")).value == address:
+                if not props.get("Paired", Variant("b", False)).value:
+                    raise ValueError("Pair this device from your phone first")
+                await asyncio.to_thread(
+                    bluetooth_preferences.set_enabled, address, enabled
+                )
+                return {"ok": True}
+        raise ValueError("Device not found")
+
     async def device_action(self, address, action):
         objects = await self.objects()
         for path, interfaces in objects.items():
@@ -264,6 +418,9 @@ class BluezController:
                     path.rsplit("/", 1)[0], "org.bluez.Adapter1"
                 )
                 await adapter.call_remove_device(path)
+                await asyncio.to_thread(
+                    bluetooth_preferences.set_enabled, address, False
+                )
             else:
                 if (
                     action == "connect"
@@ -272,9 +429,25 @@ class BluezController:
                     raise ValueError("Pair this device from your phone first")
                 device = await self.interface(path, "org.bluez.Device1")
                 if action == "connect":
-                    await device.call_connect()
+                    try:
+                        await asyncio.wait_for(
+                            self.connect_audio(device, path, props),
+                            timeout=CONNECT_TIMEOUT_SECONDS,
+                        )
+                    except TimeoutError as exc:
+                        raise RuntimeError(
+                            "Media audio could not connect in time. "
+                            "Select Billy Bassistant on your phone or try again."
+                        ) from exc
                 elif action == "disconnect":
-                    await device.call_disconnect()
+                    try:
+                        await asyncio.wait_for(
+                            self.disconnect_audio(device, path), timeout=8
+                        )
+                    except TimeoutError as exc:
+                        raise RuntimeError(
+                            "Phone is still connected. Disconnect Billy in your phone's Bluetooth settings."
+                        ) from exc
                 else:
                     raise ValueError("Unknown device action")
             return {"ok": True}

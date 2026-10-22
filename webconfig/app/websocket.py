@@ -126,6 +126,13 @@ def _read_device_info():
     return snapshot
 
 
+def _read_recovery_status():
+    from billy_runtime.recovery import Recovery
+
+    return Recovery().notice()
+
+
+_recovery_status = _BackgroundStatus('recovery', _read_recovery_status, 2)
 _bluetooth_status = _BackgroundStatus('bluetooth', _read_bluetooth_status, 2)
 _device_info_status = _BackgroundStatus('device-info', _read_device_info, 5)
 
@@ -141,6 +148,7 @@ def websocket_handler(ws):
             # Check for status changes
             status = get_service_status()
             for name, sampler in (
+                ('recovery', _recovery_status),
                 ('bluetooth', _bluetooth_status),
                 ('device_info', _device_info_status),
             ):

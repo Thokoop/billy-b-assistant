@@ -11,12 +11,15 @@ start, so its modification time answers "since when has Billy been ready".
 """
 
 import contextlib
+import json
 import os
 import time
-from pathlib import Path
+
+from billy_runtime.paths import INSTALL_ROOT
+from billy_runtime.storage import runtime_directory
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = INSTALL_ROOT
 READY_MARKER_PATH = PROJECT_ROOT / "state" / "ready"
 
 
@@ -43,6 +46,11 @@ def ready_at() -> float | None:
     are not fooled by it.
     """
     try:
+        report_path = runtime_directory(PROJECT_ROOT) / "core.json"
+        if report_path.exists():
+            report = json.loads(report_path.read_text())
+            if not report.get("healthy") or time.time() - report.get("seen", 0) > 8:
+                return None
         return READY_MARKER_PATH.stat().st_mtime
-    except OSError:
+    except (OSError, ValueError, TypeError):
         return None

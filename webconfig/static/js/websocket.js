@@ -4,6 +4,34 @@ let reconnectTimeout = null;
 let bluetoothStatus = null;
 let deviceInfo = null;
 
+// Recovery is confirmed by both workers, not systemd's "active" flag.
+// Missing/failed snapshots keep the last notice rather than hiding a problem.
+window.updateRecoveryNotice = (notice) => {
+    if (!notice || typeof notice.active !== 'boolean') return;
+    const configuration = notice.kind === 'configuration';
+    const action = configuration
+        ? {label: 'Open .env editor', run: () => window.LogPanel?.openEnvEditorModal()}
+        : notice.kind === 'startup' ? null
+        : {label: 'Open Debug', run: () => window.LogPanel?.openLogPanel()};
+    window.NotificationBar?.setPersistent(notice.active ? {
+        message: notice.message || 'Settings are awaiting a successful startup.',
+        type: 'warning',
+        action,
+    } : null);
+    const editorNotice = document.getElementById('env-recovery-notice');
+    if (editorNotice) {
+        editorNotice.hidden = !notice.active || !configuration;
+        editorNotice.textContent = configuration ? (notice.message || 'Configuration needs attention.') : '';
+    }
+};
+
+// Seed the same bar from the server before the first live status arrives.
+const initialRecoveryNotice = document.getElementById('notification')?.dataset.recoveryNotice;
+if (initialRecoveryNotice) {
+    try { window.updateRecoveryNotice(JSON.parse(initialRecoveryNotice)); }
+    catch (error) { console.warn('Could not read initial recovery status', error); }
+}
+
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -26,6 +54,7 @@ function connectWebSocket() {
             if (message.type === 'status') {
                 const statusData = message.data;
                 if (statusData && typeof statusData === 'object') {
+                    window.updateRecoveryNotice(statusData.recovery);
                     if (statusData.bluetooth && typeof statusData.bluetooth === 'object') {
                         bluetoothStatus = statusData.bluetooth;
                         window.dispatchEvent(new CustomEvent('billy:bluetooth:status', {detail: bluetoothStatus}));

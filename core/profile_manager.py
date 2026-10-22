@@ -5,10 +5,12 @@ Handles user identification, memory storage, and profile management.
 
 import configparser
 import json
-import os
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
+from billy_runtime.configuration import ROOT
+from billy_runtime.profiles import profile_edit, profile_lock
+from billy_runtime.storage import write_ini
 
 from .logger import logger
 
@@ -17,9 +19,12 @@ class UserProfile:
     """Represents a user profile with memories and preferences."""
 
     def __init__(self, name: str):
+        if not name or any(char in name for char in '/\\\x00') or name in {'.', '..'}:
+            raise ValueError("Invalid profile name")
         self.name = name
-        self.profile_path = Path("profiles") / f"{name.lower()}.ini"
-        self.data = self._load_or_create_profile()
+        self.profile_path = (ROOT / "profiles") / f"{name.lower()}.ini"
+        with profile_lock():
+            self.data = self._load_or_create_profile()
 
     def _load_or_create_profile(self) -> dict[str, Any]:
         """Load existing profile or create new one."""
@@ -29,7 +34,7 @@ class UserProfile:
 
     def _load_profile(self) -> dict[str, Any]:
         """Load profile from INI file."""
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config.read(self.profile_path)
 
         # Convert INI to dict
@@ -66,7 +71,7 @@ class UserProfile:
                             f"Recovered {len(recovered_memories)} memories for {self.name}"
                         )
                         # Save the recovered memories back to the file
-                        self._save_profile()
+                        # Keep recovered data in memory; persist only on an explicit update.
                     else:
                         data['core_memories'] = []
                         logger.warning(
@@ -171,89 +176,88 @@ class UserProfile:
         except Exception as e:
             logger.warning(f"Failed to set guest as default user: {e}")
 
-    def _save_profile(self, data: Optional[dict[str, Any]] = None):
+    def _save_profile(self, data: dict[str, Any] | None = None):
         """Save profile to INI file."""
-        if data is None:
-            data = self.data
+        with profile_lock(self.profile_path.parent.parent):
+            if data is None:
+                data = self.data
 
-        existing_config = configparser.ConfigParser()
-        existing_config.read(self.profile_path)
-        existing_mood = (
-            dict(existing_config["MOOD"])
-            if existing_config.has_section("MOOD")
-            else None
-        )
-        mood_defaults = {
-            'positivity': '50',
-            'energy': '50',
-            'irritability': '30',
-            'engagement': '50',
-            'composure': '50',
-            'label': 'neutral',
-            'last_updated': '',
-            'last_event': 'startup',
-            'memory': '[]',
-        }
-        mood_keys = set(mood_defaults)
+            existing_config = configparser.ConfigParser(interpolation=None)
+            existing_config.read(self.profile_path)
+            existing_mood = (
+                dict(existing_config["MOOD"])
+                if existing_config.has_section("MOOD")
+                else None
+            )
+            mood_defaults = {
+                'positivity': '50',
+                'energy': '50',
+                'irritability': '30',
+                'engagement': '50',
+                'composure': '50',
+                'label': 'neutral',
+                'last_updated': '',
+                'last_event': 'startup',
+                'memory': '[]',
+            }
+            mood_keys = set(mood_defaults)
 
-        config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
 
-        # Convert dict to INI sections
-        for section_name, section_data in data.items():
-            if section_name == 'core_memories':
-                continue  # Handle separately
-            if section_name == 'MOOD':
-                section_data = {
+            # Convert dict to INI sections
+            for section_name, section_data in data.items():
+                if section_name == 'core_memories':
+                    continue  # Handle separately
+                if section_name == 'MOOD':
+                    section_data = {
+                        **mood_defaults,
+                        **{
+                            key: value
+                            for key, value in section_data.items()
+                            if key in mood_keys
+                        },
+                    }
+
+                if not config.has_section(section_name):
+                    config.add_section(section_name)
+                for key, value in section_data.items():
+                    # Handle JSON fields properly
+                    if key == 'aliases' and isinstance(value, list):
+                        config.set(section_name, key, json.dumps(value))
+                    else:
+                        config.set(section_name, key, str(value))
+
+            # Save core memories as JSON
+            if not config.has_section('CORE_MEMORIES'):
+                config.add_section('CORE_MEMORIES')
+            config.set(
+                'CORE_MEMORIES', 'memories', json.dumps(data.get('core_memories', []))
+            )
+
+            # Mood can be updated independently by MoodManager during a session.
+            # Preserve the freshest on-disk mood section so later profile saves
+            # (interaction count, display name, persona changes) do not overwrite it
+            # with stale data from an older UserProfile instance.
+            if existing_mood and any(key in existing_mood for key in mood_defaults):
+                if not config.has_section('MOOD'):
+                    config.add_section('MOOD')
+                fresh_mood = {
                     **mood_defaults,
                     **{
                         key: value
-                        for key, value in section_data.items()
+                        for key, value in existing_mood.items()
                         if key in mood_keys
                     },
                 }
+                for key, value in fresh_mood.items():
+                    config.set('MOOD', key, str(value))
 
-            if not config.has_section(section_name):
-                config.add_section(section_name)
-            for key, value in section_data.items():
-                # Handle JSON fields properly
-                if key == 'aliases' and isinstance(value, list):
-                    config.set(section_name, key, json.dumps(value))
-                else:
-                    config.set(section_name, key, str(value))
+            # Ensure directory exists
+            self.profile_path.parent.mkdir(exist_ok=True)
 
-        # Save core memories as JSON
-        if not config.has_section('CORE_MEMORIES'):
-            config.add_section('CORE_MEMORIES')
-        config.set(
-            'CORE_MEMORIES', 'memories', json.dumps(data.get('core_memories', []))
-        )
+            write_ini(self.profile_path, config)
 
-        # Mood can be updated independently by MoodManager during a session.
-        # Preserve the freshest on-disk mood section so later profile saves
-        # (interaction count, display name, persona changes) do not overwrite it
-        # with stale data from an older UserProfile instance.
-        if existing_mood and any(key in existing_mood for key in mood_defaults):
-            if not config.has_section('MOOD'):
-                config.add_section('MOOD')
-            fresh_mood = {
-                **mood_defaults,
-                **{
-                    key: value
-                    for key, value in existing_mood.items()
-                    if key in mood_keys
-                },
-            }
-            for key, value in fresh_mood.items():
-                config.set('MOOD', key, str(value))
-
-        # Ensure directory exists
-        self.profile_path.parent.mkdir(exist_ok=True)
-
-        with open(self.profile_path, 'w') as f:
-            config.write(f)
-            f.flush()  # Flush Python buffer
-            os.fsync(f.fileno())  # Force write to disk
-
+    @profile_edit
     def add_memory(
         self, memory: str, importance: str = "medium", category: str = "fact"
     ):
@@ -292,11 +296,13 @@ class UserProfile:
             # Remove the problematic memory
             self.data['core_memories'] = self.data['core_memories'][:-1]
 
+    @profile_edit
     def update_last_seen(self):
         """Update the last seen timestamp."""
         self.data['USER_INFO']['last_seen'] = datetime.now().isoformat()
         self._save_profile()
 
+    @profile_edit
     def increment_interaction_count(self):
         """Increment the interaction count and update last_seen (called at end of session)."""
         interaction_count = int(self.data['USER_INFO'].get('interaction_count', '0'))
@@ -308,12 +314,14 @@ class UserProfile:
             "👤",
         )
 
+    @profile_edit
     def set_preferred_persona(self, persona: str):
         """Set the user's preferred Billy persona."""
         self.data['USER_INFO']['preferred_persona'] = persona
         self._save_profile()
         logger.info(f"Set {self.name}'s preferred persona to {persona}", "🎭")
 
+    @profile_edit
     def set_display_name(self, display_name: str):
         """Set the user's display name."""
         self.data['USER_INFO']['display_name'] = display_name
@@ -328,12 +336,13 @@ class UserProfile:
         """Get current time in system timezone."""
         return datetime.now()
 
+    @profile_edit
     def fix_corrupted_memories(self):
         """Manually fix corrupted memories by reading the raw INI file."""
         try:
             import configparser
 
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             config.read(self.profile_path)
 
             if config.has_section('CORE_MEMORIES'):
@@ -405,27 +414,27 @@ class UserProfileManager:
     """Manages user profiles and current user state."""
 
     def __init__(self):
-        self.current_user: Optional[UserProfile] = None
-        self.profiles_dir = Path("profiles")
+        self.current_user: UserProfile | None = None
+        self.profiles_dir = ROOT / "profiles"
         self.profiles_dir.mkdir(exist_ok=True)
 
-    def find_user_by_name_or_display_name(self, name: str) -> Optional[str]:
+    def find_user_by_name_or_display_name(self, name: str) -> str | None:
         """Find a user profile by name or display name. Returns the actual profile name if found."""
         name = name.strip().title()
 
         # First check if there's an exact match
-        profile_path = Path("profiles") / f"{name.lower()}.ini"
+        profile_path = (ROOT / "profiles") / f"{name.lower()}.ini"
         if profile_path.exists():
             return name
 
         # Check all profiles for display_name
-        profiles_dir = Path("profiles")
+        profiles_dir = ROOT / "profiles"
         if not profiles_dir.exists():
             return None
 
         for profile_file in profiles_dir.glob("*.ini"):
             try:
-                config = configparser.ConfigParser()
+                config = configparser.ConfigParser(interpolation=None)
                 config.read(profile_file)
 
                 if config.has_section("USER_INFO"):
@@ -442,7 +451,7 @@ class UserProfileManager:
 
     def identify_user(
         self, name: str, confidence: str = "medium"
-    ) -> Optional[UserProfile]:
+    ) -> UserProfile | None:
         """Identify and load a user profile.
         Note: last_seen is updated at the end of the session, not during identification.
         """
@@ -468,7 +477,7 @@ class UserProfileManager:
         logger.info(f"Created new user profile: {name}", "👤")
         return profile
 
-    def get_current_user(self) -> Optional[UserProfile]:
+    def get_current_user(self) -> UserProfile | None:
         """Get the current user profile."""
         return self.current_user
 

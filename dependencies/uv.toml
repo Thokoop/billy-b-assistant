@@ -1,0 +1,11 @@
+# openWakeWord 0.6.0 advertises a Linux TFLite dependency without a 3.13 wheel.
+# Preserve Billy's existing ONNX path on newer Python; no package upgrades
+# outside the lock. All other upstream runtime requirements are retained.
+[[dependency-metadata]]
+name = "openwakeword"
+version = "0.6.0"
+requires-dist = [
+ "onnxruntime>=1.10.0,<2", "tqdm>=4,<5", "scipy>=1.3,<2",
+ "scikit-learn>=1,<2", "requests>=2,<3",
+ "tflite-runtime>=2.8,<3; python_version < '3.12' and platform_system == 'Linux'",
+]

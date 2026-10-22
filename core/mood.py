@@ -18,10 +18,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from billy_runtime.paths import INSTALL_ROOT
+from billy_runtime.profiles import profile_lock
+from billy_runtime.storage import write_ini
+
 from .logger import logger
 
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = INSTALL_ROOT
 PROFILES_DIR = ROOT_DIR / "profiles"
 
 MOOD_DIMENSIONS = ("positivity", "energy", "irritability", "engagement", "composure")
@@ -276,7 +280,7 @@ class MoodManager:
 
     def _load_from_active_path_locked(self):
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             config.read(self.path)
             raw = dict(config["MOOD"]) if config.has_section("MOOD") else {}
             self.state = MoodState()
@@ -355,22 +359,22 @@ class MoodManager:
             self._save_locked()
 
     def _save_locked(self):
-        self.state.label = self._derive_label()
-        self.state.last_updated = datetime.now(timezone.utc).isoformat()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        config = configparser.ConfigParser()
-        config.read(self.path)
-        if config.has_section("MOOD"):
-            config.remove_section("MOOD")
-        config.add_section("MOOD")
+        with profile_lock(self.path.parent.parent):
+            self.state.label = self._derive_label()
+            self.state.last_updated = datetime.now(timezone.utc).isoformat()
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            config = configparser.ConfigParser(interpolation=None)
+            config.read(self.path)
+            if config.has_section("MOOD"):
+                config.remove_section("MOOD")
+            config.add_section("MOOD")
 
-        for key, value in asdict(self.state).items():
-            serialized = json.dumps(value) if key == "memory" else str(value)
-            config.set("MOOD", key, serialized)
+            for key, value in asdict(self.state).items():
+                serialized = json.dumps(value) if key == "memory" else str(value)
+                config.set("MOOD", key, serialized)
 
-        with self.path.open("w") as f:
-            config.write(f)
-        self._loaded_mtime_ns = self._path_mtime_ns()
+            write_ini(self.path, config)
+            self._loaded_mtime_ns = self._path_mtime_ns()
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:

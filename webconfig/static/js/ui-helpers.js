@@ -1,20 +1,61 @@
 // ===================== UI HELPERS =====================
+// Recovery stays visible between ordinary, temporary notifications.
+const NotificationBar = (() => {
+    let persistent = null;
+    let transient = false;
+    let expiryTimer = null;
+    let hideTimer = null;
+
+    function render(notice) {
+        const bar = document.getElementById('notification');
+        if (!bar) return;
+        clearTimeout(hideTimer);
+        if (!notice) {
+            bar.classList.remove('opacity-100');
+            bar.classList.add('opacity-0');
+            hideTimer = setTimeout(() => bar.classList.add('hidden'), 300);
+            return;
+        }
+        bar.textContent = notice.message;
+        if (notice.action) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'underline ml-2';
+            button.textContent = notice.action.label;
+            button.onclick = notice.action.run;
+            bar.append(button);
+        }
+        bar.classList.remove('hidden', 'opacity-0', 'bg-cyan-500/80',
+            'bg-emerald-500/80', 'bg-amber-500/80', 'bg-rose-500/80');
+        bar.classList.add({
+            info: 'bg-cyan-500/80', success: 'bg-emerald-500/80',
+            warning: 'bg-amber-500/80', error: 'bg-rose-500/80',
+        }[notice.type] || 'bg-cyan-500/80', 'opacity-100');
+    }
+
+    return {
+        show(message, type, duration) {
+            clearTimeout(expiryTimer);
+            transient = true;
+            render({message, type});
+            expiryTimer = setTimeout(() => {
+                transient = false;
+                render(persistent);
+            }, duration);
+        },
+        setPersistent(notice) {
+            if (persistent?.message === notice?.message
+                && persistent?.type === notice?.type
+                && persistent?.action?.label === notice?.action?.label) return;
+            persistent = notice;
+            if (!transient) render(persistent);
+        },
+    };
+})();
+window.NotificationBar = NotificationBar;
+
 function showNotification(message, type = "info", duration = 2500) {
-    const bar = document.getElementById("notification");
-    bar.textContent = message;
-    bar.classList.remove("hidden", "opacity-0", "bg-cyan-500/80", "bg-emerald-500/80", "bg-amber-500/80", "bg-rose-500/80");
-    const typeClass = {
-        info: "bg-cyan-500/80",
-        success: "bg-emerald-500/80",
-        warning: "bg-amber-500/80",
-        error: "bg-rose-500/80",
-    }[type] || "bg-cyan-500/80";
-    bar.classList.add(typeClass, "opacity-100");
-    setTimeout(() => {
-        bar.classList.remove("opacity-100");
-        bar.classList.add("opacity-0");
-        setTimeout(() => bar.classList.add("hidden"), 300);
-    }, duration);
+    NotificationBar.show(message, type, duration);
 }
 
 function toggleInputVisibility(inputId) {

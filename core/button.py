@@ -7,6 +7,8 @@ import threading
 import time
 from concurrent.futures import CancelledError
 
+from billy_runtime.worker import progress as runtime_progress
+
 from . import audio, config
 from .bluetooth import controls as bluetooth_controls
 from .bluetooth import mode as bluetooth_mode
@@ -805,6 +807,12 @@ def start_loop(*, on_ready=None):
         logger.info("Mockfish mode: use Enter to simulate button press", "🐟")
         try:
             while True:
+                import select
+                import sys
+
+                while not select.select([sys.stdin], [], [], 2)[0]:
+                    runtime_progress()
+                runtime_progress()
                 input("Press Enter to simulate button press: ")
                 button.is_pressed = True
                 on_button()
@@ -814,6 +822,7 @@ def start_loop(*, on_ready=None):
             pass
     else:
         while True:
+            runtime_progress()
             _ensure_button_hold_thread()
             # gpiozero normally supplies the falling-edge callback. Polling the
             # level as well makes the physical control recover if its callback

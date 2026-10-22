@@ -7,29 +7,44 @@ import json
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, g, jsonify, request, send_file
 
+from billy_runtime.configuration import load_environment, revision
+from billy_runtime.profiles import profile_lock
+from billy_runtime.storage import atomic_write, write_ini
 from core.env_utils import set_env_key
 
 
 def get_profiles_dir():
     """Get the absolute path to the profiles directory."""
-    current_dir = Path(__file__).parent
-    project_root = (
-        current_dir.parent.parent.parent
-    )  # Go up 3 levels: routes -> app -> webconfig -> project root
-    return project_root / "profiles"
+    from billy_runtime.paths import INSTALL_ROOT
+
+    return INSTALL_ROOT / "profiles"
 
 
 def _get_env_path() -> Path:
-    """Return absolute .env path in project root."""
-    current_dir = Path(__file__).parent
-    project_root = current_dir.parent.parent.parent
-    return project_root / ".env"
+    """Return the shared .env path, also inside a managed release."""
+    from billy_runtime.paths import INSTALL_ROOT
+
+    return INSTALL_ROOT / ".env"
 
 
 profiles_bp = Blueprint('profiles', __name__)
+
+
+@profiles_bp.before_request
+def lock_profile_updates():
+    if request.method in {'POST', 'DELETE', 'PUT', 'PATCH'}:
+        lock = profile_lock(get_profiles_dir().parent)
+        lock.__enter__()
+        g.profile_transaction = lock
+
+
+@profiles_bp.teardown_request
+def unlock_profile_updates(error):
+    lock = g.pop('profile_transaction', None)
+    if lock:
+        lock.__exit__(None, None, None)
 
 
 @profiles_bp.route('/profiles', methods=['GET'])
@@ -49,7 +64,7 @@ def list_profiles():
             try:
                 import configparser
 
-                config = configparser.ConfigParser()
+                config = configparser.ConfigParser(interpolation=None)
                 config.read(profile_file)
                 if config.has_section("USER_INFO") and config.has_option(
                     "USER_INFO", "display_name"
@@ -83,14 +98,18 @@ def get_profile(profile_name):
         # Read profile data
         import configparser
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config.read(profile_file)
 
         profile_data = {}
         for section in config.sections():
             profile_data[section] = dict(config.items(section))
 
-        return jsonify({"name": profile_name, "data": profile_data})
+        return jsonify({
+            "name": profile_name,
+            "data": profile_data,
+            "revision": revision(profile_file.read_bytes()),
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -128,7 +147,7 @@ def list_personas():
             # Read persona metadata
             import configparser
 
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             config.read(persona_file)
 
             meta = dict(config.items("META")) if config.has_section("META") else {}
@@ -161,7 +180,7 @@ def get_current_user():
         from core.profile_manager import user_manager
 
         env_path = _get_env_path()
-        load_dotenv(env_path, override=True)
+        load_environment(env_path, override=True)
         current_user_env = os.getenv("CURRENT_USER", "").strip().strip("'\"")
 
         current_user = user_manager.get_current_user()
@@ -225,12 +244,17 @@ def set_current_user():
         from core.profile_manager import user_manager
 
         # Identify the user (this will load or create the profile)
+        previous_user = user_manager.current_user
         profile = user_manager.identify_user(user_name, "high")
 
         if profile:
             # Persist CURRENT_USER for other processes (main Billy service).
             env_path = _get_env_path()
-            set_env_key(str(env_path), "CURRENT_USER", profile.name.lower())
+            try:
+                set_env_key(str(env_path), "CURRENT_USER", profile.name.lower())
+            except Exception:
+                user_manager.current_user = previous_user
+                raise
 
             # Switch persona manager to this profile's preferred persona.
             preferred_persona = profile.data.get("USER_INFO", {}).get(
@@ -255,9 +279,9 @@ def clear_current_user():
         # Import here to avoid circular imports
         from core.profile_manager import user_manager
 
-        user_manager.clear_current_user()
         env_path = _get_env_path()
         set_env_key(str(env_path), "CURRENT_USER", "guest")
+        user_manager.clear_current_user()
         return jsonify({"message": "Current user cleared, switched to guest mode"})
 
     except Exception as e:
@@ -344,14 +368,13 @@ def rename_profile():
         # Update the profile name inside the file
         import configparser
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config.read(new_file)
 
         if config.has_section("USER_INFO"):
             config.set("USER_INFO", "name", new_name)
 
-            with open(new_file, 'w') as f:
-                config.write(f)
+            write_ini(new_file, config)
 
         return jsonify({"message": f"Profile renamed from {old_name} to {new_name}"})
     except Exception as e:
@@ -378,7 +401,7 @@ def delete_memory():
         # Read the profile
         import configparser
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config.read(profile_file)
 
         if not config.has_section("CORE_MEMORIES"):
@@ -420,8 +443,7 @@ def delete_memory():
         # Update the profile
         config.set("CORE_MEMORIES", "memories", json.dumps(memories))
 
-        with open(profile_file, 'w') as f:
-            config.write(f)
+        write_ini(profile_file, config)
 
         return jsonify({"message": "Memory deleted successfully"})
     except Exception as e:
@@ -451,7 +473,7 @@ def update_memory():
         # Read the profile
         import configparser
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config.read(profile_file)
 
         if not config.has_section("CORE_MEMORIES"):
@@ -496,8 +518,7 @@ def update_memory():
         # Update the profile
         config.set("CORE_MEMORIES", "memories", json.dumps(memories))
 
-        with open(profile_file, 'w') as f:
-            config.write(f)
+        write_ini(profile_file, config)
 
         return jsonify({"message": "Memory updated successfully"})
     except Exception as e:
@@ -521,17 +542,21 @@ def save_memories():
         if not profile_file.exists():
             return jsonify({"error": "Profile not found"}), 404
 
+        if request.json.get('revision') != revision(profile_file.read_bytes()):
+            return jsonify({
+                "error": "Profile changed; reload before replacing memories"
+            }), 409
+
         # Read the profile
         import configparser
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config.read(profile_file)
 
         # Update the memories
         config.set("CORE_MEMORIES", "memories", json.dumps(memories))
 
-        with open(profile_file, 'w') as f:
-            config.write(f)
+        write_ini(profile_file, config)
 
         return jsonify({"message": f"Saved {len(memories)} memories successfully"})
     except Exception as e:
@@ -575,7 +600,7 @@ def update_display_name():
         # Read current profile
         import configparser
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config.read(profile_file)
 
         # Ensure USER_INFO section exists
@@ -586,8 +611,7 @@ def update_display_name():
         config.set('USER_INFO', 'display_name', display_name)
 
         # Write back to file
-        with open(profile_file, 'w') as f:
-            config.write(f)
+        write_ini(profile_file, config)
 
         return jsonify({"message": f"Updated display name for {user}'s profile"})
 
@@ -639,9 +663,19 @@ def import_profile(profile_name):
         target_file = profiles_dir / f"{profile_name.lower()}.ini"
         profiles_dir.mkdir(exist_ok=True)
 
+        import configparser
+
+        parsed = configparser.ConfigParser(interpolation=None)
+        parsed.read_string(ini_content)
+        if not parsed.has_section('USER_INFO'):
+            return jsonify({'error': 'Invalid profile file'}), 400
+        if target_file.exists() and request.form.get('revision') != revision(
+            target_file.read_bytes()
+        ):
+            return jsonify({'error': 'Profile changed; reload before importing'}), 409
+
         # Write the imported content
-        with open(target_file, 'w') as f:
-            f.write(ini_content)
+        atomic_write(target_file, ini_content)
 
         return jsonify({'status': 'ok'})
     except Exception as e:

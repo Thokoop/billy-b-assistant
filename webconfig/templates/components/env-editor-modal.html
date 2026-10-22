@@ -6,11 +6,17 @@
                 <span class="material-icons text-amber-400">admin_panel_settings</span>
                 .env Editor
             </h3>
-            <button id="close-env-editor-modal" class="text-zinc-400 hover:text-white">
+            <button id="close-env-editor-modal" type="button" aria-label="Close configuration editor" class="secondary-action secondary-action--hover--cyan button-small button-icon">
                 <span class="material-icons">close</span>
             </button>
         </div>
         <form id="env-editor-form" class="p-6 space-y-3 overflow-y-auto">
+            <p id="env-recovery-notice" role="status" class="text-amber-300" {% if not recovery_notice or not recovery_notice.get('active') or recovery_notice.get('kind') != 'configuration' %}hidden{% endif %}>{{ recovery_notice.get('message', '') if recovery_notice and recovery_notice.get('kind') == 'configuration' else '' }}</p>
+            <label for="env-source" class="block text-sm text-slate-300">Configuration to open</label>
+            <select id="env-source" class="w-full bg-zinc-800 text-white p-2 rounded border border-zinc-600">
+                <option value=".env">Current configuration</option>
+            </select>
+            <p class="text-sm text-slate-400">Open a working backup or a preserved damaged file to inspect and correct it. Nothing changes until you save to the current .env.</p>
             <label for="env-textarea" class="sr-only">Environment Configuration</label>
             <textarea id="env-textarea" rows="25"
                       wrap="off"
@@ -19,18 +25,18 @@
 
             <div class="bg-yellow-700/80 text-yellow-100 p-2 rounded border border-yellow-600 flex gap-2 items-center">
                 <span class="material-icons">warning</span>
-                Changes will be written to .env as-is. Invalid values could cause errors. Save only if you're sure of your changes.
+                Settings are validated before saving. If this file changed elsewhere, reopen it before saving. Restart Billy to activate your changes.
             </div>
 
             <div class="pt-1 flex items-center justify-between">
                 <button id="cancel-env-editor-modal"
                         type="button"
-                        class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded transition-colors">
+                        class="secondary-action secondary-action--hover--cyan">
                     Cancel
                 </button>
                 <button id="save-env-btn"
                         type="submit"
-                        class="bg-amber-600  text-black text-sm py-2 px-4 rounded shadow">
+                        class="primary-action bg-amber-600 text-black">
                     Save .env
                 </button>
             </div>

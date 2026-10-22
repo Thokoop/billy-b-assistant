@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Called automatically by webconfig after an update, as the Billy service user.
-# Python dependencies are installed by the existing requirements.txt workflow.
+# Called by the central system-component installer as the Billy service user.
+# Packages must already be installed; this script only configures integration.
 set -euo pipefail
 billy_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 billy_user="$(id -un)"
@@ -22,10 +22,6 @@ mkdir -p "$billy_config/wireplumber.conf.d" "$billy_config/bluetooth.lua.d" "$bi
 install -m 644 "$billy_root/setup/system/51-billy-bluetooth.conf" "$billy_config/wireplumber.conf.d/51-billy-bluetooth.conf"
 install -m 644 "$billy_root/setup/system/51-billy-bluetooth.lua" "$billy_config/bluetooth.lua.d/51-billy-bluetooth.lua"
 printf 'alsa_monitor.enabled = false\n' > "$billy_config/main.lua.d/51-billy-alsa.lua"
-export DEBIAN_FRONTEND=noninteractive
-sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 update
-sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends \
-    bluez pipewire pipewire-bin wireplumber libspa-0.2-bluetooth dbus-user-session
 billy_wp_version="$(wireplumber --version | sed -n 's/.*wireplumber \([0-9][0-9.]*\).*/\1/p' | head -1)"
 if ! dpkg --compare-versions "${billy_wp_version:-0}" ge 0.4; then
     echo 'Bluetooth requires WirePlumber 0.4 or newer from the operating system repositories.' >&2

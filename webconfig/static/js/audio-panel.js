@@ -264,7 +264,7 @@ const AudioPanel = (() => {
     async function toggleMicCheck() {
         const btn = document.getElementById("mic-check-btn");
         if (!btn) return;
-        const isActive = btn.classList.contains("bg-emerald-600");
+        const isActive = btn.classList.contains("secondary-action--active");
         if (isActive) {
             await finishMicCheck();
             showNotification("Mic check stopped");
@@ -284,8 +284,7 @@ const AudioPanel = (() => {
                 }
                 
                 startMicCheck();
-                btn.classList.remove("bg-zinc-800");
-                btn.classList.add("bg-emerald-600");
+                btn.classList.add("secondary-action--active");
                 showNotification("Mic check started");
             } catch (err) {
                 console.error("Failed to toggle mic check:", err);
@@ -308,8 +307,7 @@ const AudioPanel = (() => {
     async function finishMicCheck({message = null, isError = false} = {}) {
         const btn = document.getElementById("mic-check-btn");
         if (btn) {
-            btn.classList.remove("bg-emerald-600");
-            btn.classList.add("bg-zinc-800");
+            btn.classList.remove("secondary-action--active");
         }
         await stopMicCheck();
         if (message) {
@@ -392,10 +390,7 @@ const AudioPanel = (() => {
         const btn = document.getElementById("mic-record-btn");
         if (!btn) return;
         const icon = btn.querySelector(".material-icons");
-        btn.classList.toggle("bg-red-700", recording);
-        btn.classList.toggle("hover:bg-red-600", recording);
-        btn.classList.toggle("bg-zinc-800", !recording);
-        btn.classList.toggle("hover:bg-zinc-700", !recording);
+        btn.classList.toggle("secondary-action--rose", recording);
         if (icon) icon.textContent = recording ? "stop" : "fiber_manual_record";
         const label = btn.querySelector("[data-mic-record-label]");
         if (label) label.textContent = recording ? "Stop recording" : "Record mic";

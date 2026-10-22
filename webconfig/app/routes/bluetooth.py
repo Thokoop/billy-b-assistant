@@ -102,11 +102,15 @@ def action(action):
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify(error='Expected a JSON object'), 400
-    from core.bluetooth.provisioning import setup_status, start_setup
+    from core.bluetooth.provisioning import setup_status
 
     if action == 'setup-retry':
-        start_setup(force=True)
-        return jsonify(ok=True), 202
+        from billy_runtime.updates import queue
+
+        try:
+            return jsonify(queue('packages')), 202
+        except (ValueError, RuntimeError, OSError) as exc:
+            return jsonify(error=str(exc)), 409
     if setup_status()['state'] != 'ready':
         return jsonify(error='Bluetooth setup is not complete'), 409
     try:
@@ -117,6 +121,10 @@ def action(action):
             result = manager.run(manager.stop_pairing())
         elif action == 'confirm':
             raise ValueError('Confirm pairing on your phone; reload System Settings')
+        elif action == 'auto-connect':
+            result = manager.run(
+                manager.set_auto_connect(data.get('address'), data.get('enabled'))
+            )
         elif action in {'connect', 'disconnect', 'forget'}:
             result = manager.run(manager.device_action(data.get('address'), action))
         else:

@@ -53,6 +53,7 @@ const ServiceStatus = (() => {
             }
 
             const data = await res.json();
+            window.updateRecoveryNotice?.(data.recovery);
             statusCache = data;
             lastFetch = now;
             updateServiceStatusUI(data.status);
@@ -123,7 +124,7 @@ const ServiceStatus = (() => {
             btn.appendChild(icon);
 
             const labelSpan = document.createElement("span");
-            labelSpan.className = "hidden text-sm md:inline";
+            labelSpan.className = "hidden md:inline";
             labelSpan.textContent = label;
             btn.appendChild(labelSpan);
 

@@ -1,0 +1,85 @@
+name: Billy regression tests
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+# Tests never publish releases, use API keys or contact a Billy device.
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} / ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: tests/requirements.txt
+      - name: Install locked test dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r tests/requirements.txt
+      - name: Check Python syntax
+        run: python -m compileall -q core billy_runtime webconfig main.py
+      - name: Run hardware-free regressions and recovery process tests
+        run: python -m pytest -q --junitxml=.ci-results/pytest.xml
+      - name: Preserve test report
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: regressions-${{ matrix.python }}-${{ matrix.runner }}
+          path: .ci-results/pytest.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  javascript:
+    name: UI regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Check JavaScript syntax
+        run: |
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(git ls-files -z 'webconfig/static/js/*.js')
+      - name: Test Bluetooth status and restart/recovery UI
+        run: node --test tests/bluetooth/test_ui.cjs tests/webconfig/test_restart.cjs tests/webconfig/test_updates.cjs
+
+  regression-gate:
+    # Use this stable name as the required status check in repository rules.
+    name: Regression gate
+    needs: [python, javascript]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every matrix job and UI test to succeed
+        env:
+          PYTHON_RESULT: ${{ needs.python.result }}
+          JAVASCRIPT_RESULT: ${{ needs.javascript.result }}
+        run: |
+          test "$PYTHON_RESULT" = success
+          test "$JAVASCRIPT_RESULT" = success

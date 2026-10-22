@@ -586,8 +586,6 @@ def resolve_configured_mic_gain(
 
 def save_configured_mic_gain(value: int) -> None:
     env_path = _env_path()
-    if not os.path.exists(env_path):
-        open(env_path, "a", encoding="utf-8").close()
     set_env_key(env_path, "MIC_GAIN", str(value))
     os.environ["MIC_GAIN"] = str(value)
     core_config.MIC_GAIN = str(value)

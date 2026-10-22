@@ -7,6 +7,8 @@ import configparser
 from pathlib import Path
 from typing import Any, Optional
 
+from billy_runtime.paths import INSTALL_ROOT
+
 from .logger import logger
 from .realtime_ai_provider import voice_provider_registry
 
@@ -26,7 +28,7 @@ class PersonaManager:
         personas = []
 
         # Add default persona.ini if it exists
-        default_persona_file = Path("persona.ini")
+        default_persona_file = INSTALL_ROOT / "persona.ini"
         if default_persona_file.exists():
             try:
                 config = configparser.ConfigParser()
@@ -80,7 +82,7 @@ class PersonaManager:
 
         # Handle default persona
         if persona_name == "default":
-            persona_file = Path("persona.ini")
+            persona_file = INSTALL_ROOT / "persona.ini"
         else:
             # Check new folder structure first: personas/persona_name/persona.ini
             persona_file = self.personas_dir / persona_name / "persona.ini"

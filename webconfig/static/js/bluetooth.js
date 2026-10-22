@@ -63,13 +63,18 @@ window.BluetoothSettings = (() => {
         let polling = false;
         let active = false;
         let revision = 0;
+        let actionRevision = 0;
+        let latestSample = -Infinity;
         let refreshQueued = false;
+        const deviceRows = new Map();
+        let emptyDevicesRow = null;
 
         async function act(action, data = {}) {
             if (busy) return;
             busy = true;
             revision += 1;
-            root.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+            actionRevision += 1;
+            root.querySelectorAll('button, input').forEach((button) => { button.disabled = true; });
             el('bt-error').textContent = '';
             try {
                 const response = await fetch(`/api/bluetooth/${action}`, {
@@ -83,7 +88,7 @@ window.BluetoothSettings = (() => {
                 el('bt-error').textContent = error.message;
             } finally {
                 busy = false;
-                root.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+                root.querySelectorAll('button, input').forEach((button) => { button.disabled = false; });
                 // One fresh snapshot after an action; do not reuse a pre-action cache.
                 await refresh(true);
             }
@@ -96,6 +101,12 @@ window.BluetoothSettings = (() => {
         }
 
         function render(state) {
+            // HTTP and the shared WebSocket sampler can finish out of order.
+            // Compare acquisition times, not arrival order in this browser.
+            if (Number.isFinite(state.sampled_at)) {
+                if (state.sampled_at < latestSample) return;
+                latestSample = state.sampled_at;
+            }
             if (state.error) {
                 showError(new Error(state.error));
                 return;
@@ -103,8 +114,9 @@ window.BluetoothSettings = (() => {
             const setup = state.setup || {};
             el('bt-setup').textContent = setup.message || '';
             el('bt-setup').hidden = setup.state === 'ready';
-            el('bt-setup-retry').hidden = setup.state !== 'error';
-            root.querySelectorAll('button').forEach((button) => {
+            el('bt-setup-retry').hidden = true;
+            el('bt-components-help').hidden = setup.state === 'ready';
+            root.querySelectorAll('button, input').forEach((button) => {
                 // bt-pair is decided below, by whether pairing is possible.
                 if (button.id === 'bt-pair') return;
                 setDisabled(button, setup.state !== 'ready' && button.id !== 'bt-setup-retry');
@@ -152,9 +164,28 @@ window.BluetoothSettings = (() => {
             }
             const audioState = state.audio || {};
             const list = el('bt-devices');
-            list.replaceChildren();
+            const rows = [];
+            const addresses = new Set();
             for (const device of state.devices.filter((d) => d.Paired || d.Connected)) {
                 const connected = Boolean(device.Connected);
+                const playing = PLAYING_STATES.has(audioState.state)
+                    && audioDeviceAddress(audioState) === (device.Address || '').toUpperCase()
+                    ? audioState.state : null;
+                // Only visible row changes replace DOM. Sampling timestamps,
+                // transport metadata and pairing countdowns do not affect it.
+                const signature = JSON.stringify([
+                    device.Alias || device.Address, connected, Boolean(device.Paired), playing,
+                ]);
+                addresses.add(device.Address);
+                const cached = deviceRows.get(device.Address);
+                if (cached?.signature === signature) {
+                    // Also restore the switch after a rejected save, without
+                    // removing its focus or replacing the row's event handlers.
+                    if (cached.checkbox) cached.checkbox.checked = Boolean(device.AutoConnect);
+                    rows.push(cached.item);
+                    continue;
+                }
+                let autoConnectCheckbox = null;
                 const state_label = connected
                     ? (device.Paired ? 'Connected' : 'Pairing…') : 'Disconnected';
                 const item = document.createElement('li');
@@ -187,14 +218,12 @@ window.BluetoothSettings = (() => {
                 connection.textContent = state_label;
                 details.append(connection);
 
+
                 // Which phone owns the speaker right now. Worth saying on
                 // the row rather than only in the status line: select_route()
                 // fails closed on two streaming phones, and this explains
                 // the refusal before it happens.
-                if (
-                    PLAYING_STATES.has(audioState.state)
-                    && audioDeviceAddress(audioState) === (device.Address || '').toUpperCase()
-                ) {
+                if (playing) {
                     const badge = document.createElement('span');
                     badge.className = 'bt-device-badge';
                     badge.textContent = audioState.state === 'call_audio' ? 'on a call' : 'playing';
@@ -205,10 +234,15 @@ window.BluetoothSettings = (() => {
                 const actions = document.createElement('div');
                 actions.className = 'bt-device-actions';
                 item.append(actions);
-                for (const action of [connected ? 'disconnect' : 'connect', 'forget']) {
+                const deviceActions = connected
+                    ? ['disconnect', 'forget']
+                    : ['connect', 'forget'];
+                for (const action of deviceActions) {
                     const button = document.createElement('button');
                     button.type = 'button';
                     button.className = `secondary-action ${DEVICE_ACTIONS[action].hover} bt-device-action`;
+                    const revealLabel = action === 'disconnect' || action === 'forget';
+                    if (revealLabel) button.classList.add('button-reveal');
                     if (action === 'forget') button.classList.add('bt-forget');
                     const icon = document.createElement('span');
                     icon.className = 'material-icons text-base';
@@ -217,6 +251,7 @@ window.BluetoothSettings = (() => {
                     icon.setAttribute('aria-hidden', 'true');
                     button.append(icon);
                     const label = document.createElement('span');
+                    if (revealLabel) label.className = 'button-reveal-label';
                     label.textContent = action[0].toUpperCase() + action.slice(1);
                     button.append(label);
                     button.title = DEVICE_ACTIONS[action].title(name.textContent);
@@ -234,18 +269,60 @@ window.BluetoothSettings = (() => {
                     });
                     actions.append(button);
                 }
-                list.append(item);
+                if (device.Paired) {
+                    const label = document.createElement('label');
+                    label.className = 'wf-toggle gap-2 text-sm w-full';
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.setAttribute('role', 'switch');
+                    checkbox.checked = Boolean(device.AutoConnect);
+                    autoConnectCheckbox = checkbox;
+                    checkbox.setAttribute('aria-label', `Auto-connect to ${name.textContent} on startup`);
+                    checkbox.addEventListener('change', () => act('auto-connect', {
+                        address: device.Address, enabled: checkbox.checked,
+                    }));
+                    const caption = document.createElement('span');
+                    caption.textContent = 'Auto-connect';
+                    label.title = 'When Billy starts, try selected devices until one connects.';
+                    const track = document.createElement('span');
+                    track.className = 'wf-toggle-track';
+                    track.setAttribute('aria-hidden', 'true');
+                    const thumb = document.createElement('span');
+                    thumb.className = 'wf-toggle-thumb';
+                    track.append(thumb);
+                    label.append(checkbox, track, caption);
+                    actions.append(label);
+                }
+
+                deviceRows.set(device.Address, {signature, item, checkbox: autoConnectCheckbox});
+                rows.push(item);
+            }
+            for (const address of deviceRows.keys()) {
+                if (!addresses.has(address)) deviceRows.delete(address);
             }
             // With rows on screen the heading only repeats what they
             // already show; with none it is what labels the empty state.
-            const empty_list = !list.children.length;
+            const empty_list = !rows.length;
             el('bt-devices-title').hidden = !empty_list;
             if (empty_list) {
-                const empty = document.createElement('li');
-                empty.className = 'text-slate-400';
-                empty.textContent = 'No devices paired yet.';
-                list.append(empty);
+                if (!emptyDevicesRow) {
+                    emptyDevicesRow = document.createElement('li');
+                    emptyDevicesRow.className = 'text-slate-400';
+                    emptyDevicesRow.textContent = 'No devices paired yet.';
+                }
+                rows.push(emptyDevicesRow);
             }
+            // Leave unchanged nodes attached so hover and focus survive live
+            // updates, including when another phone changes or disappears.
+            const retained = new Set(rows);
+            for (const child of Array.from(list.children)) {
+                if (!retained.has(child)) list.removeChild(child);
+            }
+            rows.forEach((row, index) => {
+                if (list.children[index] !== row) {
+                    list.insertBefore(row, list.children[index] || null);
+                }
+            });
             const audio = audioState;
             // Switching is automatic, so this reports rather than offers:
             // what Billy's audio path is doing right now. Billy writes it
@@ -255,8 +332,10 @@ window.BluetoothSettings = (() => {
             //
             // Echo cancellation is named because it can be turned off, and
             // a call that sounds echoey is the first thing to check.
+            const idleLabel = state.devices.some((device) => device.Connected)
+                ? 'No Bluetooth audio playing.' : 'No phone connected.';
             const labels = {
-                idle: 'Ready for audio from your phone.',
+                idle: idleLabel,
                 waiting: 'Waiting for phone audio',
                 media_audio: `Playing media${audioDeviceName(state, audio) || ''}`,
                 call_audio: `On a call${audioDeviceName(state, audio) || ''} · echo cancellation ${audio.aec ? 'active' : 'off'}`,
@@ -275,12 +354,14 @@ window.BluetoothSettings = (() => {
             if (!active || polling || busy || document.hidden || !root.isConnected) return;
             polling = true;
             const receivedRevision = revision;
+            const receivedActionRevision = actionRevision;
             try {
                 const response = await fetch('/api/bluetooth', { signal: AbortSignal.timeout(18000) });
                 const state = await response.json();
                 if (!active || !root.isConnected) return;
                 if (!response.ok) throw new Error(state.error || 'Bluetooth unavailable');
-                if (receivedRevision === revision) render(state);
+                if (!busy && receivedActionRevision === actionRevision
+                    && (Number.isFinite(state.sampled_at) || receivedRevision === revision)) render(state);
             } catch (error) {
                 if (active && root.isConnected && receivedRevision === revision) showError(error);
             } finally {
@@ -319,19 +400,23 @@ window.BluetoothSettings = (() => {
                 timer = setInterval(refresh, 2000);
             }
         };
+        const onDisconnect = () => {
+            latestSample = -Infinity;
+            resume();
+        };
         cleanup = () => {
             active = false;
             revision += 1;
             stopPolling();
             window.removeEventListener('billy:bluetooth:status', onStatus);
-            window.removeEventListener('billy:websocket:disconnected', resume);
+            window.removeEventListener('billy:websocket:disconnected', onDisconnect);
             document.removeEventListener('visibilitychange', resume);
         };
         root.bluetoothCleanup = cleanup;
         root.bluetoothResume = () => {
             active = true;
             window.addEventListener('billy:bluetooth:status', onStatus);
-            window.addEventListener('billy:websocket:disconnected', resume);
+            window.addEventListener('billy:websocket:disconnected', onDisconnect);
             document.addEventListener('visibilitychange', resume);
             resume();
         };

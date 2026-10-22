@@ -31,9 +31,10 @@
                     <div class="flex items-center gap-3">
                         <button type="button"
                                 id="wifi-edit-toggle-btn"
-                                class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer">
-                            <span class="material-icons text-sm">edit</span>
-                            <span id="wifi-edit-toggle-label">Wi-Fi setup</span>
+                                class="secondary-action secondary-action--hover--cyan button-reveal"
+                                aria-label="Wi-Fi setup" title="Wi-Fi setup">
+                            <span class="material-icons" aria-hidden="true">edit</span>
+                            <span id="wifi-edit-toggle-label" class="button-reveal-label">Wi-Fi setup</span>
                         </button>
                     </div>
                 </div>
@@ -185,7 +186,7 @@
                     <button
                             type="button"
                             onclick="toggleInputVisibility('OPENAI_API_KEY', this)"
-                            class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
+                            class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
                     >
                         <span class="material-icons" id="OPENAI_API_KEY_icon">visibility</span>
                     </button>
@@ -219,7 +220,7 @@
                     <button
                             type="button"
                             onclick="toggleInputVisibility('XAI_API_KEY', this)"
-                            class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
+                            class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
                     >
                         <span class="material-icons" id="XAI_API_KEY_icon">visibility</span>
                     </button>
@@ -577,7 +578,7 @@
                         <button
                                 type="button"
                                 onclick="toggleInputVisibility('PORCUPINE_ACCESS_KEY', this)"
-                                class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
+                                class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
                         >
                             <span class="material-icons" id="PORCUPINE_ACCESS_KEY_icon">visibility</span>
                         </button>
@@ -672,9 +673,9 @@
                 <label for="wakeword-keyword-file" class="block text-sm text-slate-300 mb-1">Wake-word file upload (.ppn or .onnx)</label>
                 <div class="flex flex-wrap gap-2 items-center">
                     <input type="file" id="wakeword-keyword-file" accept=".ppn,.onnx"
-                           class="text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-zinc-700 file:px-3 file:py-2 file:text-slate-100 hover:file:bg-zinc-600">
+                           class="w-full min-w-0 max-w-full text-sm text-slate-300">
                     <button type="button" id="wakeword-upload-keyword-btn"
-                            class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center px-3 py-2 rounded shadow flex gap-1.5 cursor-pointer">
+                            class="secondary-action secondary-action--hover--cyan">
                         <span class="material-icons align-middle">upload_file</span>
                         Upload File
                     </button>
@@ -774,7 +775,7 @@
                         <b>USB Webcam</b>: uses <code>ffmpeg</code> via V4L2 (<code>/dev/videoX</code>).
                     </div>
 
-                    <div class="flex flex-wrap md:flex-nowrap items-center gap-3 mt-1">
+                    <div class="flex flex-wrap items-center gap-3 mt-1">
                         <select id="CAMERA_HARDWARE" name="CAMERA_HARDWARE"
                                 class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
                             <option value="none" {% if config.get(
@@ -795,16 +796,16 @@
                                name="CAMERA_ROTATION"
                                value="{{ config.get('CAMERA_ROTATION', '0') }}">
                         <button type="button" id="camera-rotation-btn"
-                                class="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2 rounded flex gap-2 items-center cursor-pointer whitespace-nowrap"
+                                class="secondary-action secondary-action--hover--cyan button-small whitespace-nowrap"
                                 title="Rotate camera orientation">
                             <span id="camera-rotation-icon"
                                   class="material-icons text-sm transition-transform duration-200">arrow_upward</span>
                             <span id="camera-rotation-label">0°</span>
                         </button>
                         <button type="button" id="test-camera-btn"
-                                class="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded flex gap-2 items-center cursor-pointer whitespace-nowrap">
+                                class="secondary-action secondary-action--hover--cyan button-small whitespace-nowrap">
                             <span class="material-icons text-sm">photo_camera</span>
-                            Test Camera
+                            Test cam
                         </button>
                     </div>
                     <div class="mt-2">
@@ -839,7 +840,7 @@
                             <div data-tooltip>
                                 Set to 0% to turn the status LED off entirely.
                             </div>
-                            <div class="flex flex-wrap md:flex-nowrap items-center gap-3 mt-1">
+                            <div class="flex flex-wrap items-center gap-3 mt-1">
                                 <div class="flex gap-2 items-center flex-1 min-w-0">
                                     <div class="w-20 text-sm text-gray-200 shrink-0">
                                         <span id="status-led-brightness-value">{{ ((config.get('STATUS_LED_BRIGHTNESS', '0.2')|float) * 100)|round|int }}%</span>
@@ -867,7 +868,7 @@
                                     </div>
                                 </div>
                                 <button type="button" id="test-led-btn"
-                                        class="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded flex gap-2 items-center cursor-pointer whitespace-nowrap shrink-0">
+                                        class="secondary-action secondary-action--hover--cyan button-small shrink-0 whitespace-nowrap">
                                     <span class="material-icons text-sm">lightbulb</span>
                                     Test LED
                                 </button>
@@ -935,15 +936,15 @@
                         </div>
                         <div class="flex flex-wrap gap-4">
                             <button type="button" id="test-mouth-btn"
-                                    class="motor-test-btn bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded">
+                                    class="secondary-action secondary-action--hover--cyan button-small motor-test-btn">
                                 Mouth
                             </button>
                             <button type="button" id="test-head-btn"
-                                    class="motor-test-btn bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded">
+                                    class="secondary-action secondary-action--hover--cyan button-small motor-test-btn">
                                 Head
                             </button>
                             <button type="button" id="test-tail-btn"
-                                    class="motor-test-btn bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded">
+                                    class="secondary-action secondary-action--hover--cyan button-small motor-test-btn">
                                 Tail
                             </button>
                         </div>
@@ -1088,12 +1089,12 @@
                     </div>
 
                     <button type="button" id="mic-check-btn"
-                            class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center px-2 py-1 rounded shadow w-28 flex gap-1.5 cursor-pointer">
+                            class="secondary-action secondary-action--hover--cyan button-small shrink-0">
                         <span class="material-icons align-middle">mic</span>
                         Test levels
                     </button>
                     <button type="button" id="mic-record-play-btn"
-                            class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center justify-center px-2 py-1 rounded shadow w-16 flex cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="secondary-action secondary-action--hover--cyan button-small button-icon shrink-0"
                             title="Play recording"
                             aria-label="Play recording"
                             disabled>
@@ -1152,7 +1153,7 @@
                     <button
                             type="button"
                             id="speaker-check-btn"
-                            class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center px-2 py-1 rounded shadow w-20 flex gap-1.5 cursor-pointer"
+                            class="secondary-action secondary-action--hover--cyan button-small shrink-0"
                     >
                         <span class="material-icons align-middle">volume_up</span>
                         Test
@@ -1224,7 +1225,7 @@
                         <button
                                 type="button"
                                 onclick="toggleInputVisibility('MQTT_PASSWORD', this)"
-                                class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
+                                class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
                         >
                             <span class="material-icons" id="MQTT_PASSWORD_icon">visibility</span>
                         </button>
@@ -1267,7 +1268,7 @@
                     <button
                             type="button"
                             onclick="toggleInputVisibility('HA_TOKEN', this)"
-                            class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
+                            class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
                     >
                         <span class="material-icons" id="HA_TOKEN_icon">visibility</span>
                     </button>
@@ -1421,17 +1422,33 @@
                         <span class="wf-toggle-track"><span class="wf-toggle-thumb"></span></span>
                     </label>
                 </div>
+                <div id="system-components-card" class="system-components-card">
+                    <div class="system-components-heading">
+                        <span class="material-icons" aria-hidden="true">build_circle</span>
+                        <div>
+                            <h4>System components</h4>
+                            <p id="system-packages-summary" role="status" aria-live="polite">Checking system components…</p>
+                        </div>
+                    </div>
+                    <p id="system-packages-status" role="status" aria-live="polite" class="system-components-status"></p>
+                    <p id="system-packages-details" class="system-components-details"></p>
+                    <button id="repair-packages-btn" type="button" hidden disabled class="secondary-action secondary-action--hover--cyan system-components-repair">
+                        <span class="material-icons" aria-hidden="true">build</span>
+                        <span>Repair system components</span>
+                    </button>
+                    <p id="system-packages-operation" role="status" aria-live="polite" class="system-components-status"></p>
+                </div>
                 <div id="env-editor-card" class="flex flex-row justify-between gap-3 p-3 rounded-lg border border-zinc-700 bg-amber-500/20 hover:bg-amber-500/30 hover:border-amber-400 transition-colors cursor-pointer">
                     <div>
                         <div class="text-white text-sm">.env Editor</div>
                         <div class="text-xs text-zinc-400 my-1">
-                            Edit low-level environment values (advanced)
+                            Edit configuration or restore a working backup
                         </div>
                     </div>
                     <div id="env-editor-btn-wrapper" class="flex items-center justify-end hidden">
                         <button id="open-env-editor-modal-btn"
                                 type="button"
-                                class="bg-amber-600 text-black text-sm py-2 px-4 rounded flex gap-2 items-center cursor-pointer"
+                                class="secondary-action secondary-action--hover--amber"
                                 title="Open .env file editor">
                             <span class="material-icons">admin_panel_settings</span>
                             Edit .env
@@ -1442,17 +1459,17 @@
                 <!-- Reset to Defaults -->
                 <div id="reset-defaults-card" class="flex flex-row justify-between gap-3 p-3 rounded-lg border border-zinc-700 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/30 transition-colors cursor-pointer">
                     <div>
-                        <div class="text-white text-sm">Reset to Defaults</div>
+                        <div class="text-white text-sm">Recovery &amp; reset</div>
                         <div class="text-xs text-zinc-400 my-1">
-                            Select parts of the configuration to reset
+                            Repair software or reset selected settings
                         </div>
                     </div>
                     <div id="factory-reset-btn-wrapper" class="flex items-center justify-end hidden">
                         <button id="factory-reset-btn"
                                 type="button"
-                                class="bg-rose-600 text-black text-sm  py-2 px-4 rounded flex gap-2 items-center">
+                                class="secondary-action secondary-action--hover--rose">
                             <span class="material-icons">restart_alt</span>
-                            Reset to Defaults
+                            Open recovery
                         </button>
                     </div>
                 </div>
@@ -1486,12 +1503,13 @@
                         </div>
                         <button id="update-btn"
                                 type="button"
-                                class="hidden bg-amber-600 text-black text-sm py-2 px-4 rounded gap-2 items-center cursor-pointer shadow-[0_18px_38px_rgba(245,158,11,0.25)]">
+                                class="primary-action hidden bg-amber-600 text-black">
                             <span class="material-icons align-middle">system_update_alt</span>
                             <span id="latest-version"></span>
                         </button>
                     </div>
 
+                    <p id="software-operation-status" role="status" aria-live="polite" class="mt-2 text-sm text-slate-300"></p>
                     <div id="release-body" class="mt-4 text-sm text-emerald-100 prose prose-invert max-w-none">
                         Loading release notes…
                     </div>
@@ -1522,7 +1540,7 @@
                             <a href="https://paypal.me/thomkoopman050"
                                target="_blank"
                                rel="noopener"
-                               class="w-auto inline-flex items-center justify-center gap-2 text-xs text-black bg-rose-600 hover:bg-rose-500 p-2 rounded shadow">
+                               class="primary-action text-black bg-rose-600">
                                 <span class="material-icons">open_in_new</span>
                                 <span>Open PayPal.me</span>
                             </a>
@@ -1551,10 +1569,10 @@
         <div class="pt-2 md:py-4 sticky bottom-[100px] md:bottom-[120px] z-20">
             <div class="flex justify-center">
                 <div class="relative inline-block">
-                    <div class="flex rounded overflow-hidden shadow-lg">
+                    <div class="settings-save-actions flex overflow-hidden shadow-lg">
                         <button
                                 id="save-btn"
-                                class="bg-emerald-600  backdrop-blur-sm text-black py-2 px-4 flex items-center gap-1 focus:outline-none"
+                                class="primary-action bg-emerald-600 text-black"
                                 type="submit"
                                 form="config-form"
                         >
@@ -1564,7 +1582,7 @@
                         <button
                                 id="dropdown-btn"
                                 type="button"
-                                class="dropdown-toggle bg-emerald-600 backdrop-blur-sm  text-black px-2 flex items-center"
+                                class="primary-action button-icon dropdown-toggle bg-emerald-600 text-black"
                                 onclick="toggleDropdown(this)"
                         >
                             <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
@@ -1572,11 +1590,11 @@
                     </div>
                     <div class="dropdown-menu absolute bottom-0 right-0 w-full text-black border border-emerald-500 backdrop-blur-xs rounded z-20 hidden">
                         <button onclick="exportSettings()"
-                                class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600  cursor-pointer">
+                                class="secondary-action secondary-action--hover--cyan w-full">
                             <span class="material-icons">file_download</span>
                             Export Settings
                         </button>
-                        <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600  cursor-pointer">
+                        <label class="secondary-action secondary-action--hover--cyan w-full">
                             <span class="material-icons">file_upload</span>
                             <span>Import Settings</span>
                             <input type="file" accept=".env" onchange="importSettings(this)" class="hidden"/>
@@ -1590,21 +1608,51 @@
 </section>
 
 <!-- Reset to Defaults Modal -->
-<div id="factory-reset-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
-    <div class="bg-zinc-900/60 backdrop-blur-xs border border-zinc-700 rounded-lg w-full max-w-xl mx-4 shadow-2xl">
+<div id="factory-reset-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="factory-reset-title">
+    <div class="bg-zinc-900/60 backdrop-blur-xs border border-zinc-700 rounded-lg w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col shadow-2xl">
         <div class="flex justify-between items-center p-4 border-b border-zinc-700">
-            <h3 class="text-lg text-white flex items-center gap-2">
-                <span class="material-icons text-rose-400">restart_alt</span>
-                Reset to Defaults
+            <h3 id="factory-reset-title" class="text-lg text-white flex items-center gap-2">
+                <span class="material-icons text-cyan-400" aria-hidden="true">build</span>
+                Recovery &amp; reset
             </h3>
-            <button id="close-factory-reset-modal" class="text-zinc-400 hover:text-white">
+            <button id="close-factory-reset-modal" type="button" aria-label="Close recovery" class="secondary-action secondary-action--hover--cyan button-small button-icon">
                 <span class="material-icons">close</span>
             </button>
         </div>
-        <div class="p-6 space-y-4">
-            <div>Select parts of the configuration to reset:</div>
-            
-            <p class="text-sm text-rose-200/80">These actions can not be undone.</p>
+        <div class="p-6 space-y-4 overflow-y-auto">
+            <section class="rounded-lg border border-zinc-700 bg-zinc-900/40 p-4" aria-labelledby="software-recovery-title">
+                <h4 id="software-recovery-title" class="text-white">Repair software</h4>
+                <p class="mt-2 text-sm text-zinc-400">Your settings, profiles and memories are kept.</p>
+                <div class="mt-4 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-700 p-3">
+                        <div class="min-w-0">
+                            <p class="text-sm text-slate-200">Current version</p>
+                            <p id="recovery-current-version" class="text-lg text-white break-all">Checking…</p>
+                            <p class="text-xs text-zinc-400">Install a fresh copy of this version.</p>
+                        </div>
+                        <button id="simulate-update-btn" type="button" disabled
+                                class="secondary-action secondary-action--hover--cyan">
+                            <span class="material-icons" aria-hidden="true">system_update_alt</span>
+                            Reinstall
+                        </button>
+                    </div>
+                    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-700 p-3">
+                        <div class="min-w-0">
+                            <p class="text-sm text-slate-200">Previous version</p>
+                            <p id="recovery-previous-version" class="text-lg text-white break-all">Checking…</p>
+                            <p id="recovery-previous-help" class="text-xs text-zinc-400">Checking for a saved installation…</p>
+                        </div>
+                        <button id="rollback-software-btn" type="button" disabled
+                                class="secondary-action secondary-action--hover--cyan">
+                            <span class="material-icons" aria-hidden="true">restore</span>
+                            Restore
+                        </button>
+                    </div>
+                </div>
+                <p id="recovery-software-status" role="status" aria-live="polite" class="mt-2 text-sm text-slate-300"></p>
+            </section>
+            <h4 class="text-white">Reset configuration</h4>
+            <p class="text-sm text-rose-200/80">Only the options selected below will be reset. This cannot be undone.</p>
             <div class="space-y-3">
                 <label class="flex items-center gap-3 text-sm text-slate-200">
                     <input type="checkbox" id="factory-reset-env" class="h-4 w-4">
@@ -1625,10 +1673,7 @@
             </div>
 
             <div id="factory-reset-advanced" class="space-y-3 pt-2 border-t border-zinc-700 hidden">
-                <label class="flex items-center gap-3 text-sm text-slate-200">
-                    <input type="checkbox" id="factory-reset-git" class="h-4 w-4">
-                    Reset software version (restores the billy software codebase)
-                </label>
+
                 <label class="flex items-center gap-3 text-sm text-slate-200">
                     <input type="checkbox" id="factory-reset-wifi" class="h-4 w-4">
                     Remove active wifi credentials
@@ -1637,33 +1682,25 @@
                     <input type="checkbox" id="factory-reset-reboot" class="h-4 w-4">
                     Reboot when done
                 </label>
-                <div class="pt-2">
-                    <button id="simulate-update-btn"
-                            type="button"
-                            class="text-cyan-400 hover:text-cyan-300 text-sm py-1 px-0 rounded flex gap-2 items-center cursor-pointer bg-transparent"
-                            title="Reinstall dependencies for the current checked-out version">
-                        <span class="material-icons align-middle">system_update_alt</span>
-                        Reinstall current version
-                    </button>
-                </div>
+
             </div>
 
         </div>
-        <div class="border-t border-zinc-700 p-4 flex flex-row items-center justify-between gap-3">
+        <div class="border-t border-zinc-700 p-4 flex flex-wrap items-center justify-between gap-3">
             <button id="cancel-factory-reset"
                     type="button"
-                    class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded transition-colors">
+                    class="secondary-action secondary-action--hover--cyan">
                 Cancel
             </button>
             <button id="toggle-factory-advanced"
                     type="button"
-                    class="text-sm text-zinc-400 hover:text-white transition-colors">
+                    class="secondary-action secondary-action--hover--cyan button-small">
                 Show advanced settings
             </button>
             <button id="confirm-factory-reset"
                     type="button"
-                    class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded transition-colors">
-                RESET
+                    class="primary-action bg-rose-600 text-white">
+                Reset selected
             </button>
         </div>
     </div>

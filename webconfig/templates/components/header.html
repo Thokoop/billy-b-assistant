@@ -14,7 +14,7 @@
             <div class="relative inline-block">
                 <!-- Main power button -->
                 <button id="power-btn"
-                        class="secondary-action secondary-action--hover--rose text-sm p-2 cursor-pointer"
+                        class="secondary-action secondary-action--hover--rose button-icon"
                         title="Power options">
                     <span class="material-icons">power_settings_new</span>
                 </button>
@@ -46,10 +46,10 @@
         </div>
 
         <button id="toggle-log-btn"
-                class="secondary-action secondary-action--hover--cyan text-sm p-2 cursor-pointer"
-                title="Show debug log">
+                class="secondary-action secondary-action--hover--cyan button-reveal"
+                aria-label="Debug" title="Show debug log">
             <span class="material-icons bug_report">bug_report</span>
-            <span class="text-xs hidden md:block">Debug</span>
+            <span class="button-reveal-label">Debug</span>
         </button>
 
         <div class="flex flex-wrap items-center gap-4">
@@ -57,10 +57,10 @@
                id="header-settings-btn"
                data-page-link
                data-page="settings"
-               class="secondary-action secondary-action--hover--emerald text-sm p-2 border border-transparent cursor-pointer relative"
-               title="Settings">
+               class="secondary-action secondary-action--hover--emerald button-reveal relative"
+               aria-label="Settings" title="Settings">
                 <span class="material-icons">settings</span>
-                <span class="text-xs hidden md:block">Settings</span>
+                <span class="button-reveal-label">Settings</span>
                 <span data-release-badge
                       class="hidden absolute -top-2 -right-2 items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-black text-xs font-extrabold shadow">
                       !
@@ -109,19 +109,19 @@
                     <option value="VERBOSE">Verbose</option>
                 </select>
                 <button id="apply-log-level-btn"
-                        class="secondary-action secondary-action--hover--cyan text-sm py-1 px-3 shadow">
+                        class="secondary-action secondary-action--hover--cyan button-small">
                     Apply
                 </button>
             </div>
             <button id="clear-logs-btn"
-                    class="secondary-action secondary-action--hover--rose text-sm py-1 px-3 shadow">
+                    class="secondary-action secondary-action--hover--rose button-small">
                 Clear log
             </button>
         </div>
         <div id="log-container"
              class="relative mt-3 rounded-lg px-2 max-h-96 overflow-y-scroll text-sm transition-all duration-300 border border-cyan-500 bg-zinc-900/88 backdrop-blur-sm shadow-2xl">
             <button id="toggle-fullscreen-btn"
-                    class="sticky top-2 left-full mr-3 bg-zinc-800 hover:bg-zinc-700 text-white px-2 py-1 rounded z-10 shadow flex items-center justify-center"
+                    class="secondary-action secondary-action--hover--cyan button-small button-icon sticky top-2 left-full mr-3 z-10"
                     title="Toggle Fullscreen Log">
                 <span class="material-icons" id="fullscreen-icon">fullscreen</span>
             </button>
@@ -131,7 +131,7 @@
 
             <button id="scroll-bottom-btn"
                     title="Auto-scroll"
-                    class="sticky bottom-2 left-full mr-3 ml-auto bg-zinc-800 hover:bg-zinc-700 text-white px-2 py-1 rounded z-10 shadow flex items-center justify-center cursor-pointer">
+                    class="secondary-action secondary-action--hover--cyan button-small button-icon sticky bottom-2 left-full mr-3 ml-auto">
                 <span class="material-icons">arrow_downward</span>
             </button>
         </div>

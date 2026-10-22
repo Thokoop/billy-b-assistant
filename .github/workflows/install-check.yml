@@ -1,0 +1,70 @@
+name: Pi dependency installation
+
+on:
+  pull_request:
+    paths:
+      - 'dependencies/**'
+      - 'requirements.txt'
+      - 'billy_runtime/environment*.py'
+      - 'billy_runtime/system_packages.py'
+      - 'billy_runtime/updates.py'
+      - 'tests/deployment/**'
+      - '.github/workflows/install-check.yml'
+  push:
+    paths:
+      - 'dependencies/**'
+      - 'requirements.txt'
+      - 'billy_runtime/environment*.py'
+      - 'billy_runtime/system_packages.py'
+      - 'billy_runtime/updates.py'
+      - 'tests/deployment/**'
+      - '.github/workflows/install-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: bookworm
+            python: '3.11'
+            image: python:3.11-bookworm@sha256:c255868cf24d6ca01031d262fa952f59b108b96776625f3d7f1af85d5f28e26a
+          - os: trixie
+            python: '3.13'
+            image: python:3.13-trixie@sha256:5b16f8c3c772f377a8a0133ee26cfe1d5b8359c88d408836281adb99fc6219d6
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install native prerequisites inside disposable CI container
+        run: sh tests/deployment/install-container.sh
+      - name: Exercise real APT transactions and interrupted repair
+        run: BILLY_PACKAGE_TEST_CONTAINER=1 python tests/deployment/packages-container.py
+      - name: Prepare a fresh release environment and verify dependencies
+        run: python -m billy_runtime.environments --release "$GITHUB_SHA" --directory /tmp/billy-environments
+      - name: Collect reproducibility records
+        if: success()
+        run: |
+          mkdir -p .ci-results
+          cp /tmp/billy-environments/*/manifest.json .ci-results/
+          cp /tmp/billy-environments/*/system-packages.tsv .ci-results/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: installation-${{ matrix.os }}-py${{ matrix.python }}
+          path: .ci-results/
+          retention-days: 14
+          if-no-files-found: error

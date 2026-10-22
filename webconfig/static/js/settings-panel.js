@@ -1894,6 +1894,10 @@ window.uploadUserProfile = async function (input) {
 
         const formData = new FormData();
         formData.append('file', file);
+        const current = await fetch(`/profiles/${encodeURIComponent(currentUser)}`, {cache: 'no-store'});
+        if (!current.ok) throw new Error('Could not read the current profile');
+        const currentProfile = await current.json();
+        formData.append('revision', currentProfile.revision);
 
         const response = await fetch(`/profiles/import/${currentUser}`, {
             method: 'POST',

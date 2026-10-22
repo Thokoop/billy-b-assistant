@@ -7,22 +7,22 @@ import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
 
 from packaging.version import InvalidVersion
 from packaging.version import parse as parse_version
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from billy_runtime.paths import CODE_ROOT, INSTALL_ROOT
 from core.logger import logger
 
 
 WEBCONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-PROJECT_ROOT = Path(os.path.abspath(os.path.join(WEBCONFIG_DIR, "..")))
+PROJECT_ROOT = INSTALL_ROOT
 PERSONA_PATH = PROJECT_ROOT / "persona.ini"
 VERSIONS_PATH = PROJECT_ROOT / "versions.ini"
 WAKE_UP_DIR = PROJECT_ROOT / "sounds" / "wake-up" / "custom"
-WAKE_UP_DIR_DEFAULT = PROJECT_ROOT / "sounds" / "wake-up" / "default"
+WAKE_UP_DIR_DEFAULT = CODE_ROOT / "sounds" / "wake-up" / "default"
 
 RELEASE_NOTE = {"tag": None, "body": "", "url": "", "fetched_at": 0}
 VERSION_STATE_LOCK = threading.RLock()
@@ -91,6 +91,9 @@ def save_versions(current: str, latest: str):
 
 
 def get_current_version():
+    selected = os.environ.get("BILLY_RELEASE_VERSION")
+    if selected:
+        return selected
     tag_list: list[str] = []
     try:
         # First, check if HEAD points to a tag directly (most reliable for detached HEAD)

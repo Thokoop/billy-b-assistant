@@ -6,6 +6,8 @@ import os
 
 from dotenv import load_dotenv
 
+from billy_runtime.paths import INSTALL_ROOT
+
 from .persona import (
     PersonaProfile,
     load_traits_from_ini,
@@ -13,12 +15,13 @@ from .persona import (
 
 
 # === Paths ===
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = str(INSTALL_ROOT)
 ENV_PATH = os.path.join(ROOT_DIR, ".env")
 PERSONA_PATH = os.path.join(ROOT_DIR, "persona.ini")
 
 # === Load .env ===
-load_dotenv(dotenv_path=ENV_PATH)
+if not os.environ.get("BILLY_CONFIG_LOADED"):
+    load_dotenv(dotenv_path=ENV_PATH)
 
 # === Load traits.ini ===
 traits = load_traits_from_ini(PERSONA_PATH)

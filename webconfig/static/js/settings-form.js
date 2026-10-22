@@ -644,6 +644,7 @@ const SettingsForm = (() => {
 
         const openModal = () => {
             modal.classList.remove("hidden");
+            window.BillyVersionUI?.refresh();
         };
         const closeModal = () => {
             modal.classList.add("hidden");
@@ -1800,9 +1801,10 @@ const SettingsForm = (() => {
 
         const syncOnboardingUiState = () => {
             const onboardingUi = shouldAutoOpenEditor();
-            if (editToggleLabel) {
-                editToggleLabel.textContent = onboardingUi ? "Wi-Fi setup" : "Edit connection";
-            }
+            const editLabel = onboardingUi ? "Wi-Fi setup" : "Edit connection";
+            if (editToggleLabel) editToggleLabel.textContent = editLabel;
+            editToggleBtn?.setAttribute("aria-label", editLabel);
+            editToggleBtn?.setAttribute("title", editLabel);
             wifiModalDescription.textContent = onboardingUi
                 ? "Connect Billy to your home Wi-Fi to finish setup. The setup hotspot will close when Billy connects. Reconnect your device to your home Wi-Fi and open Billy’s web interface again."
                 : "Choose your Wi-Fi network and save the connection for Billy. Billy will connect immediately; your browser may briefly disconnect.";
@@ -1851,7 +1853,7 @@ const SettingsForm = (() => {
         const createNetworkListItem = (network) => {
             const button = document.createElement("button");
             button.type = "button";
-            button.className = "wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
+            button.className = "wifi-network-item text-sm w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
             button.dataset.ssid = network.ssid || "";
             button.dataset.manual = "false";
 
@@ -1881,7 +1883,7 @@ const SettingsForm = (() => {
         const createManualNetworkListItem = () => {
             const button = document.createElement("button");
             button.type = "button";
-            button.className = "wifi-network-item w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
+            button.className = "wifi-network-item text-sm w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
             button.dataset.ssid = MANUAL_SSID_VALUE;
             button.dataset.manual = "true";
             button.innerHTML = `

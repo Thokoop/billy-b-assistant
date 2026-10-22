@@ -179,6 +179,10 @@ def migrate_traits(traits_dict: dict) -> dict:
 
 # helper to load from persona.ini
 def load_traits_from_ini(path="persona.ini") -> dict:
+    if path == "persona.ini":
+        from billy_runtime.paths import INSTALL_ROOT
+
+        path = str(INSTALL_ROOT / "persona.ini")
     if not os.path.exists(path):
         # Copy default
         example_path = path + ".example"
@@ -210,6 +214,11 @@ def update_persona_ini(trait: str, value: int, ini_path="persona.ini"):
         f"update_persona_ini called: trait={trait}, value={value}, ini_path={ini_path}, ALLOW_UPDATE={ALLOW_UPDATE_PERSONALITY_INI}",
         "🎛️",
     )
+
+    if ini_path == "persona.ini":
+        from billy_runtime.paths import INSTALL_ROOT
+
+        ini_path = str(INSTALL_ROOT / "persona.ini")
 
     if ALLOW_UPDATE_PERSONALITY_INI:
         import configparser

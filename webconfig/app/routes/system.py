@@ -13,11 +13,21 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 
-from dotenv import dotenv_values, find_dotenv
+from dotenv import dotenv_values
 from flask import Blueprint, jsonify, redirect, render_template, request
 from packaging.version import parse as parse_version
 from werkzeug.utils import secure_filename
 
+from billy_runtime.configuration import (
+    ConfigError,
+    ConflictError,
+    example_defaults,
+    load_environment,
+    patch_env,
+)
+from billy_runtime.configuration import save_env as persist_env
+from billy_runtime.profiles import profile_lock
+from billy_runtime.recovery import Recovery
 from core.env_utils import set_env_key
 from core.news_manager import load_news_sources, save_news_sources
 from core.vision import describe_scene, detect_rpi_camera_available
@@ -31,7 +41,6 @@ from ..state import (
     load_versions,
     save_versions,
 )
-from .misc import _restart_units
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -43,12 +52,7 @@ bp = Blueprint("system", __name__)
 # Timezone names never change while the service runs.
 _TIMEZONE_CACHE: list[str] | None = None
 
-# Find .env file in project root (not webconfig directory)
-ENV_PATH = find_dotenv(usecwd=True)
-if not ENV_PATH or not os.path.exists(ENV_PATH):
-    # Fallback: look for .env in project root
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    ENV_PATH = os.path.join(project_root, ".env")
+ENV_PATH = str(Path(PROJECT_ROOT) / ".env")
 CONFIG_KEYS = [
     "OPENAI_API_KEY",
     "XAI_API_KEY",
@@ -142,50 +146,6 @@ WIFI_COUNTRIES = [
     ("NL", "Netherlands"),
     ("US", "United States"),
 ]
-OPENWAKEWORD_WORKAROUND_VERSION = "0.6.0"
-
-
-def _reinstall_openwakeword_workaround(venv_pip: str) -> str:
-    """Force a working openwakeword install on Pi systems where pip resolves 0.4.x."""
-    logger.info(
-        f"[openwakeword] Applying install workaround for openwakeword {OPENWAKEWORD_WORKAROUND_VERSION}"
-    )
-    commands = [
-        [
-            venv_pip,
-            "uninstall",
-            "-y",
-            "openwakeword",
-        ],
-        [
-            venv_pip,
-            "install",
-            "--upgrade",
-            "onnxruntime",
-            "requests",
-            "scikit-learn",
-            "scipy",
-            "tqdm",
-            "ai-edge-litert",
-        ],
-        [
-            venv_pip,
-            "install",
-            "--no-deps",
-            "--upgrade",
-            f"openwakeword=={OPENWAKEWORD_WORKAROUND_VERSION}",
-        ],
-    ]
-    output_parts: list[str] = []
-    for cmd in commands:
-        output = subprocess.check_output(
-            cmd,
-            cwd=PROJECT_ROOT,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        output_parts.append(output)
-    return "\n".join(part for part in output_parts if part)
 
 
 def _detect_rpi_camera_available() -> bool:
@@ -780,19 +740,12 @@ def _remove_env_and_versions() -> dict:
 
     env_path = Path(ENV_PATH)
     example_path = Path(PROJECT_ROOT) / ".env.example"
-    if env_path.exists():
-        try:
-            env_path.unlink()
-        except Exception as exc:
-            errors.append(f"Failed to delete .env: {exc}")
     try:
-        if example_path.exists():
-            shutil.copy(example_path, env_path)
-        else:
-            env_path.touch()
+        persist_env(env_path, example_defaults(example_path))
+        Recovery(PROJECT_ROOT).state(needs_setup=True, mode="setup", good=None)
         removed["env"] = True
     except Exception as exc:
-        errors.append(f"Failed to reset .env: {exc}")
+        errors.append(f"Failed to reset .env: {type(exc).__name__}")
 
     versions_path = Path(PROJECT_ROOT) / "versions.ini"
     if versions_path.exists():
@@ -806,23 +759,24 @@ def _remove_env_and_versions() -> dict:
 
 
 def _remove_custom_profiles() -> dict:
-    removed: list[str] = []
-    errors: list[str] = []
+    with profile_lock(PROJECT_ROOT):
+        removed: list[str] = []
+        errors: list[str] = []
 
-    profiles_dir = Path(PROJECT_ROOT) / "profiles"
-    if profiles_dir.exists():
-        for profile_file in profiles_dir.glob("*.ini"):
-            if (
-                profile_file.name.lower() == "guest.ini"
-                or profile_file.stem.lower() == "guest"
-            ):
-                continue
-            try:
-                _remove_path(profile_file, removed)
-            except Exception as exc:
-                errors.append(f"Failed to delete profile {profile_file}: {exc}")
+        profiles_dir = Path(PROJECT_ROOT) / "profiles"
+        if profiles_dir.exists():
+            for profile_file in profiles_dir.glob("*.ini"):
+                if (
+                    profile_file.name.lower() == "guest.ini"
+                    or profile_file.stem.lower() == "guest"
+                ):
+                    continue
+                try:
+                    _remove_path(profile_file, removed)
+                except Exception as exc:
+                    errors.append(f"Failed to delete profile {profile_file}: {exc}")
 
-    return {"removed": removed, "errors": errors}
+        return {"removed": removed, "errors": errors}
 
 
 def _remove_custom_personas() -> dict:
@@ -946,39 +900,10 @@ def _remove_active_wifi_connections() -> dict:
 
 
 def _reset_git_worktree() -> dict:
-    errors: list[str] = []
-    details: dict[str, str] = {}
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"],
-            cwd=PROJECT_ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            stderr = result.stderr.strip() or result.stdout.strip()
-            errors.append(f"git rev-parse failed: {stderr}")
-            return {"errors": errors, "details": details}
-        head = result.stdout.strip()
-        details["head"] = head
-
-        reset_result = subprocess.run(
-            ["git", "reset", "--hard", head],
-            cwd=PROJECT_ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if reset_result.returncode != 0:
-            stderr = reset_result.stderr.strip() or reset_result.stdout.strip()
-            errors.append(f"git reset --hard failed: {stderr}")
-    except FileNotFoundError:
-        errors.append("git not available")
-    except Exception as exc:
-        errors.append(f"git reset failed: {exc}")
-
-    return {"errors": errors, "details": details}
+    return {
+        "errors": ["Use Reinstall current version to repair software safely."],
+        "details": {},
+    }
 
 
 # core.config is reloaded so the UI sees values written since this process
@@ -1006,9 +931,8 @@ def _reload_core_config_if_env_changed() -> None:
     stamp = _env_stamp()
     if stamp == _env_reload_stamp:
         return
-    from dotenv import load_dotenv
 
-    load_dotenv(ENV_PATH, override=True)
+    load_environment(ENV_PATH, override=True)
     import importlib
     import sys
 
@@ -1163,88 +1087,49 @@ def version_info():
     return jsonify(response)
 
 
-@bp.route("/update", methods=["POST"])
+def _software_action(action, version=None):
+    # Browsers cannot submit this custom header from a cross-site HTML form.
+    if request.headers.get('X-Billy-Update') != '1':
+        return jsonify(error='Reload the settings page before updating'), 403
+    from billy_runtime.updates import queue
+
+    try:
+        result = queue(action, version, root=PROJECT_ROOT)
+        response = jsonify(result)
+        return response, 202
+    except (ValueError, RuntimeError, OSError) as exc:
+        return jsonify(error=str(exc)), 409
+
+
+@bp.get('/software/status')
+def software_status():
+    from billy_runtime.updates import status
+
+    return jsonify(status(PROJECT_ROOT)), 200, {'Cache-Control': 'no-store'}
+
+
+@bp.post('/update')
 def perform_update():
     versions = load_versions()
-    current = versions["version"].get("current", "unknown")
-    latest = versions["version"].get("latest", "unknown")
-    if current == latest or latest == "unknown":
-        return jsonify({"status": "up-to-date", "version": current})
-    try:
-        subprocess.check_output(["git", "remote", "-v"], cwd=PROJECT_ROOT, text=True)
-        subprocess.check_call(["git", "fetch", "--tags"], cwd=PROJECT_ROOT)
-        subprocess.check_call(
-            ["git", "checkout", "--force", f"tags/{latest}"], cwd=PROJECT_ROOT
-        )
-        venv_pip = os.path.join(PROJECT_ROOT, "venv", "bin", "pip")
-        output = subprocess.check_output(
-            [venv_pip, "install", "--upgrade", "-r", "requirements.txt"],
-            cwd=PROJECT_ROOT,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        output += "\n" + _reinstall_openwakeword_workaround(venv_pip)
-        logger.info(f"📦 Pip install output:\n{output}")
-        # Refresh current version from git after checkout to ensure accuracy
-        actual_current = get_current_version()
-        save_versions(actual_current, latest)
-        threading.Thread(
-            target=lambda: (
-                time.sleep(2),
-                _restart_units("billy.service", "billy-webconfig.service"),
-            ),
-            daemon=True,
-        ).start()
-        return jsonify({"status": "updated", "version": latest})
-    except subprocess.CalledProcessError as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
+    latest = versions['version'].get('latest', 'unknown')
+    if latest == get_current_version():
+        return jsonify(status='up-to-date')
+    return _software_action('update', latest)
 
 
-@bp.route("/update-simulate", methods=["POST"])
+@bp.post('/update-simulate')
 def simulate_update():
-    """Run update workflow against currently checked-out revision."""
-    try:
-        versions = load_versions()
-        latest = versions["version"].get("latest", "unknown")
+    return _software_action('reinstall')
 
-        # Keep current code version: reinstall deps for current checkout and restart services.
-        current_ref = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True
-        ).strip()
-        subprocess.check_call(
-            ["git", "checkout", "--force", current_ref], cwd=PROJECT_ROOT
-        )
 
-        venv_pip = os.path.join(PROJECT_ROOT, "venv", "bin", "pip")
-        output = subprocess.check_output(
-            [venv_pip, "install", "--upgrade", "-r", "requirements.txt"],
-            cwd=PROJECT_ROOT,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        output += "\n" + _reinstall_openwakeword_workaround(venv_pip)
-        logger.info(f"📦 Reinstall current version pip output:\n{output}")
+@bp.post('/software/packages')
+def repair_system_packages():
+    return _software_action('packages')
 
-        actual_current = get_current_version()
-        save_versions(actual_current, latest)
 
-        threading.Thread(
-            target=lambda: (
-                time.sleep(2),
-                _restart_units("billy.service", "billy-webconfig.service"),
-            ),
-            daemon=True,
-        ).start()
-
-        return jsonify({
-            "status": "restarting",
-            "message": "Reinstall complete. Restarting services...",
-            "version": actual_current,
-        })
-    except subprocess.CalledProcessError as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
+@bp.post('/software/rollback')
+def software_rollback():
+    return _software_action('rollback')
 
 
 @bp.route("/release-note")
@@ -1269,6 +1154,7 @@ def save():
         "AEC_ENABLED",
         "AEC_BARGE_IN_SNR_DB",
     }
+    updates = {}
     for key, value in data.items():
         if key in CONFIG_KEYS:
             if key == "FOLLOW_UP_RETRY_LIMIT":
@@ -1324,18 +1210,23 @@ def save():
                 value = str(max(0.0, min(1.0, parsed)))
             old_value = str(existing_env.get(key, ""))
             new_value = str(value)
-            set_env_key(ENV_PATH, key, value)
+            updates[key] = value
             if key == "FLASK_PORT" and str(value) != str(old_port):
                 changed_port = True
             if key in audio_restart_keys and new_value != old_value:
                 audio_restart_required = True
+    try:
+        patch_env(ENV_PATH, updates)
+    except ConfigError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OSError:
+        return jsonify({"error": "Configuration could not be saved"}), 500
     response = {"status": "ok"}
     # Keep the web UI's in-memory configuration synchronized without restarting
     # billy-webconfig.service. This also makes subsequent server-rendered pages
     # preselect newly saved dropdown values correctly.
-    from dotenv import load_dotenv
 
-    load_dotenv(ENV_PATH, override=True)
+    load_environment(ENV_PATH, override=True)
     import importlib
 
     importlib.reload(core_config)
@@ -1630,21 +1521,23 @@ def upload_wakeword_file():
     try:
         wakeword_file.save(target_path)
         if suffix == ".ppn":
-            set_env_key(
+            patch_env(
                 ENV_PATH,
-                "WAKE_WORD_PORCUPINE_KEYWORD_PATH",
-                filename,
+                {
+                    "WAKE_WORD_PORCUPINE_KEYWORD_PATH": filename,
+                    "WAKE_WORD_BACKEND": "porcupine",
+                },
             )
-            set_env_key(ENV_PATH, "WAKE_WORD_BACKEND", "porcupine")
             backend = "porcupine"
             file_type = "keyword"
         else:
-            set_env_key(
+            patch_env(
                 ENV_PATH,
-                "WAKE_WORD_OPENWAKEWORD_MODEL_PATH",
-                filename,
+                {
+                    "WAKE_WORD_OPENWAKEWORD_MODEL_PATH": filename,
+                    "WAKE_WORD_BACKEND": "openwakeword",
+                },
             )
-            set_env_key(ENV_PATH, "WAKE_WORD_BACKEND", "openwakeword")
             backend = "openwakeword"
             file_type = "model"
         return jsonify({
@@ -1916,9 +1809,8 @@ def refresh_config():
     """Refresh core configuration modules to pick up new settings."""
     try:
         # Reload .env file first
-        from dotenv import load_dotenv
 
-        load_dotenv(ENV_PATH, override=True)
+        load_environment(ENV_PATH, override=True)
 
         # Import and reload core modules that might have cached configuration
         import importlib
@@ -1951,9 +1843,8 @@ def auto_refresh_config():
     """Automatically refresh configuration when .env changes are detected."""
     try:
         # Reload .env file
-        from dotenv import load_dotenv
 
-        load_dotenv(ENV_PATH, override=True)
+        load_environment(ENV_PATH, override=True)
 
         # Reload core config module
         import importlib
@@ -2131,24 +2022,58 @@ def delete_news_source(source_id: str):
         return jsonify({"error": str(e)}), 500
 
 
+@bp.route('/env-history')
+def env_history():
+    try:
+        return (
+            jsonify(files=Recovery(Path(ENV_PATH).parent).environment_files()),
+            200,
+            {"Cache-Control": "no-store"},
+        )
+    except OSError:
+        return jsonify(error="Configuration history could not be read"), 500
+
+
 @bp.route('/get-env')
 def get_env():
     try:
-        with open('.env') as f:
-            return f.read(), 200
-    except Exception as e:
-        return str(e), 500
+        content, digest = Recovery(Path(ENV_PATH).parent).environment_content(
+            request.args.get('source', '.env')
+        )
+        return (
+            content,
+            200,
+            {
+                "X-Config-Revision": digest,
+                "Cache-Control": "no-store",
+                "Content-Type": "text/plain; charset=utf-8",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except ValueError:
+        return "Unknown configuration source", 404
+    except OSError:
+        return "Configuration could not be read; check storage permissions", 500
 
 
 @bp.route('/save-env', methods=['POST'])
 def save_env():
-    content = request.json.get('content', '')
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify(error='Expected a JSON object'), 400
     try:
-        with open('.env', 'w') as f:
-            f.write(content)
-        return jsonify({"status": "ok", "message": ".env saved"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        expected = data.get('revision')
+        if not expected:
+            return jsonify({"error": "Reload the editor before saving"}), 409
+        digest = persist_env(ENV_PATH, data.get('content', ''), expected=expected)
+        Recovery(Path(ENV_PATH).parent).approve_setup()
+        return jsonify({"status": "ok", "revision": digest, "message": ".env saved"})
+    except ConflictError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except ConfigError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OSError:
+        return jsonify({"error": "Configuration could not be saved; use /repair/"}), 500
 
 
 @bp.route("/factory-reset", methods=["POST"])
@@ -2162,7 +2087,11 @@ def factory_reset():
     personas_enabled = options.get("personas", True)
     logs_enabled = options.get("logs", True)
     wifi_enabled = options.get("wifi", True)
-    git_enabled = options.get("git", True)
+    git_enabled = options.get("git", False)
+    if git_enabled:
+        return jsonify(
+            error='Use Reinstall current version to repair software safely.'
+        ), 409
     reboot_enabled = options.get("reboot", True)
 
     env_results = (

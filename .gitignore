@@ -98,8 +98,32 @@ test/
 .venv-tests/
 /docs/plans
 
-# Local regression suite, configuration and test documentation
-/tests/
-/pytest.ini
+# CI regressions are shared; ad hoc browser experiments remain local.
+/tests/*
+!/tests/conftest.py
+!/tests/requirements.in
+!/tests/requirements.txt
+!/tests/test_*.py
+!/tests/bluetooth/
+/tests/bluetooth/*
+!/tests/bluetooth/test_*.py
+!/tests/bluetooth/test_ui.cjs
+!/tests/recovery/
+/tests/recovery/*
+!/tests/recovery/test_*.py
+!/tests/recovery/probe_worker.py
+!/tests/webconfig/
+/tests/webconfig/*
+!/tests/webconfig/test_*.py
+!/tests/webconfig/test_restart.cjs
+!/tests/webconfig/test_updates.cjs
+/.ci-results/
+
+!/tests/deployment/
+/tests/deployment/*
+!/tests/deployment/test_*.py
+!/tests/deployment/install-container.sh
+
+# Local test documentation
 /docs/bluetooth-audio-testing.md
 /docs/core-regression-testing.md

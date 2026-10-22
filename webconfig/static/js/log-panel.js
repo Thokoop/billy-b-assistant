@@ -1,5 +1,10 @@
 // ===================== Header Secondary Actions (Log Panel) =====================
 const LogPanel = (() => {
+    let envRevision = null;
+    let envBaseline = null;
+    let envSource = '.env';
+    let envLoadId = 0;
+    let envLoading = false;
     let autoScrollEnabled = false;
     let isLogHidden = true;
     let restoreSettingsPanelAfterEnvClose = false;
@@ -306,21 +311,73 @@ const LogPanel = (() => {
         setLogsUI(merged);
     };
 
+    const openLogPanel = () => {
+        const panel = document.getElementById('log-panel');
+        if (!panel) return;
+        isLogHidden = false;
+        panel.classList.remove('hidden');
+        document.getElementById('toggle-log-btn')?.classList.add('secondary-action--active-cyan');
+        panel.scrollIntoView?.({block: 'nearest'});
+        fetchLogs();
+    };
+
     const toggleLogPanel = () => {
         isLogHidden = !isLogHidden;
         elements.logPanel.classList.toggle("hidden", isLogHidden);
         elements.toggleBtn.classList.toggle("secondary-action--active-cyan", !isLogHidden);
     };
 
-    const loadEnvContent = async () => {
+    const loadEnvContent = async (source = '.env') => {
+        const loadId = ++envLoadId;
+        envLoading = true;
+        if (elements.saveEnvBtn) elements.saveEnvBtn.disabled = true;
+        if (elements.envSource) elements.envSource.disabled = true;
+        if (elements.envTextarea) elements.envTextarea.disabled = true;
         try {
-            const res = await fetch('/get-env');
+            const url = source === '.env' ? '/get-env' : `/get-env?source=${encodeURIComponent(source)}`;
+            const res = await fetch(url, {cache: 'no-store', signal: AbortSignal.timeout(10000)});
+            if (!res.ok) throw new Error('Configuration could not be loaded. Your edits have been kept.');
             const text = await res.text();
-            if (elements.envTextarea) {
-                elements.envTextarea.value = text.trim();
+            if (loadId !== envLoadId) return;
+            const revision = res.headers.get('X-Config-Revision');
+            if (!revision) throw new Error('Configuration revision is missing. Reopen the editor before saving.');
+            envRevision = revision;
+            envBaseline = text;
+            envSource = source;
+            if (elements.envTextarea) elements.envTextarea.value = text;
+        } catch (error) {
+            if (loadId === envLoadId) showNotification(error.message, "error");
+        } finally {
+            if (loadId === envLoadId) {
+                envLoading = false;
+                if (elements.saveEnvBtn) elements.saveEnvBtn.disabled = !envRevision;
+                if (elements.envTextarea) elements.envTextarea.disabled = false;
+                if (elements.envSource) {
+                    elements.envSource.value = envSource;
+                    elements.envSource.disabled = false;
+                }
             }
-        } catch {
-            showNotification("An error occurred while loading .env", "error");
+        }
+    };
+
+    const loadEnvHistory = async () => {
+        if (!elements.envSource) return;
+        try {
+            const res = await fetch('/env-history', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
+            if (!res.ok) throw new Error('Configuration history is unavailable; the current file can still be edited.');
+            const data = await res.json();
+            const options = data.files.map((file) => {
+                const option = document.createElement('option');
+                option.value = file.name;
+                const label = file.kind === 'backup' ? 'Working backup' : 'Preserved damaged file';
+                option.textContent = file.kind === 'current' ? 'Current configuration'
+                    : `${label} — ${new Date(file.saved_at * 1000).toLocaleString()}`;
+                return option;
+            });
+            elements.envSource.replaceChildren(...options);
+            elements.envSource.value = envSource;
+        } catch (error) {
+            showNotification(error.message, "error");
         }
     };
 
@@ -334,12 +391,18 @@ const LogPanel = (() => {
             restoreSettingsPanelAfterEnvClose = false;
         }
         elements.envEditorModal.classList.remove("hidden");
-        await loadEnvContent();
+        envRevision = null;
+        envBaseline = null;
+        envSource = '.env';
+        if (elements.envSource) elements.envSource.value = '.env';
+        await Promise.all([loadEnvContent(), loadEnvHistory()]);
     };
 
     const closeEnvEditorModal = () => {
         if (!elements.envEditorModal) return;
         elements.envEditorModal.classList.add("hidden");
+        envLoadId += 1;
+        envLoading = false;
         if (restoreSettingsPanelAfterEnvClose) {
             const settingsPanel = document.getElementById("settings-panel");
             if (settingsPanel) {
@@ -394,12 +457,13 @@ const LogPanel = (() => {
     };
 
     const saveEnv = async () => {
+        if (envLoading || !envRevision) return;
         if (!confirm("Are you sure you want to overwrite the .env file? This may affect how Billy runs.")) return;
         try {
             const res = await fetch('/save-env', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({content: elements.envTextarea.value})
+                body: JSON.stringify({content: elements.envTextarea.value, revision: envRevision})
             });
             const data = await res.json();
             if (data.status === "ok") {
@@ -462,6 +526,7 @@ const LogPanel = (() => {
             cancelEnvEditorModalBtn: document.getElementById("cancel-env-editor-modal"),
             envEditorForm: document.getElementById("env-editor-form"),
             envTextarea: document.getElementById("env-textarea"),
+            envSource: document.getElementById("env-source"),
             saveEnvBtn: document.getElementById("save-env-btn"),
             toggleMotionBtn: document.getElementById("toggle-motion-btn"),
             powerBtn: document.getElementById("power-btn"),
@@ -518,6 +583,16 @@ const LogPanel = (() => {
                 if (e.target === elements.envEditorModal) {
                     closeEnvEditorModal();
                 }
+            });
+        }
+        if (elements.envSource) {
+            elements.envSource.addEventListener('change', () => {
+                if (envBaseline !== null && elements.envTextarea.value !== envBaseline
+                    && !confirm('Discard your unsaved edits and open another configuration?')) {
+                    elements.envSource.value = envSource;
+                    return;
+                }
+                loadEnvContent(elements.envSource.value);
             });
         }
         if (elements.envEditorForm) {
@@ -591,6 +666,7 @@ const LogPanel = (() => {
         checkAndShowPasswordModal,
         hideSupportPanelIfDisabled,
         openEnvEditorModal,
+        openLogPanel,
     };
 })();
 

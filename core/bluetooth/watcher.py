@@ -53,14 +53,16 @@ RESTART_BACKOFF_SECONDS = 0.5
 
 _stop = threading.Event()
 _thread = None
+_connect_thread = None
 _session_stop = None
 _session_lock = threading.Lock()
 
 
 def start():
     """Begin watching for Bluetooth routes. Safe to call twice."""
-    global _thread
+    global _thread, _connect_thread
     from ..config import BLUETOOTH_AUTO_SWITCH, TEXT_ONLY_MODE
+    from . import autoconnect
 
     if not BLUETOOTH_AUTO_SWITCH or TEXT_ONLY_MODE:
         return
@@ -73,12 +75,13 @@ def start():
     runtime.status(mode.IDLE)
     _thread = threading.Thread(target=_run, name="bluetooth-routes", daemon=True)
     _thread.start()
+    _connect_thread = autoconnect.start(_stop)
     logger.info("Bluetooth route watcher started.", "👀")
 
 
 def stop():
     """Stop watching, and end a session in progress."""
-    global _thread
+    global _thread, _connect_thread
     _stop.set()
     with _session_lock:
         if _session_stop is not None:
@@ -87,6 +90,9 @@ def stop():
     if thread is not None and thread.is_alive():
         thread.join(timeout=3.0)
     _thread = None
+    if _connect_thread is not None:
+        _connect_thread.join(timeout=2)
+    _connect_thread = None
 
 
 def active_route():

@@ -229,6 +229,9 @@ def _billy_service_state() -> str:
 
 @bp.route("/service/status")
 def service_status():
+    from billy_runtime.recovery import Recovery
+
+    recovery = Recovery().notice()
     try:
         # Get service status without raising on non-zero exit codes.
         # systemctl returns exit code 3 for inactive/failed units, which is expected.
@@ -250,14 +253,13 @@ def service_status():
 
         from dotenv import load_dotenv
 
+        # Get project root and .env path
+        from billy_runtime.paths import INSTALL_ROOT
         from core.mood import mood_manager
         from core.persona_manager import persona_manager
         from core.profile_manager import user_manager
 
-        # Get project root and .env path
-        project_root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        )
+        project_root = str(INSTALL_ROOT)
         env_path = os.path.join(project_root, ".env")
 
         # Reload .env to get latest values
@@ -351,6 +353,7 @@ def service_status():
 
         return jsonify({
             "status": service_status,
+            "recovery": recovery,
             "webconfig_instance": WEBCONFIG_INSTANCE_ID,
             "mood": current_mood,
             "current_user": current_user_name,
@@ -370,6 +373,7 @@ def service_status():
         # Fallback to basic service status if profile loading fails
         return jsonify({
             "status": service_status,
+            "recovery": recovery,
             "webconfig_instance": WEBCONFIG_INSTANCE_ID,
             "error": f"Failed to load profile status: {str(e)}",
         })
@@ -455,38 +459,14 @@ def change_password():
                 # Set FORCE_PASS_CHANGE=false in .env file
                 try:
                     # Get the project root directory (two levels up from webconfig/app/routes/)
-                    project_root = os.path.dirname(
-                        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                    )
+                    from billy_runtime.paths import INSTALL_ROOT
+
+                    project_root = str(INSTALL_ROOT)
                     env_file_path = os.path.join(project_root, ".env")
-                    env_content = ""
-                    force_pass_change_set = False
+                    from billy_runtime.configuration import load_environment, patch_env
 
-                    # Read existing .env file
-                    if os.path.exists(env_file_path):
-                        with open(env_file_path) as f:
-                            lines = f.readlines()
-
-                        # Update or add FORCE_PASS_CHANGE
-                        for line in lines:
-                            if line.startswith("FORCE_PASS_CHANGE="):
-                                env_content += "FORCE_PASS_CHANGE=False\n"
-                                force_pass_change_set = True
-                            else:
-                                env_content += line
-
-                    # Add FORCE_PASS_CHANGE if it wasn't found
-                    if not force_pass_change_set:
-                        env_content += "FORCE_PASS_CHANGE=False\n"
-
-                    # Write back to .env file
-                    with open(env_file_path, 'w') as f:
-                        f.write(env_content)
-
-                    # Reload the .env file to pick up the new setting
-                    from dotenv import load_dotenv
-
-                    load_dotenv(dotenv_path=env_file_path, override=True)
+                    patch_env(env_file_path, {"FORCE_PASS_CHANGE": "false"})
+                    load_environment(env_file_path, override=True)
 
                     # Also reload the core config module to pick up the new setting
                     import importlib

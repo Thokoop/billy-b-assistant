@@ -751,6 +751,68 @@ Reconnect your phone or computer to your home Wi-Fi to open Billy’s web interf
 Saved network credentials remain available until you change them in setup.
 Short presses retain their normal session controls.
 
+If Billy's normal web interface cannot open, the setup page can show a recovery
+screen instead. You can also open `/repair/` at the same address shown by the setup
+page. Opening recovery does not require internet access or a recovery code;
+downloading software or missing components does require an internet connection.
+
+The ten-second button action works while Billy is running. With the built-in
+Wi-Fi setup enabled, Billy also opens its setup hotspot at startup if it has no
+active Wi-Fi connection, even if the assistant cannot start. If the connection is
+lost later and setup does not appear, restart Billy to run the connection check again.
+
+---
+
+# Software updates and recovery
+
+Open [Billy's settings](http://billy.local/settings) while connected to the same
+network as Billy. If you chose a different hostname, use that address instead.
+The options below are available on versions that include the recovery features.
+
+### Update Billy
+
+Under **Settings → Software Version**, you can see the installed version, read
+release notes and install an available update. Billy checks the components it
+needs before switching to the new version. Audio and conversations may pause
+during installation. Keep Billy powered on and connected to the internet until
+the update finishes.
+
+### Check system components
+
+Go to **Settings → Advanced Settings → System components**. If everything is
+ready, you will see **All system components are installed.** No action is needed.
+
+If components need attention, use **Repair system components** when it is shown.
+Follow the progress and result in the interface. This repairs components Billy
+needs without resetting your settings or selecting a different Billy version.
+It does not upgrade Raspberry Pi OS.
+
+### Reinstall or restore a previous version
+
+Go to **Settings → Advanced Settings → Recovery & reset → Open recovery**.
+The recovery options show which software versions are available:
+
+- **Reinstall** installs the current version again.
+- **Restore** returns to a previously saved version, when one is available.
+
+These software actions preserve your settings, profiles and memories. Restoring
+Billy's software does not roll back system-component changes. Resetting settings
+is a separate action in the same window; select only the items you want to reset.
+
+### If Billy cannot start
+
+The web interface can remain available even when the assistant cannot start.
+Follow the notification: **Open Debug** shows startup errors, while
+**Open .env editor** helps with configuration problems. The editor lets you inspect
+available backups or a preserved damaged configuration before saving any changes.
+
+If the normal interface also fails to start, open
+[Billy's recovery screen](http://billy.local/repair/). It provides software recovery,
+configuration recovery and system-component repair without needing to log in to
+the Raspberry Pi. It is also accessible through Billy's setup hotspot as described
+above. If recovery reports a problem it cannot fix, keep the error message and
+contact support before resetting your settings or reflashing the SD card.
+
 ---
 
 # Future Ideas & Bug report

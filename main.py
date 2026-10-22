@@ -1,37 +1,18 @@
-import shutil
 import signal
 import sys
 import threading
 import traceback
 from pathlib import Path
 
-from core.logger import logger
 
+# Bootstrap before importing anything from core (including its logger).
+if __name__ == '__main__':
+    from billy_runtime.supervisor import monitor, worker_environment
 
-# --- Ensure .env exists ---
-def ensure_env_file():
-    env_path = Path(".env")
-    env_example_path = Path(".env.example")
-
-    if not env_path.exists():
-        if env_example_path.exists():
-            shutil.copy(env_example_path, env_path)
-            print("✅ .env file created from .env.example")
-            print(
-                "⚠️  Please review the .env file and update your API key and other settings."
-            )
-        else:
-            print("❌ Neither .env nor .env.example found. Exiting.")
-            sys.exit(1)
-
-
-ensure_env_file()
-
-# --- Now load env ---
-from dotenv import load_dotenv
-
-
-load_dotenv()
+    if '--billy-worker' not in sys.argv:
+        monitor(Path(__file__), 'core')
+        raise SystemExit(0)
+    worker_environment()
 
 # --- Imports that might use environment variables ---
 from pathlib import Path
@@ -41,7 +22,7 @@ from core.audio import initialize_devices, playback_queue
 from core.bluetooth import watcher as bluetooth_watcher
 
 # --- Reload logger level after environment is loaded ---
-from core.logger import reload_log_level
+from core.logger import logger, reload_log_level
 from core.movements import start_motor_watchdog
 from core.mqtt import start_mqtt, stop_mqtt
 from core.readiness import clear_ready, mark_ready
@@ -92,6 +73,9 @@ def main():
         bluetooth_watcher.start()
         threading.Thread(target=start_mqtt, daemon=True).start()
         mark_ready()
+        from billy_runtime.worker import ready as report_runtime_ready
+
+        report_runtime_ready()
 
     core.button.start_loop(on_ready=ready)
 

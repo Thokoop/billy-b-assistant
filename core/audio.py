@@ -795,12 +795,13 @@ def _filter_wake_up_clips_for_mood(clips: list[str], persona_name: str) -> list[
     try:
         import configparser
 
+        from .config import PERSONA_PATH
         from .mood import mood_manager
 
         mood_label = str(mood_manager.snapshot().get("label") or "neutral").strip()
         config = configparser.ConfigParser()
         persona_file = (
-            "persona.ini"
+            PERSONA_PATH
             if persona_name == "default"
             else os.path.join("personas", persona_name, "persona.ini")
         )
