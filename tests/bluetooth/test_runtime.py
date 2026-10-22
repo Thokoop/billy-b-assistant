@@ -523,3 +523,119 @@ def test_full_pipe_stops_on_deadline_without_capture_blocking(runtime, monkeypat
     finally:
         os.close(reader)
         os.close(writer)
+
+
+def test_status_missing_runtime_directory_is_nonfatal_and_recovers(
+    runtime, monkeypatch, tmp_path, caplog
+):
+    import json
+
+    target = tmp_path / 'user-runtime' / 'billy-bluetooth.json'
+    monkeypatch.setattr(runtime, 'STATUS_PATH', target)
+    assert runtime.status('idle') is False
+    assert runtime.status('waiting') is False
+    assert (
+        not target.parent.exists()
+    )  # Only the OS should create its runtime directory.
+    assert len([r for r in caplog.records if 'Billy will continue' in r.message]) == 1
+    target.parent.mkdir()
+    assert runtime.status('media_audio', source='bluez_input.phone') is True
+    assert json.loads(target.read_text())['state'] == 'media_audio'
+    target.unlink()
+    target.parent.rmdir()
+    assert runtime.status('idle') is False
+    assert len([r for r in caplog.records if 'Billy will continue' in r.message]) == 2
+
+
+@pytest.mark.parametrize('failure', ['create', 'write', 'replace'])
+def test_status_io_errors_preserve_last_snapshot_and_cleanup(
+    runtime, monkeypatch, tmp_path, failure
+):
+    import contextlib
+    import errno
+    import json
+
+    target = tmp_path / 'billy-bluetooth.json'
+    monkeypatch.setattr(runtime, 'STATUS_PATH', target)
+    runtime.status('idle')
+    original = target.read_bytes()
+    real_temporary = runtime.tempfile.NamedTemporaryFile
+
+    @contextlib.contextmanager
+    def broken_file(*args, **kwargs):
+        if failure == 'create':
+            raise PermissionError(errno.EACCES, 'Permission denied')
+        with real_temporary(*args, **kwargs) as stream:
+
+            def failed_write(text):
+                stream.write(text[:5])
+                raise OSError(errno.ENOSPC, 'No space left')
+
+            yield SimpleNamespace(name=stream.name, write=failed_write)
+
+    with monkeypatch.context() as patch:
+        if failure == 'replace':
+
+            def failed_replace(*args):
+                raise PermissionError(errno.EACCES, 'Permission denied')
+
+            patch.setattr(Path, 'replace', failed_replace)
+        else:
+            patch.setattr(runtime.tempfile, 'NamedTemporaryFile', broken_file)
+        assert runtime.status('call_audio', aec=True) is False
+        assert target.read_bytes() == original
+        assert list(tmp_path.glob('*.tmp')) == []
+    assert runtime.status('call_audio', aec=True) is True
+    assert json.loads(target.read_text())['aec'] is True
+    assert list(tmp_path.glob('*.tmp')) == []
+
+
+def test_watcher_start_continues_without_runtime_directory(
+    runtime, monkeypatch, tmp_path
+):
+    import ast
+
+    namespace = 'missing_runtime_test'
+    package = ModuleType(namespace)
+    package.__path__ = []
+    bluetooth = ModuleType(f'{namespace}.bluetooth')
+    bluetooth.__path__ = []
+    config = SimpleNamespace(BLUETOOTH_AUTO_SWITCH=True, TEXT_ONLY_MODE=False)
+    autoconnect = SimpleNamespace(start=Mock(return_value=None))
+    monkeypatch.setitem(sys.modules, namespace, package)
+    monkeypatch.setitem(sys.modules, f'{namespace}.config', config)
+    monkeypatch.setitem(sys.modules, f'{namespace}.bluetooth', bluetooth)
+    monkeypatch.setitem(sys.modules, f'{namespace}.bluetooth.autoconnect', autoconnect)
+    monkeypatch.setattr(
+        runtime, 'STATUS_PATH', tmp_path / 'not-created' / 'billy-bluetooth.json'
+    )
+    source = (Path(__file__).parents[2] / 'core/bluetooth/watcher.py').read_text()
+    tree = ast.parse(source)
+    start = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == 'start'
+    )
+    thread = Mock()
+    thread.is_alive.return_value = True
+    thread_factory = Mock(return_value=thread)
+    env = dict(
+        __name__=f'{namespace}.bluetooth.watcher',
+        __package__=f'{namespace}.bluetooth',
+        _thread=None,
+        _connect_thread=None,
+        _stop=threading.Event(),
+        runtime=runtime,
+        mode=SimpleNamespace(IDLE='idle'),
+        logger=Mock(),
+        threading=SimpleNamespace(Thread=thread_factory),
+        _run=Mock(),
+    )
+    exec(compile(ast.Module(body=[start], type_ignores=[]), 'watcher.py', 'exec'), env)
+    env[
+        'start'
+    ]()  # This call used to abort main.ready() before readiness was reported.
+    thread.start.assert_called_once()
+    autoconnect.start.assert_called_once_with(env['_stop'])
+    env['start']()
+    thread_factory.assert_called_once()

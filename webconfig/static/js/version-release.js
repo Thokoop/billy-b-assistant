@@ -146,11 +146,33 @@
             const packageSummary = document.getElementById('system-packages-summary');
             const message = packages.message || 'System-component checks require the compatibility update.';
             const needsAttention = packages.state === 'attention';
-            if (packageSummary) packageSummary.textContent = needsAttention
-                ? 'Check and repair the components Billy needs to run.' : message;
-            if (packageMessage) packageMessage.textContent = needsAttention || !packageSummary ? message : '';
+            const action = packages.damaged?.length
+                ? {label: 'Repair components', badge: 'Repair needed', icon: 'build', summary: 'Repair the components Billy needs to run.'}
+                : packages.missing?.length
+                ? {label: 'Install components', badge: 'Installation needed', icon: 'download', summary: 'Install the missing components Billy needs to run.'}
+                : packages.updates?.length
+                ? {label: 'Update components', badge: 'Update available', icon: 'system_update_alt', summary: 'Update the components Billy needs to run.'}
+                : {label: 'Set up components', badge: 'Setup needed', icon: 'build', summary: 'Finish setting up the components Billy needs to run.'};
+            if (packageSummary) packageSummary.textContent = needsAttention ? action.summary : message;
+            // The badge already explains the generic attention state. Keep
+            // specific backend messages visible, including actionable errors.
+            if (packageMessage) packageMessage.textContent = !packageSummary
+                || (needsAttention && message !== 'System components need attention.') ? message : '';
+            const badge = document.getElementById('system-packages-badge');
+            if (badge) {
+                badge.hidden = !needsAttention;
+                badge.textContent = action.badge;
+            }
+            setText('system-packages-action-label', action.label);
+            setText('system-packages-action-icon', action.icon);
+            const details = [...new Set([...(packages.missing || []), ...(packages.damaged || []), ...(packages.updates || [])])].join(', ');
             const packageDetails = document.getElementById('system-packages-details');
-            if (packageDetails) packageDetails.textContent = [...(packages.missing || []), ...(packages.damaged || []), ...(packages.updates || [])].join(', ');
+            if (packageDetails) packageDetails.textContent = details;
+            const detailPanel = document.getElementById('system-packages-detail-panel');
+            if (detailPanel) {
+                detailPanel.hidden = !needsAttention || !details;
+                if (detailPanel.hidden) detailPanel.open = false;
+            }
             const repair = document.getElementById('repair-packages-btn');
             if (repair) {
                 repair.hidden = !packages.repairable;

@@ -782,8 +782,8 @@ the update finishes.
 Go to **Settings → Advanced Settings → System components**. If everything is
 ready, you will see **All system components are installed.** No action is needed.
 
-If components need attention, use **Repair system components** when it is shown.
-Follow the progress and result in the interface. This repairs components Billy
+If components need attention, use the suggested **Install**, **Update**, **Repair**
+or **Set up components** button. Follow the progress and result in the interface. This repairs components Billy
 needs without resetting your settings or selecting a different Billy version.
 It does not upgrade Raspberry Pi OS.
 

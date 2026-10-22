@@ -1,6 +1,7 @@
 """No hardware or apt mutations: exercise plans, interruption and recovery policy."""
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -297,3 +298,145 @@ def test_external_repair_receipt_invalidates_web_cache(env, monkeypatch):
         env.root / 'state/software/packages/transaction.json', {'state': 'complete'}
     )
     assert packages.status(env.root, env.source)['state'] == 'ready'
+
+
+@pytest.mark.parametrize(
+    'machine',
+    [
+        MACHINE,
+        {'distribution': 'trixie', 'architecture': 'arm64', 'python': '3.13'},
+    ],
+)
+def test_real_manifest_supports_both_wifi_modes(machine):
+    manifest = packages.load_manifest(Path(__file__).resolve().parents[2])
+    legacy = set(packages.requirements(manifest, machine))
+    unified = set(packages.requirements(manifest, machine, mode='unified'))
+    assert legacy - unified == {'hostapd', 'dnsmasq'}
+    assert unified - legacy == {'dnsmasq-base'}
+    assert {'network-manager', 'iw'} <= unified & legacy
+    assert set(manifest['bluetooth']) <= unified & legacy
+
+
+@pytest.mark.parametrize(
+    'content,expected',
+    [
+        (None, 'legacy'),
+        ('', 'legacy'),
+        ('WIFI_ONBOARDING_MODE=unified\n', 'unified'),
+        ('WIFI_ONBOARDING_MODE="UNIFIED"\n', 'unified'),
+        ("WIFI_ONBOARDING_MODE='unified'\n", 'unified'),
+        ('#WIFI_ONBOARDING_MODE=unified\n', 'legacy'),
+        ('WIFI_ONBOARDING_MODE=unknown\n', 'legacy'),
+        ('WIFI_ONBOARDING_MODE=legacy\nWIFI_ONBOARDING_MODE=unified\n', 'unified'),
+        ('WIFI_ONBOARDING_MODE=unified\nWIFI_ONBOARDING_MODE=legacy\n', 'legacy'),
+    ],
+)
+def test_wifi_mode_matches_watchdog_config(env, monkeypatch, content, expected):
+    # Stale process environment and candidate-release config must not override
+    # the stable .env read by the already installed Wi-Fi watchdog.
+    monkeypatch.setenv('WIFI_ONBOARDING_MODE', 'unified')
+    (env.source / '.env').write_text('WIFI_ONBOARDING_MODE=unified\n')
+    if content is not None:
+        (env.root / '.env').write_text(content)
+    assert packages.onboarding_mode(env.root) == expected
+
+
+def test_unreadable_wifi_config_prevents_package_mutation(env):
+    (env.root / '.env').write_bytes(b'\xff')
+    with pytest.raises(RuntimeError, match='Could not read the Wi-Fi mode'):
+        packages.ensure(env.source, env.root, Mock())
+    assert not env.calls
+
+
+@pytest.mark.parametrize(
+    'modes', [[], {'other': []}, {'unified': 'dnsmasq-base'}, {'unified': ['--unsafe']}]
+)
+def test_invalid_mode_package_lists_rejected(env, modes):
+    env.manifest['onboarding_modes'] = modes
+    (env.source / 'dependencies/system-packages.json').write_text(
+        json.dumps(env.manifest)
+    )
+    with pytest.raises(ValueError):
+        packages.ensure(env.source, env.root, Mock())
+    assert not env.calls
+
+
+def unified_install(env, monkeypatch):
+    machine = {'distribution': 'trixie', 'architecture': 'arm64', 'python': '3.13'}
+    manifest = packages.load_manifest(Path(__file__).resolve().parents[2])
+    (env.source / 'dependencies/system-packages.json').write_text(json.dumps(manifest))
+    (env.root / '.env').write_text('WIFI_ONBOARDING_MODE=unified\n')
+    monkeypatch.setattr(packages, 'host', lambda: machine)
+    env.installed.clear()
+    env.installed.update({
+        name: {'version': '1', 'status': 'installed'}
+        for name in packages.requirements(manifest, machine, mode='unified')
+    })
+    env.installed['dnsmasq-base']['version'] = '2.91-1+deb13u1'
+    env.installed['network-manager']['version'] = '1.52.1-1+rpt4'
+
+
+def test_unified_pi_does_not_request_legacy_network_daemons(env, monkeypatch):
+    unified_install(env, monkeypatch)
+    assert packages.check(env.source, env.root)['state'] == 'ready'
+    packages.ensure(env.source, env.root, Mock())
+    assert not env.calls
+
+    # A missing audio component can be installed without asking APT for either
+    # legacy daemon or the newer candidate version of installed dnsmasq-base.
+    del env.installed['pipewire']
+    assert packages.check(env.source, env.root)['missing'] == ['pipewire']
+
+    def run(args, **kw):
+        env.calls.append((args, kw))
+        if '--simulate' in args:
+            assert args[args.index('install') + 1 :] in [['pipewire'], ['pipewire=2']]
+            return 'Inst pipewire (2 Debian:stable [arm64])\n'
+        if '--no-download' in args:
+            env.installed['pipewire'] = {'version': '2', 'status': 'installed'}
+        return ''
+
+    monkeypatch.setattr(packages, 'run', run)
+    packages.ensure(env.source, env.root, Mock())
+    assert env.installed['dnsmasq-base']['version'] == '2.91-1+deb13u1'
+    assert env.installed['network-manager']['version'] == '1.52.1-1+rpt4'
+    assert not any('webconfig' in ' '.join(args) for args, _ in env.calls)
+    assert packages.check(env.source, env.root)['state'] == 'ready'
+
+
+def test_unified_pi_still_blocks_network_dependency_upgrades(env, monkeypatch):
+    unified_install(env, monkeypatch)
+    del env.installed['pipewire']
+
+    def run(args, **kw):
+        env.calls.append((args, kw))
+        if '--simulate' in args:
+            return (
+                'Inst pipewire (2 Debian:stable [arm64])\n'
+                'Inst dnsmasq-base [2.91-1+deb13u1] (2.91-1+deb13u2 Debian:stable [arm64])\n'
+            )
+        return ''
+
+    monkeypatch.setattr(packages, 'run', run)
+    with pytest.raises(RuntimeError, match='recovery or connectivity'):
+        packages.ensure(env.source, env.root, Mock())
+    assert not any(
+        '--no-download' in args or args[:2] == ['systemctl', 'stop']
+        for args, _ in env.calls
+    )
+
+
+def test_wifi_mode_change_invalidates_component_status(env, monkeypatch):
+    unified_install(env, monkeypatch)
+
+    class ImmediateThread:
+        def __init__(self, target, **_):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(packages.threading, 'Thread', ImmediateThread)
+    assert packages.status(env.root, env.source)['state'] == 'ready'
+    (env.root / '.env').write_text('WIFI_ONBOARDING_MODE=legacy\n')
+    assert packages.status(env.root, env.source)['missing'] == ['dnsmasq', 'hostapd']

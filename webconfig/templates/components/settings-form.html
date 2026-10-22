@@ -1425,17 +1425,23 @@
                 <div id="system-components-card" class="system-components-card">
                     <div class="system-components-heading">
                         <span class="material-icons" aria-hidden="true">build_circle</span>
-                        <div>
-                            <h4>System components</h4>
+                        <div class="system-components-heading-content">
+                            <div class="system-components-title-row">
+                                <h4>System components</h4>
+                                <span id="system-packages-badge" hidden class="rounded-full bg-amber-500/16 px-2 py-0.5 text-[11px] leading-none text-amber-300 border border-amber-400/30">Needs attention</span>
+                            </div>
                             <p id="system-packages-summary" role="status" aria-live="polite">Checking system components…</p>
                         </div>
                     </div>
                     <p id="system-packages-status" role="status" aria-live="polite" class="system-components-status"></p>
-                    <p id="system-packages-details" class="system-components-details"></p>
-                    <button id="repair-packages-btn" type="button" hidden disabled class="secondary-action secondary-action--hover--cyan system-components-repair">
-                        <span class="material-icons" aria-hidden="true">build</span>
-                        <span>Repair system components</span>
+                    <button id="repair-packages-btn" type="button" hidden disabled class="primary-action bg-amber-600 text-black system-components-repair">
+                        <span id="system-packages-action-icon" class="material-icons" aria-hidden="true">download</span>
+                        <span id="system-packages-action-label">Install components</span>
                     </button>
+                    <details id="system-packages-detail-panel" class="system-components-detail-panel" hidden>
+                        <summary>View component details</summary>
+                        <p id="system-packages-details" class="system-components-details"></p>
+                    </details>
                     <p id="system-packages-operation" role="status" aria-live="polite" class="system-components-status"></p>
                 </div>
                 <div id="env-editor-card" class="flex flex-row justify-between gap-3 p-3 rounded-lg border border-zinc-700 bg-amber-500/20 hover:bg-amber-500/30 hover:border-amber-400 transition-colors cursor-pointer">

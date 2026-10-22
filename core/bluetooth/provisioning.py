@@ -55,7 +55,7 @@ def _provision(force=False):
     else:
         _set_status(
             'error',
-            'Bluetooth setup needs attention. Use System components to install or repair it.',
+            'Bluetooth is not ready yet. Finish setup in System components under Advanced Settings.',
         )
 
 

@@ -113,8 +113,10 @@ def load_manifest(source):
         raise ValueError(
             'Unsupported system-component manifest; update the installer first.'
         )
-    for group in GROUPS:
-        names = manifest.get(group)
+    modes = manifest.get('onboarding_modes', {})
+    if not isinstance(modes, dict) or set(modes) - {'legacy', 'unified'}:
+        raise ValueError('Invalid Wi-Fi system-component modes')
+    for names in [*(manifest.get(group) for group in GROUPS), *modes.values()]:
         if not isinstance(names, list) or any(
             not isinstance(n, str) or not NAME.fullmatch(n) for n in names
         ):
@@ -160,12 +162,39 @@ def lookup(installed, name):
     )
 
 
-def requirements(manifest, machine):
+def onboarding_mode(root):
+    """Match setup/wifi_check.sh using the stable install's config, not a release.
+
+    Keep this independent of dotenv and the application's Python environment so
+    prerequisite recovery still works when application dependencies are broken.
+    Missing/unknown modes retain the legacy default used by the Wi-Fi watchdog.
+    """
+    try:
+        content = (Path(root) / '.env').read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return 'legacy'
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError(
+            'Could not read the Wi-Fi mode from the configuration.'
+        ) from exc
+    value = 'legacy'
+    for line in content.splitlines():
+        if line.startswith('WIFI_ONBOARDING_MODE='):
+            value = line.split('=', 1)[1].replace('"', '').replace("'", '').lower()
+    return value if value in {'legacy', 'unified'} else 'legacy'
+
+
+def requirements(manifest, machine, *, mode='legacy'):
     if machine not in manifest['platforms']:
         raise RuntimeError(
             'No tested system-component plan for this OS, architecture and Python version.'
         )
-    return sorted({name for group in GROUPS for name in manifest[group]})
+    onboarding = manifest.get('onboarding_modes', {}).get(mode, manifest['onboarding'])
+    return sorted({
+        name
+        for group in GROUPS
+        for name in (onboarding if group == 'onboarding' else manifest[group])
+    })
 
 
 def targets(manifest, machine):
@@ -234,7 +263,7 @@ def interrupted(root):
 def check(source, root):
     manifest = load_manifest(source)
     machine = host()
-    names = requirements(manifest, machine)
+    names = requirements(manifest, machine, mode=onboarding_mode(root))
     installed = inventory()
     missing = [name for name in names if not lookup(installed, name)]
     damaged = [
@@ -285,6 +314,7 @@ def status(root, source=None):
     for path in (
         root / 'state/software/packages/transaction.json',
         root / 'state/bluetooth-setup.json',
+        root / '.env',
     ):
         try:
             info = path.stat()
@@ -444,7 +474,7 @@ def ensure(source, root, progress, *, repair=False):
     source, root = Path(source).resolve(), Path(root).resolve()
     manifest = load_manifest(source)
     machine = host()
-    names = requirements(manifest, machine)
+    names = requirements(manifest, machine, mode=onboarding_mode(root))
     approved = targets(manifest, machine)
     folder = root / 'state/software/packages'
     folder.mkdir(parents=True, exist_ok=True)

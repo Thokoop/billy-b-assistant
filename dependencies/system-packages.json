@@ -7,6 +7,10 @@
   "runtime": ["python3", "python3-venv", "libportaudio2", "ffmpeg", "liblgpio1"],
   "bluetooth": ["bluez", "pipewire", "pipewire-bin", "wireplumber", "libspa-0.2-bluetooth", "dbus-user-session"],
   "onboarding": ["network-manager", "hostapd", "dnsmasq", "iw"],
+  "onboarding_modes": {
+    "legacy": ["network-manager", "hostapd", "dnsmasq", "iw"],
+    "unified": ["network-manager", "dnsmasq-base", "iw"]
+  },
   "build": ["build-essential", "python3-dev", "liblgpio-dev", "swig", "pkg-config"],
   "policy": {
     "upgrade_os_during_app_update": false,

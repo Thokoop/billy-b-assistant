@@ -83,7 +83,9 @@ window.BluetoothSettings = (() => {
                     body: JSON.stringify(data), signal: AbortSignal.timeout(45000),
                 });
                 const result = await response.json();
-                if (!response.ok) throw new Error(result.error || 'Bluetooth action failed');
+                if (!response.ok) {
+                    el('bt-error').textContent = result.error || 'Bluetooth action failed';
+                }
             } catch (error) {
                 el('bt-error').textContent = error.message;
             } finally {
@@ -123,7 +125,7 @@ window.BluetoothSettings = (() => {
             });
             setDisabled(el('bt-pair'), setup.state !== 'ready');
             if (setup.state !== 'ready') {
-                el('bt-audio').textContent = 'Bluetooth will be available when setup completes.';
+                el('bt-audio').textContent = 'After setup, you can pair your phone to play music and make calls.';
                 el('bt-pending').hidden = true;
                 el('bt-pair-hint').hidden = true;
                 el('bt-pair-stop').hidden = true;
@@ -353,17 +355,23 @@ window.BluetoothSettings = (() => {
             }
             if (!active || polling || busy || document.hidden || !root.isConnected) return;
             polling = true;
-            const receivedRevision = revision;
-            const receivedActionRevision = actionRevision;
+            // Capture both counters before awaiting: actions and live status can
+            // change independently while this request is in flight.
+            const requestRevision = { status: revision, action: actionRevision };
             try {
                 const response = await fetch('/api/bluetooth', { signal: AbortSignal.timeout(18000) });
                 const state = await response.json();
                 if (!active || !root.isConnected) return;
-                if (!response.ok) throw new Error(state.error || 'Bluetooth unavailable');
-                if (!busy && receivedActionRevision === actionRevision
-                    && (Number.isFinite(state.sampled_at) || receivedRevision === revision)) render(state);
+                if (!response.ok) {
+                    if (requestRevision.status === revision) {
+                        showError(new Error(state.error || 'Bluetooth unavailable'));
+                    }
+                    return;
+                }
+                if (!busy && requestRevision.action === actionRevision
+                    && (Number.isFinite(state.sampled_at) || requestRevision.status === revision)) render(state);
             } catch (error) {
-                if (active && root.isConnected && receivedRevision === revision) showError(error);
+                if (active && root.isConnected && requestRevision.status === revision) showError(error);
             } finally {
                 polling = false;
                 if (refreshQueued) {

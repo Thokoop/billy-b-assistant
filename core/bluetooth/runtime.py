@@ -13,6 +13,7 @@ same microphone and motor pins. There is no systemd unit for it any more.
 
 import contextlib
 import json
+import logging
 import math
 import os
 import queue
@@ -20,6 +21,7 @@ import select
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -43,6 +45,9 @@ STATUS_PATH = (
     / "billy-bluetooth.json"
 )
 STOP = threading.Event()
+_status_lock = threading.Lock()
+_status_write_failed = False
+_status_logger = logging.getLogger(__name__)
 # A freshly configured A2DP transport exposes its node before AVDTP Open/Start
 # completes, so the first pw-cat attach can lose a harmless race.
 MAX_CONSECUTIVE_RESTARTS = 5
@@ -77,11 +82,49 @@ class TransportGone(StreamRestart):
 
 
 def status(state, **details):
-    temporary = STATUS_PATH.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps({"state": state, "updated": time.time(), **details})
-    )
-    temporary.replace(STATUS_PATH)
+    """Publish optional UI telemetry without stopping Billy or his audio.
+
+    The user runtime directory is managed by the OS and may not exist yet on
+    an unprovisioned unit. Do not create it ourselves or make startup depend on
+    it. A later status update retries once the Bluetooth environment is ready.
+    """
+    global _status_write_failed
+    with _status_lock:
+        temporary = None
+        try:
+            # A unique sibling avoids collisions with another process and a
+            # failed write must leave the previous complete snapshot intact.
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=STATUS_PATH.parent,
+                prefix="billy-bluetooth-",
+                suffix=".tmp",
+                delete=False,
+            ) as stream:
+                temporary = Path(stream.name)
+                stream.write(
+                    json.dumps({"state": state, "updated": time.time(), **details})
+                )
+            temporary.replace(STATUS_PATH)
+        except OSError as exc:
+            # Report once per outage, not once per audio timing update.
+            if not _status_write_failed:
+                _status_logger.warning(
+                    "Bluetooth status could not be saved to %s: %s. Billy will continue.",
+                    STATUS_PATH,
+                    exc,
+                )
+            _status_write_failed = True
+            return False
+        finally:
+            if temporary is not None:
+                with contextlib.suppress(OSError):
+                    temporary.unlink(missing_ok=True)
+        if _status_write_failed:
+            _status_logger.info("Bluetooth status reporting restored.")
+        _status_write_failed = False
+        return True
 
 
 def stop_process(process):

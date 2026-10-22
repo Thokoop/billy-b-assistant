@@ -89,7 +89,11 @@ test('no saved version is explained and progress is shown inside the recovery di
 test('central component status uses shared polling and repair submits one protected job',async()=>{
  const h=setup();h.status={packages:{state:'attention',repairable:true,message:'Components missing',missing:['libportaudio2']},job:{}};
  await flush();h.ctx.BillyVersionUI.refresh();await flush();
- assert.equal(h.elements.get('system-packages-summary').textContent,'Check and repair the components Billy needs to run.');
+ assert.equal(h.elements.get('system-packages-summary').textContent,'Install the missing components Billy needs to run.');
+ assert.equal(h.elements.get('system-packages-action-label').textContent,'Install components');
+ assert.equal(h.elements.get('system-packages-badge').textContent,'Installation needed');
+ assert.equal(h.elements.get('system-packages-badge').hidden,false);
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
  assert.equal(h.elements.get('system-packages-status').textContent,'Components missing');
  assert.equal(h.elements.get('system-packages-details').textContent,'libportaudio2');
  const button=h.elements.get('repair-packages-btn');assert.equal(button.disabled,false);assert.equal(button.hidden,false);
@@ -101,9 +105,29 @@ test('central component status uses shared polling and repair submits one protec
  await h.advance(2000);assert.equal(button.disabled,true);assert.equal(button.hidden,true);
  assert.equal(h.elements.get('system-packages-operation').textContent,'');
  assert.equal(h.elements.get('system-packages-summary').textContent,'All system components are installed.');
+ assert.equal(h.elements.get('system-packages-badge').hidden,true);
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,true);
  assert.equal(h.elements.get('system-packages-status').textContent,'');
  h.status={packages:{state:'unavailable',message:'Check unavailable',repairable:false},job:{}};
  h.ctx.BillyVersionUI.refresh();await flush();
  assert.equal(h.elements.get('system-packages-summary').textContent,'Check unavailable');
  assert.equal(h.elements.get('system-packages-status').textContent,'');
+});
+
+
+test('component actions distinguish installation, updates, damage and setup without duplicate status',async()=>{
+ const h=setup();await flush();
+ for(const [fields,label,badge] of [
+  [{missing:['pipewire'],updates:['pipewire']},'Install components','Installation needed'],
+  [{updates:['pipewire']},'Update components','Update available'],
+  [{damaged:['pipewire'],missing:['bluez']},'Repair components','Repair needed'],
+  [{configuration_needed:true},'Set up components','Setup needed'],
+ ]){
+  h.status={packages:{state:'attention',repairable:true,message:'System components need attention.',...fields},job:{}};
+  h.ctx.BillyVersionUI.refresh();await flush();
+  assert.equal(h.elements.get('system-packages-action-label').textContent,label);
+  assert.equal(h.elements.get('system-packages-badge').textContent,badge);
+  assert.equal(h.elements.get('system-packages-status').textContent,'');
+ }
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,true);
 });

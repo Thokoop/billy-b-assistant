@@ -1128,6 +1128,13 @@ button {
 .system-components-card { padding: 1rem; border: 1px solid #ffffff18; border-radius: .75rem; background: #08232d24; }
 .system-components-heading { display: flex; align-items: flex-start; gap: .75rem; }
 .system-components-heading > .material-icons { color: #fff; font-size: 1.25rem; margin-top: .125rem; }
+.system-components-heading-content { flex: 1; min-width: 0; }
+.system-components-title-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .5rem .75rem; }
+#system-packages-badge { white-space: nowrap; }
+.system-components-detail-panel { margin-top: .875rem; font-size: .75rem; color: #a4bac7; }
+.system-components-detail-panel summary { cursor: pointer; }
+.system-components-detail-panel summary:hover { color: #f4f4f5; }
+.system-components-detail-panel summary:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
 .system-components-heading h4 { color: #e2e8f0; font-size: .875rem; font-weight: 600; }
 .system-components-heading p, .system-components-details { font-size: .75rem; color: #a4bac7; margin-top: .25rem; overflow-wrap: anywhere; }
 .system-components-status { font-size: .8125rem; color: #cbd5e1; margin-top: .875rem; }
