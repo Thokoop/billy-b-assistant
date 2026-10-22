@@ -189,6 +189,9 @@ def requirements(manifest, machine, *, mode='legacy'):
         raise RuntimeError(
             'No tested system-component plan for this OS, architecture and Python version.'
         )
+    # Schema-1 bootstraps only read `onboarding`: keep that manifest list to
+    # shared prerequisites. Mode-specific daemons belong in onboarding_modes;
+    # otherwise old updaters try to install legacy services on unified units.
     onboarding = manifest.get('onboarding_modes', {}).get(mode, manifest['onboarding'])
     return sorted({
         name

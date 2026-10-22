@@ -440,3 +440,54 @@ def test_wifi_mode_change_invalidates_component_status(env, monkeypatch):
     assert packages.status(env.root, env.source)['state'] == 'ready'
     (env.root / '.env').write_text('WIFI_ONBOARDING_MODE=legacy\n')
     assert packages.status(env.root, env.source)['missing'] == ['dnsmasq', 'hostapd']
+
+
+@pytest.mark.parametrize('mode', ['legacy', 'unified'])
+def test_schema1_bootstrap_update_preserves_existing_wifi_stack(env, monkeypatch, mode):
+    # Compatibility contract of the first released updater: it unions these
+    # four lists and ignores all newer manifest fields, including Wi-Fi modes.
+    # Its implementation stays in the original checkout across app updates.
+    def bootstrap_requirements(manifest, machine, **_):
+        assert machine in manifest['platforms']
+        return sorted({
+            name
+            for group in ('runtime', 'bluetooth', 'onboarding', 'build')
+            for name in manifest[group]
+        })
+
+    unified_install(env, monkeypatch)
+    (env.root / '.env').write_text(f'WIFI_ONBOARDING_MODE={mode}\n')
+    if mode == 'legacy':
+        env.installed.update({
+            'dnsmasq': {'version': '2.91-1+deb13u1', 'status': 'installed'},
+            'hostapd': {'version': '2:2.10-24+rpt3', 'status': 'installed'},
+        })
+    network = {name: dict(info) for name, info in env.installed.items()}
+    del env.installed['pipewire']
+    monkeypatch.setattr(packages, 'requirements', bootstrap_requirements)
+    assert packages.check(env.source, env.root)['missing'] == ['pipewire']
+
+    def run(args, **kw):
+        env.calls.append((args, kw))
+        if '--simulate' in args:
+            assert args[args.index('install') + 1 :] in [['pipewire'], ['pipewire=2']]
+            return 'Inst pipewire (2 Debian:stable [arm64])\n'
+        if '--no-download' in args:
+            env.installed['pipewire'] = {'version': '2', 'status': 'installed'}
+        return ''
+
+    monkeypatch.setattr(packages, 'run', run)
+    packages.ensure(env.source, env.root, Mock())
+    assert packages.pending_transaction(env.root)['plan'] == {'pipewire': '2'}
+    assert {
+        name: info for name, info in env.installed.items() if name != 'pipewire'
+    } == {name: info for name, info in network.items() if name != 'pipewire'}
+    assert packages.check(env.source, env.root)['state'] == 'ready'
+
+
+def test_mode_aware_check_still_reports_missing_wifi_components(env, monkeypatch):
+    unified_install(env, monkeypatch)
+    del env.installed['dnsmasq-base']
+    assert packages.check(env.source, env.root)['missing'] == ['dnsmasq-base']
+    (env.root / '.env').write_text('WIFI_ONBOARDING_MODE=legacy\n')
+    assert packages.check(env.source, env.root)['missing'] == ['dnsmasq', 'hostapd']
