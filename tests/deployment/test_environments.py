@@ -172,3 +172,56 @@ def test_environment_does_not_inherit_pip_or_python_overrides(monkeypatch):
     clean = envs.clean_environment()
     assert 'PIP_INDEX_URL' not in clean and 'PYTHONPATH' not in clean
     assert clean['PYTHONNOUSERSITE'] == '1'
+
+
+@pytest.mark.parametrize(
+    'version,returncode,stdout,stderr,accepted',
+    [
+        ((3, 11), 0, 'No broken requirements found.\n', '', True),
+        (
+            (3, 13),
+            1,
+            'openwakeword 0.6.0 requires tflite-runtime, which is not installed.\n',
+            '',
+            True,
+        ),
+        (
+            (3, 11),
+            1,
+            'openwakeword 0.6.0 requires tflite-runtime, which is not installed.\n',
+            '',
+            False,
+        ),
+        (
+            (3, 13),
+            1,
+            'openai 3.16.2 requires httpx, which is not installed.\n',
+            '',
+            False,
+        ),
+        ((3, 11), 2, '', 'pip failed to start', False),
+        ((3, 11), 1, '', '', False),
+        ((3, 11), 0, 'No broken requirements found.\n', 'Unexpected diagnostic', False),
+    ],
+)
+def test_dependency_probe_disables_cache_without_hiding_errors(
+    monkeypatch, version, returncode, stdout, stderr, accepted
+):
+    from billy_runtime import environment_probe as probe
+
+    calls = []
+
+    def check(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr(probe.subprocess, 'run', check)
+    monkeypatch.setattr(probe.sys, 'version_info', version)
+    if accepted:
+        probe.verify_dependencies()
+    else:
+        with pytest.raises(RuntimeError, match='Dependency validation'):
+            probe.verify_dependencies()
+    assert calls == [
+        [probe.sys.executable, '-m', 'pip', '--isolated', '--no-cache-dir', 'check']
+    ]

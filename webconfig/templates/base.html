@@ -70,21 +70,21 @@
 
     <!-- Loading Overlay -->
     <div id="loading-overlay" role="dialog" aria-modal="true" aria-label="Billy maintenance" tabindex="-1"
-        class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
+        class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center p-6"
         style="z-index: 2147483000;">
-        <div class="flex flex-col items-center">
+        <div class="flex flex-1 min-h-0 w-full flex-col items-center justify-center">
             <img src="{{ url_for('static', filename='images/status-reloading.gif') }}"
                  alt="Billy is working on it"
-                 class="w-full max-w-[300px] h-auto object-contain select-none"
+                 class="w-full max-w-[300px] min-h-0 h-auto object-contain select-none"
                  draggable="false">
-            <p id="loading-overlay-text" role="status" aria-live="polite" aria-atomic="true" class="bg-zinc-900/80 border border-zinc-700 rounded-lg px-6 py-5 shadow-2xl w-full max-w-2xl text-sm text-zinc-200 text-center">
+            <p id="loading-overlay-text" role="status" aria-live="polite" aria-atomic="true" class="shrink-0 bg-zinc-900/80 border border-zinc-700 rounded-lg px-6 py-5 shadow-2xl w-full max-w-2xl text-sm text-zinc-200 text-center">
                 Restarting Billy... reconnecting interface.
             </p>
-            <p id="loading-overlay-hint" hidden class="mt-4 text-sm text-zinc-200 text-center">
-                Billy is taking care of it. Please keep the power connected.
-                You can change settings again when this is finished.
-            </p>
         </div>
+        <p id="loading-overlay-hint" hidden class="shrink-0 mt-4 text-sm text-zinc-200 text-center">
+            Billy is taking care of it. Please keep the power connected.
+            You can change settings again when this is finished.
+        </p>
     </div>
 
     {% block scripts %}

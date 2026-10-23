@@ -22,9 +22,11 @@ def dependency_errors(output, python_version):
     ]
 
 
-def verify():
+def verify_dependencies():
     check = subprocess.run(
-        [sys.executable, '-m', 'pip', '--isolated', 'check'],
+        # Validation does not need a cache. CI may inherit a HOME owned by
+        # another user; pip otherwise warns on stderr despite a clean check.
+        [sys.executable, '-m', 'pip', '--isolated', '--no-cache-dir', 'check'],
         capture_output=True,
         text=True,
         timeout=60,
@@ -36,6 +38,10 @@ def verify():
         )
     if check.returncode and not check.stdout.strip():
         raise RuntimeError('Dependency validation returned no diagnostic')
+
+
+def verify():
+    verify_dependencies()
     for module in (
         'numpy',
         'scipy.signal',

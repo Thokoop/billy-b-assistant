@@ -1287,11 +1287,17 @@ button {
 .settings-step-dots { position: absolute; inset: 0; pointer-events: none; }
 .settings-step-dot { position: absolute; top: 50%; width: .5rem; height: .5rem; border-radius: 50%; background: #fff; pointer-events: none; }
 .settings-step-label { margin-top: .5rem; color: #e5e7eb; font-size: .875rem; }
-.update-channel-setting .settings-step-control { width: 16rem; max-width: 100%; }
+.update-channel-setting { flex-direction: row; align-items: flex-start; gap: .75rem; padding-bottom: 0; margin-block-end: .5rem; }
+.settings-step-heading { display: flex; align-items: center; min-height: 1.5rem; gap: .5rem; }
+.update-channel-setting .settings-step-heading { flex: 1; min-width: 0; }
+.update-channel-setting .settings-select-controls { flex: 0 0 auto; width: clamp(6rem, 42%, 16rem); }
+.update-channel-setting .settings-step-bar { margin-top: .25rem; }
+.update-channel-setting .settings-step-label { text-align: center; }
 @media (max-width: 600px) {
-    .update-channel-setting .settings-step-control { flex: 1; width: 100%; }
+    .update-channel-setting { padding-inline: 0; }
+    .update-channel-setting .settings-select-label { gap: .375rem; font-size: .8125rem; }
+    .update-channel-setting .settings-step-label { font-size: .8125rem; }
 }
 
-.update-channel-setting { flex-direction: column; align-items: stretch; gap: 0; }
-.settings-step-heading { display: flex; align-items: center; justify-content: space-between; min-height: 2rem; gap: .75rem; }
-.update-channel-setting .settings-select-controls, .update-channel-setting .settings-step-control { width: 100%; }
+/* Keep the maintenance footer clear of mobile home indicators. */
+#loading-overlay { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
