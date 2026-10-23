@@ -2,9 +2,10 @@
 
 import asyncio
 import importlib.util
+import sys
 import threading
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,8 +16,12 @@ from billy_runtime import bluetooth_preferences as prefs
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 OTHER = "11:22:33:44:55:66"
 ROOT = Path(__file__).parents[2]
+package = ModuleType("autoconnect_test_core")
+package.__path__ = [str(ROOT / "core")]
+sys.modules[package.__name__] = package
 spec = importlib.util.spec_from_file_location(
-    "autoconnect_test", ROOT / "core/bluetooth/autoconnect.py"
+    "autoconnect_test_core.bluetooth.autoconnect",
+    ROOT / "core/bluetooth/autoconnect.py",
 )
 auto = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(auto)
@@ -183,3 +188,29 @@ def test_watcher_starts_once_and_stops_auto_connect_with_audio(isolated, monkeyp
     isolated.config.BLUETOOTH_AUTO_SWITCH = False
     module.start()
     auto_module.start.assert_called_once()
+
+
+def test_shutdown_before_first_task_turn_does_not_leak_coroutine(isolated, monkeypatch):
+    import gc
+    import warnings
+    from unittest.mock import Mock
+
+    module = isolated.load("bluetooth.autoconnect")
+    bluez = isolated.load("bluetooth.bluez")
+    stop = threading.Event()
+    bus = Mock()
+
+    def controller(**_):
+        stop.set()
+        return SimpleNamespace(bus=bus)
+
+    connect = AsyncMock()
+    monkeypatch.setattr(bluez, "BluezController", controller)
+    monkeypatch.setattr(module, "connect_selected", connect)
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always", RuntimeWarning)
+        asyncio.run(module._run(stop))
+        gc.collect()
+    assert not [w for w in recorded if "never awaited" in str(w.message)]
+    connect.assert_not_called()
+    bus.disconnect.assert_called_once()

@@ -55,6 +55,7 @@ def launch(entry, mode, content, listener=None, *, root=ROOT):
         for key in ('BILLY_RELEASE_ID', 'BILLY_RELEASE_VERSION'):
             environment.pop(key, None)
         if mode != 'recovery':
+            updates.sync_source_link(root)
             selected = updates.state(root)
             record = selected.get('current') or updates.baseline(root)
             source, candidate_python = updates.resolve(record, root)
@@ -137,6 +138,7 @@ def worker_environment():
 def serve(app, *, wait_for_start=True):
     from werkzeug.serving import make_server
 
+    from .http_logging import BillyRequestHandler
     from .worker import notify
 
     fd = int(os.environ['BILLY_LISTEN_FD'])
@@ -146,7 +148,14 @@ def serve(app, *, wait_for_start=True):
         with os.fdopen(int(os.environ['BILLY_START_FD']), 'rb') as gate:
             if gate.read(1) != b'1':
                 return
-    server = make_server('0.0.0.0', port, app, threaded=True, fd=fd)
+    server = make_server(
+        '0.0.0.0',
+        port,
+        app,
+        threaded=True,
+        fd=fd,
+        request_handler=BillyRequestHandler,
+    )
     server.serve_forever()
 
 

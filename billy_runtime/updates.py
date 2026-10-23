@@ -122,6 +122,36 @@ def selection(root=INSTALL_ROOT):
     return record, source, python, current.get('generation', 'baseline')
 
 
+def sync_source_link(root=INSTALL_ROOT):
+    """Best-effort navigation link; selection.json remains authoritative.
+
+    Read and publish under the selection lock so concurrent supervisors cannot
+    overwrite a newer target. Never replace a user's regular file/directory.
+    """
+    root = Path(root).resolve()
+    link = root / 'current-source'
+    temporary = root / f'.current-source-{uuid.uuid4().hex}'
+    try:
+        with transaction(directory(root) / 'selection.json'):
+            source = selection(root)[1]
+            target = os.path.relpath(source, root)
+            if link.is_symlink():
+                if os.readlink(link) == target:
+                    return True
+            elif link.exists():
+                raise FileExistsError('current-source is not a symbolic link')
+            try:
+                temporary.symlink_to(target, target_is_directory=True)
+                os.replace(temporary, link)
+            finally:
+                temporary.unlink(missing_ok=True)
+        return True
+    except OSError as exc:
+        # Navigation must not prevent startup, activation or recovery.
+        print(f'Current-source link unavailable ({type(exc).__name__})', flush=True)
+        return False
+
+
 def generation(root=INSTALL_ROOT):
     selected = state(root)
     record = selected.get('current') or baseline(root)
@@ -448,6 +478,7 @@ def activate(root, record, previous, *, trial):
                 'trial': trial,
             }),
         )
+    sync_source_link(root)
     return generation(root)
 
 

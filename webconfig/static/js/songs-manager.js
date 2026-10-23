@@ -46,26 +46,6 @@ const SongsManager = (() => {
         }
     };
 
-    // fetch() only throws on network-level failures (server unreachable), not
-    // on HTTP error statuses - exactly the case right after a Pi reboot where
-    // the webconfig service isn't accepting connections yet. Retries a few
-    // times before giving up, so a tab left open across a restart recovers
-    // on its own instead of needing a manual refresh.
-    const fetchWithRetry = async (url, options = {}, attempts = 5, delayMs = 1500) => {
-        let lastError;
-        for (let i = 0; i < attempts; i++) {
-            try {
-                return await fetch(url, options);
-            } catch (error) {
-                lastError = error;
-                if (i < attempts - 1) {
-                    await new Promise((resolve) => setTimeout(resolve, delayMs));
-                }
-            }
-        }
-        throw lastError;
-    };
-
     const showListView = () => {
         document.getElementById('songs-list-view')?.classList.remove('hidden');
         document.getElementById('song-edit-view')?.classList.add('hidden');
@@ -120,10 +100,7 @@ const SongsManager = (() => {
 
     const loadSongs = async () => {
         try {
-            const response = await fetch('/songs');
-            if (!response.ok) throw new Error('Failed to load songs');
-            
-            const songs = await response.json();
+            const songs = await requestJson('/songs', {error: 'Failed to load songs'});
             renderSongsList(songs);
         } catch (error) {
             debugLog('ERROR', 'Failed to load songs:', error);
@@ -189,7 +166,8 @@ const SongsManager = (() => {
 
             return `
                 <div id="song-card-${song.name}"
-                     class="${isSelected ? 'bg-emerald-500/10 border-emerald-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'bg-zinc-800 border-zinc-700 hover:border-emerald-500'} ${isEnabled ? '' : 'opacity-50'} border rounded-lg p-4 transition-colors cursor-pointer"
+                     class="selection-card ${isEnabled ? '' : 'opacity-50'} p-4"
+                     data-selected="${isSelected}"
                      onclick="window.SongsManager.editSong('${song.name}')">
                     <div class="flex items-start justify-between">
                         <div class="flex-1">
@@ -221,10 +199,7 @@ const SongsManager = (() => {
 
     const loadSongData = async (songName) => {
         try {
-            const response = await fetch(`/songs/${songName}`);
-            if (!response.ok) throw new Error('Failed to load song data');
-            
-            const song = await response.json();
+            const song = await requestJson(`/songs/${songName}`, {error: 'Failed to load song data'});
             
             // Populate form
             document.getElementById('song-title').value = song.title || '';
@@ -524,33 +499,24 @@ const SongsManager = (() => {
                 }
                 formData.name = songName;
 
-                const response = await fetch('/songs', {
+                const result = await requestJson('/songs', {
+                    error: 'Failed to create song',
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to create song');
-                }
-
-                const result = await response.json();
                 songName = result.name; // Use the sanitized name from backend
                 currentSong = songName;
                 isEditMode = true;
             } else {
                 // Updating existing song
-                const response = await fetch(`/songs/${songName}`, {
+                await requestJson(`/songs/${songName}`, {
+                    error: 'Failed to update song',
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to update song');
-                }
             }
 
             // Upload audio files if selected
@@ -585,15 +551,11 @@ const SongsManager = (() => {
                 formData.append('file', file);
 
                 try {
-                    const response = await fetch(`/songs/${songName}/upload/${fileType}`, {
+                    await requestJson(`/songs/${songName}/upload/${fileType}`, {
+                        error: `Failed to upload ${fileType}.wav`,
                         method: 'POST',
                         body: formData
                     });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.error || `Failed to upload ${fileType}.wav`);
-                    }
 
                     debugLog('INFO', `Uploaded ${fileType}.wav successfully`);
                     updateFileStatus(fileType, true);
@@ -626,16 +588,12 @@ const SongsManager = (() => {
         card?.classList.toggle('opacity-50', !enabled);
 
         try {
-            const response = await fetch(`/songs/${songName}/enabled`, {
+            await requestJson(`/songs/${songName}/enabled`, {
+                error: 'Failed to update song',
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled }),
             });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to update song');
-            }
         } catch (error) {
             debugLog('ERROR', 'Failed to toggle song enabled state:', error);
             showNotification(error.message || 'Failed to update song', 'error');
@@ -653,14 +611,10 @@ const SongsManager = (() => {
         }
 
         try {
-            const response = await fetch(`/songs/${songName}`, {
+            await requestJson(`/songs/${songName}`, {
+                error: 'Failed to delete song',
                 method: 'DELETE'
             });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to delete song');
-            }
 
             showNotification(`Song '${songName}' deleted successfully`, 'success');
             if (songName === currentSong) {
@@ -684,7 +638,8 @@ const SongsManager = (() => {
             const response = await fetch(`/songs/export/${songName}`);
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.error || 'Failed to download song');
+                showNotification(error.error || 'Failed to download song', 'error');
+                return;
             }
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
@@ -720,15 +675,11 @@ const SongsManager = (() => {
         formData.append('file', file);
 
         try {
-            const response = await fetch('/songs/import', {
+            const result = await requestJson('/songs/import', {
+                error: 'Failed to upload song',
                 method: 'POST',
                 body: formData
             });
-
-            const result = await response.json();
-            if (!response.ok) {
-                throw new Error(result.error || 'Failed to upload song');
-            }
 
             showNotification(`Uploaded '${result.name}' song`, 'success');
             await loadSongs();
@@ -742,18 +693,13 @@ const SongsManager = (() => {
 
     const copyExample = async (exampleName) => {
         try {
-            const response = await fetch(`/songs/copy-example/${exampleName}`, {
+            await requestJson(`/songs/copy-example/${exampleName}`, {
+                error: 'Failed to copy example',
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({})
             });
 
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to copy example');
-            }
-
-            const result = await response.json();
             showNotification(`Copied '${exampleName}' to custom songs!`, 'success');
             await loadSongs();
         } catch (error) {
@@ -774,8 +720,7 @@ const SongsManager = (() => {
             const file = e.target.files[0];
 
             if (file) {
-                const url = URL.createObjectURL(file);
-                audioElement.src = url;
+                audioElement.src = URL.createObjectURL(file);
                 updateFileStatus(fileType, true);
 
                 const statusEl = document.getElementById(`${fileType}-status`);
@@ -1366,8 +1311,7 @@ const SongsManager = (() => {
                 // the same song - clamp to its own duration too, since some
                 // browsers silently ignore (rather than clamp) a seek past
                 // the end of a shorter track.
-                const target = Number.isFinite(el.duration) ? Math.min(t, Math.max(0, el.duration - 0.05)) : t;
-                el.currentTime = target;
+                el.currentTime = Number.isFinite(el.duration) ? Math.min(t, Math.max(0, el.duration - 0.05)) : t;
                 if (wasPlaying) el.play();
             };
             if (el.readyState >= 1) {

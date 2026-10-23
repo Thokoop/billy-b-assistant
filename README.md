@@ -777,6 +777,13 @@ needs before switching to the new version. Audio and conversations may pause
 during installation. Keep Billy powered on and connected to the internet until
 the update finishes.
 
+In **Settings → Advanced Settings → Software updates**, choose **Stable
+(recommended)**, **Release Candidate**, or **Beta**. Release Candidate also includes
+stable releases; Beta includes all three. **Release Candidate and Beta are for
+advanced users only** and may contain bugs or unfinished features. Changing this
+choice affects future update offers; it does not install or downgrade software.
+Your previous Release Candidate preference is kept when upgrading.
+
 ### Check system components
 
 Go to **Settings → Advanced Settings → System components**. If everything is
@@ -802,6 +809,13 @@ is a separate action in the same window; select only the items you want to reset
 ### If Billy cannot start
 
 The web interface can remain available even when the assistant cannot start.
+In **Debug**, choose **Bluetooth** to follow connection and audio logs
+(including PipeWire and WirePlumber) without SSH. **All services** combines them
+with Billy and the web interface. Logs update while the panel is open;
+**Clear view** clears only the display. For detailed Billy audio timing, choose
+**Verbose** and apply it (Billy restarts). Return to **Info** after testing.
+This setting does not change the logging level of the system audio services.
+
 Follow the notification: **Open Debug** shows startup errors, while
 **Open .env editor** helps with configuration problems. The editor lets you inspect
 available backups or a preserved damaged configuration before saving any changes.

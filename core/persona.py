@@ -3,6 +3,8 @@ import configparser
 import os
 import shutil
 
+from .logger import logger
+
 
 class PersonaProfile:
     def __init__(
@@ -189,7 +191,7 @@ def load_traits_from_ini(path="persona.ini") -> dict:
         if not os.path.exists(example_path):
             raise RuntimeError(f"❌ Default profile not found: {example_path}")
         shutil.copy(example_path, path)
-        print("✅ persona.ini file created from persona.ini.example")
+        logger.info("✅ persona.ini file created from persona.ini.example")
 
     config = configparser.ConfigParser()
     config.read(path)

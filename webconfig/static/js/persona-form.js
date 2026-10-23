@@ -237,7 +237,7 @@ const PersonaForm = (() => {
     window.exportPersona = async function() {
         try {
             // Get the currently selected persona from the UI
-            const selectedRow = document.querySelector('#persona-list [data-persona].border-emerald-500');
+            const selectedRow = document.querySelector('#persona-list [data-persona][data-selected="true"]');
             const currentPersona = selectedRow && selectedRow.getAttribute('data-persona') || 'default';
             
             debugLog('VERBOSE', 'Exporting persona:', currentPersona);
@@ -273,7 +273,7 @@ const PersonaForm = (() => {
 
         try {
             // Get the currently selected persona from the UI
-            const selectedRow = document.querySelector('#persona-list [data-persona].border-emerald-500');
+            const selectedRow = document.querySelector('#persona-list [data-persona][data-selected="true"]');
             const currentPersona = selectedRow && selectedRow.getAttribute('data-persona') || 'default';
             
             debugLog('VERBOSE', 'Importing persona to:', currentPersona);
@@ -489,7 +489,7 @@ const PersonaForm = (() => {
             const wakeup = window.collectWakeupRows ? window.collectWakeupRows() : {};
 
             // Get the currently selected persona from the list
-            const selectedRow = document.querySelector('#persona-list [data-persona].border-emerald-500');
+            const selectedRow = document.querySelector('#persona-list [data-persona][data-selected="true"]');
             const personaName = selectedRow && selectedRow.getAttribute('data-persona') || 'default';
             
             debugLog('INFO', 'Saving persona:', personaName);
@@ -569,7 +569,7 @@ const PersonaForm = (() => {
                 let currentPersona = null;
                 
                 // First check if there's a currently selected persona in the form
-                const selectedRow = document.querySelector('#persona-list [data-persona].border-emerald-500');
+                const selectedRow = document.querySelector('#persona-list [data-persona][data-selected="true"]');
                 if (selectedRow) {
                     currentPersona = selectedRow.getAttribute('data-persona');
                 }
@@ -623,7 +623,7 @@ const PersonaForm = (() => {
                 
                 personasWithFullData.forEach(persona => {
                     const row = document.createElement('div');
-                    row.className = 'flex items-center justify-between p-3 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors cursor-pointer border border-zinc-700';
+                    row.className = 'selection-card flex items-center justify-between p-3';
                     row.setAttribute('data-persona', persona.name);
                     
                     const isDefault = persona.name === 'default';
@@ -692,7 +692,7 @@ const PersonaForm = (() => {
         }
 
         // Check if this persona is currently active
-        const selectedRow = document.querySelector('#persona-list [data-persona].border-emerald-500');
+        const selectedRow = document.querySelector('#persona-list [data-persona][data-selected="true"]');
         const currentPersona = selectedRow && selectedRow.getAttribute('data-persona');
         if (personaName === currentPersona) {
             showNotification('Cannot delete the currently active persona. Switch to a different persona first, then delete this one.', 'error', 8000);
@@ -758,8 +758,7 @@ const PersonaForm = (() => {
         // Remove active class from all rows
         const rows = personaList.querySelectorAll('[data-persona]');
         rows.forEach(row => {
-            row.classList.remove('border-emerald-500', 'bg-emerald-900/20');
-            row.classList.add('border-zinc-700');
+            row.dataset.selected = 'false';
             
             // Reset set_meal icon color
             const setMealIcon = row.querySelector('.set_meal');
@@ -773,8 +772,7 @@ const PersonaForm = (() => {
         // Add active class to selected row
         const selectedRow = personaList.querySelector(`[data-persona="${selectedPersonaName}"]`);
         if (selectedRow) {
-            selectedRow.classList.remove('border-zinc-700');
-            selectedRow.classList.add('border-emerald-500', 'bg-emerald-900/20');
+            selectedRow.dataset.selected = 'true';
             
             // Set set_meal icon to green for active persona
             const setMealIcon = selectedRow.querySelector('.material-icons');
@@ -810,7 +808,7 @@ const PersonaForm = (() => {
         rows.forEach(row => {
             const setMealIcon = row.querySelector('.material-icons');
             if (setMealIcon && setMealIcon.textContent === 'set_meal') {
-                if (row.classList.contains('border-emerald-500')) {
+                if (row.dataset.selected === 'true') {
                     setMealIcon.classList.remove('text-zinc-400');
                     setMealIcon.classList.add('text-emerald-500');
                 } else {

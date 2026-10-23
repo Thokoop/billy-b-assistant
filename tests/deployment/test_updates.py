@@ -108,6 +108,7 @@ def test_new_release_activates_only_after_preparation_and_health(root, monkeypat
     assert updates.job(root)['state'] == 'complete'
     assert updates.state(root)['previous']['id'] == 'baseline'
     assert not updates.state(root)['trial']
+    assert (root / 'current-source').resolve() == updates.resolve(record, root)[0]
     assert (root / '.env').read_text() == 'FLASK_PORT=8080\n'
     assert (root / 'profiles/owner.ini').read_text() == 'private memory'
     assert (root / 'venv/bin/python').read_text() == 'original interpreter'
@@ -176,6 +177,7 @@ def test_manual_rollback_keeps_newer_release_as_reverse_target(root, monkeypatch
     updates.execute(root, 'job1')
     assert updates.state(root)['current'] == before
     assert updates.state(root)['previous'] == record
+    assert (root / 'current-source').resolve() == root
 
 
 def test_health_requires_current_software_and_fresh_both_services(root):
@@ -497,3 +499,53 @@ def test_old_managed_bootstrap_refuses_new_package_action(root, monkeypatch):
     with pytest.raises(RuntimeError, match='compatibility release'):
         updates.queue('packages', root=root)
     dispatch.assert_not_called()
+
+
+def test_source_link_follows_release_and_return_to_repo(root):
+    assert updates.sync_source_link(root)
+    link = root / 'current-source'
+    assert link.is_symlink()
+    assert link.resolve() == root
+    record = candidate(root)
+    updates.activate(root, record, updates.baseline(root), trial=False)
+    assert link.resolve() == updates.resolve(record, root)[0]
+    stamp = link.lstat().st_mtime_ns
+    assert updates.sync_source_link(root)
+    assert link.lstat().st_mtime_ns == stamp
+    (updates.directory(root) / 'selection.json').unlink()
+    assert updates.sync_source_link(root)
+    assert link.resolve() == root
+    assert (root / '.env').read_text() == 'FLASK_PORT=8080\n'
+
+
+@pytest.mark.parametrize('kind', ['file', 'directory'])
+def test_source_link_preserves_existing_user_paths(root, kind):
+    link = root / 'current-source'
+    if kind == 'directory':
+        link.mkdir()
+        (link / 'keep').write_text('keep')
+    else:
+        link.write_text('keep')
+    record = candidate(root)
+    updates.activate(root, record, updates.baseline(root), trial=False)
+    assert updates.state(root)['current'] == record
+    assert not link.is_symlink()
+    assert (link / 'keep' if kind == 'directory' else link).read_text() == 'keep'
+
+
+def test_source_link_failure_does_not_block_activation(root, monkeypatch):
+    monkeypatch.setattr(
+        Path, 'symlink_to', Mock(side_effect=PermissionError('read only'))
+    )
+    record = candidate(root)
+    updates.activate(root, record, updates.baseline(root), trial=False)
+    assert updates.state(root)['current'] == record
+    assert not list(root.glob('.current-source-*'))
+
+
+def test_source_link_replaces_broken_link_without_touching_target(root):
+    link = root / 'current-source'
+    link.symlink_to(root / 'missing')
+    assert updates.sync_source_link(root)
+    assert link.resolve() == root
+    assert not (root / 'missing').exists()

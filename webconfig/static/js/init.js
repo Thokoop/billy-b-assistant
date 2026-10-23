@@ -25,7 +25,7 @@ window.handleStatusUpdate = (status) => {
     
     // Update service status UI
     if (window.ServiceStatus && window.ServiceStatus.updateServiceStatusUI) {
-        window.ServiceStatus.updateServiceStatusUI(status.status);
+        window.ServiceStatus.updateServiceStatusUI(status.status, status);
     }
     
     // Let other components handle their own updates via status

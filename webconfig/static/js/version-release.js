@@ -30,7 +30,7 @@
         if (!button) return;
         const icon = button.querySelector(".material-icons");
         if (icon) {
-            icon.classList.toggle("animate-spin", !!loading);
+            icon.classList.remove("animate-spin");
         }
         button.disabled = !!loading;
         button.classList.toggle("opacity-50", !!loading);
@@ -85,6 +85,8 @@
     const setSoftwareProgress = message => {
         setText('software-operation-status', message);
         setText('recovery-software-status', message);
+        if (softwareBusy) window.LoadingOverlay?.showSoftware?.(message || 'Preparing Billy…');
+        else window.LoadingOverlay?.hideSoftware?.();
     };
     const renderRecovery = () => {
         setText('recovery-current-version', recoveryVersions.current);
@@ -136,7 +138,7 @@
             } else if (awaitingNewJob) awaitingNewJob = false;
             lastJobId = job.id || null;
             softwareBusy = submittingSoftware || busyStates.has(job.state);
-            setSoftwareProgress(job.message || '');
+            setSoftwareProgress(job.state === 'complete' ? '' : (job.message || ''));
             actionButtons().forEach(button => setButtonLoading(button, softwareBusy));
             const rollback = document.getElementById('rollback-software-btn');
             if (rollback) rollback.disabled = softwareBusy || !data.rollback_available;
@@ -216,6 +218,7 @@
             requestDeadline = Date.now() + 30000;
             sawSoftwareJob = true;
             actionButtons().forEach(item => setButtonLoading(item, true));
+            setSoftwareProgress('Preparing Billy…');
             try { sessionStorage.removeItem('billy:reload_on_ws_reconnect'); } catch (_) { /* Storage may be disabled. */ }
             try {
                 const data = await softwareJson(url, {method: 'POST', headers: {'X-Billy-Update': '1'}});
@@ -223,6 +226,9 @@
                 if (data.status === 'up-to-date') {
                     awaitingNewJob = false;
                     sawSoftwareJob = false;
+                    softwareBusy = false;
+                    setSoftwareProgress('Already up to date.');
+                    actionButtons().forEach(item => setButtonLoading(item, false));
                     showNotification('Already up to date.', 'info');
                 }
             } catch (error) {
@@ -230,6 +236,8 @@
                     sawSoftwareJob = false;
                     awaitingNewJob = false;
                     softwareBusy = false;
+                    setSoftwareProgress(error.message);
+                    actionButtons().forEach(item => setButtonLoading(item, false));
                 }
                 showNotification(error.name === 'AbortError'
                     ? 'Checking whether Billy accepted the request…'
@@ -263,6 +271,10 @@
     });
 
     window.BillyVersionUI = {
+        reloadVersion: async () => {
+            try { applyVersionInfo(await softwareJson('/version')); }
+            catch (error) { console.warn('Version refresh unavailable:', error); }
+        },
         refresh: () => {
             refreshUi();
             bindUpdateButton();
@@ -348,6 +360,12 @@ const ReleaseNotes = (() => {
 
     return {
         init,
+        reload: () => {
+            clearTimeout(retryTimer);
+            currentNote = null;
+            retryAttempts = 0;
+            fetchAndRender();
+        },
         refresh: () => {
             if (currentNote) {
                 render(currentNote);

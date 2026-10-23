@@ -30,7 +30,7 @@ function escapeWakeupHtml(value) {
 
 function getCurrentPersonaName(personaName = null) {
     if (personaName) return personaName;
-    const selectedRow = document.querySelector('#persona-list [data-persona].border-emerald-500');
+    const selectedRow = document.querySelector('#persona-list [data-persona][data-selected="true"]');
     return selectedRow && selectedRow.getAttribute('data-persona') || 'default';
 }
 
@@ -261,7 +261,8 @@ function bindWakeupClips() {
                 try {
                     const currentPersona = getCurrentPersonaName();
                     const moods = getWakeupRowMoods(row);
-                    const res = await fetch("/wakeup/generate", {
+                    await requestJson("/wakeup/generate", {
+                        error: "Failed to generate audio",
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -271,10 +272,6 @@ function bindWakeupClips() {
                             moods: moods,
                         }),
                     });
-                    if (!res.ok) {
-                        const err = await res.json();
-                        throw new Error(err.error || "Failed to generate audio");
-                    }
                     await saveWakeupPhrase(clipIndex, phrase, moods);
                     showNotification(`Clip ${clipIndex} generated and saved!`, "success");
                     await loadWakeupClips();
@@ -292,13 +289,12 @@ function bindWakeupClips() {
             if (e.target.closest(".remove-wakeup-row")) {
                 if (!confirm("Are you sure you want to delete this wake-up clip?")) return;
                 try {
-                    const res = await fetch("/wakeup/remove", {
+                    await requestJson("/wakeup/remove", {
+                        error: "Failed to remove clip",
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ index: parseInt(clipIndex), persona: getCurrentPersonaName() }),
                     });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || "Failed to remove clip");
                     showNotification(`Clip ${clipIndex} removed`, "success");
                     await loadWakeupClips();
                 } catch (err) {
@@ -320,13 +316,12 @@ function bindWakeupClips() {
             const previousIcon = icon ? icon.textContent : "";
             if (icon) icon.textContent = "hourglass_empty";
             try {
-                const res = await fetch("/wakeup/ideas", {
+                const data = await requestJson("/wakeup/ideas", {
+                    error: "Failed to generate ideas",
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({persona: getCurrentPersonaName(), count: 5}),
                 });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || "Failed to generate ideas");
                 const ideas = data.ideas || [];
                 const savedIdeas = [];
                 for (const idea of ideas) {

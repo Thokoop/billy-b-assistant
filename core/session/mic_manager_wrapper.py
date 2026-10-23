@@ -91,6 +91,7 @@ class MicManagerWrapper:
 
     def _ensure_uplink(self):
         if self._uplink is None or self._uplink.closed:
+            self._reported_uplink_overflow = 0
             self._uplink = MicUplink(
                 self.session.loop,
                 self._send_audio,
@@ -115,9 +116,14 @@ class MicManagerWrapper:
         logger.warning(f"Realtime microphone uplink failed: {error}")
         await self.session.stop_session(reason="mic_uplink_failed")
 
-    @staticmethod
-    def _report_uplink(metrics):
-        logger.info(f"realtime mic timing: {metrics}")
+    def _report_uplink(self, metrics):
+        # Counters are cumulative within one uplink. Warn only about new loss,
+        # not every later report after a single recovered overflow.
+        overflow = metrics.get("overflow", 0)
+        previous = getattr(self, "_reported_uplink_overflow", 0)
+        self._reported_uplink_overflow = overflow
+        report = logger.warning if overflow > previous else logger.verbose
+        report(f"realtime mic timing: {metrics}")
 
     async def reset_uplink(self):
         """Cancel old pending/in-flight input before clearing the provider buffer."""
@@ -908,21 +914,12 @@ class MicManagerWrapper:
                 elapsed = now - self._timeout_countdown_started_at
                 progress = min(elapsed / MIC_TIMEOUT_SECONDS, 1.0)
                 set_status_led_timeout_progress(progress)
-                bar_len = 20
-                filled = int(bar_len * progress)
-                bar = "█" * filled + "-" * (bar_len - filled)
-                print(
-                    f"\r👂 {MIC_TIMEOUT_SECONDS}s timeout: [{bar}] {elapsed:.1f}s "
-                    f"| Mic Volume:: {self.last_rms:.4f} / Threshold: {SILENCE_THRESHOLD:.4f}",
-                    end="",
-                    flush=True,
-                )
                 if (
                     self._last_timeout_progress_log == 0.0
                     or now - self._last_timeout_progress_log >= 1.0
                 ):
                     remaining = max(0.0, MIC_TIMEOUT_SECONDS - elapsed)
-                    logger.info(
+                    logger.verbose(
                         (
                             f"Mic timeout countdown progress: elapsed={elapsed:.1f}s, "
                             f"remaining={remaining:.1f}s, rms={self.last_rms:.1f}"

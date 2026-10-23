@@ -25,6 +25,7 @@ def load_endpoints():
     classes = [item for item in tree.body if isinstance(item, ast.ClassDef)]
     namespace = {
         "queue": queue,
+        "logger": unittest.mock.Mock(),
         "contextlib": contextlib,
         "MIC_QUEUE_BLOCKS": 3,
         "time": time,

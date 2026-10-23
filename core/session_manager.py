@@ -1247,7 +1247,7 @@ class BillySession:
                     "🎤",
                 )
         if self.state.full_response_text.strip():
-            print(
+            logger.info(
                 f"📝 Transcript completed: \"{self.state.full_response_text.strip()}\""
             )
         logger.verbose(f"Full response: {self.state.full_response_text.strip()}", "🧠")
@@ -1258,7 +1258,6 @@ class BillySession:
             return
 
         if not self.session_active.is_set():
-            print()  # Add newline to end the mic volume display line
             logger.info(
                 "Session inactive after timeout or interruption. Not restarting.", "🚪"
             )
@@ -1292,8 +1291,8 @@ class BillySession:
         # Determine if follow-up is expected
         asked_question = self.state.wants_follow_up_heuristic()
 
-        # Always log follow-up decision for debugging
-        logger.info(
+        # Detailed follow-up decisions are available at Verbose level
+        logger.verbose(
             f"Follow-up decision | mode={self.autofollowup}"
             f" | intent={self.session_intent}"
             f" | tool_expects={self.state.follow_up_expected}"
@@ -1307,7 +1306,7 @@ class BillySession:
             asked_question=asked_question,
             last_user_turn_meaningful=last_user_turn_meaningful,
         )
-        logger.info(
+        logger.verbose(
             f"Follow-up policy result | wants={wants_follow_up} | source={follow_up_source}",
             "🧭",
         )
@@ -1317,7 +1316,7 @@ class BillySession:
             )
 
         if is_conversation_state_enabled() and not self.state._saw_follow_up_call:
-            logger.warning(
+            logger.verbose(
                 "conversation_state not called this turn; using heuristic instead."
             )
 
@@ -1454,7 +1453,7 @@ class BillySession:
         vad_params = dict(SERVER_VAD_PARAMS[TURN_EAGERNESS])
         if aec_active:
             vad_params["threshold"] = _aec_vad_threshold(AEC_BARGE_IN_SNR_DB)
-        logger.info(f"🔧 VAD Parameters (eagerness={TURN_EAGERNESS}): {vad_params}")
+        logger.verbose(f"🔧 VAD Parameters (eagerness={TURN_EAGERNESS}): {vad_params}")
         if aec_active:
             logger.info(
                 "Natural barge-in uses WebRTC AEC3 voice detection plus provider VAD "
@@ -1605,7 +1604,6 @@ class BillySession:
                     logger.verbose(
                         "Session marked inactive, stopping stream loop.", "🚪"
                     )
-                    print()  # Add newline to end the mic volume display line
                     break
 
                 try:

@@ -13,6 +13,7 @@ from billy_runtime.configuration import load_environment, revision
 from billy_runtime.profiles import profile_lock
 from billy_runtime.storage import atomic_write, write_ini
 from core.env_utils import set_env_key
+from core.logger import logger
 
 
 def get_profiles_dir():
@@ -194,7 +195,7 @@ def get_current_user():
             try:
                 current_user = user_manager.identify_user(current_user_env, "high")
             except Exception as e:
-                print(f"Failed to load current user {current_user_env}: {e}")
+                logger.warning(f"Failed to load current user {current_user_env}: {e}")
 
         # Only fallback to DEFAULT_USER when CURRENT_USER is empty
         if (
@@ -206,7 +207,7 @@ def get_current_user():
             try:
                 current_user = user_manager.identify_user(DEFAULT_USER, "high")
             except Exception as e:
-                print(f"Failed to load default user {DEFAULT_USER}: {e}")
+                logger.warning(f"Failed to load default user {DEFAULT_USER}: {e}")
 
         if not current_user:
             return jsonify({"user": None})
@@ -412,32 +413,34 @@ def delete_memory():
         try:
             memories = json.loads(memories_str)
         except json.JSONDecodeError as e:
-            print(f"JSON decode error in delete_memory: {e}")
-            print(f"Malformed memories string: {memories_str}")
+            logger.warning(f"JSON decode error in delete_memory: {e}")
+            logger.verbose(f"Malformed memories string: {memories_str}")
             return jsonify({"error": f"Invalid memories format: {str(e)}"}), 500
 
         # Find and remove the memory with matching ID
         original_count = len(memories)
-        print(f"DEBUG: Original memory count: {original_count}")
-        print(f"DEBUG: Looking for memory ID: {memory_id}")
-        print(f"DEBUG: Available memory IDs: {[m.get('id') for m in memories]}")
+        logger.verbose(f"DEBUG: Original memory count: {original_count}")
+        logger.verbose(f"DEBUG: Looking for memory ID: {memory_id}")
+        logger.verbose(
+            f"DEBUG: Available memory IDs: {[m.get('id') for m in memories]}"
+        )
 
         # Handle both real IDs and temporary IDs (for backward compatibility)
         if memory_id.startswith('temp_'):
             # For temporary IDs, use the date part to match
             date_part = memory_id.replace('temp_', '')
-            print(f"DEBUG: Using date-based matching for temp ID: {date_part}")
+            logger.verbose(f"DEBUG: Using date-based matching for temp ID: {date_part}")
             memories = [m for m in memories if m.get("date") != date_part]
         else:
             # For real IDs, match by ID
-            print(f"DEBUG: Using ID-based matching")
+            logger.verbose(f"DEBUG: Using ID-based matching")
             memories = [m for m in memories if m.get("id") != memory_id]
 
         new_count = len(memories)
-        print(f"DEBUG: New memory count: {new_count}")
+        logger.verbose(f"DEBUG: New memory count: {new_count}")
 
         if new_count == original_count:
-            print(f"DEBUG: No memory was removed - memory not found")
+            logger.verbose(f"DEBUG: No memory was removed - memory not found")
             return jsonify({"error": "Memory not found"}), 404
 
         # Update the profile
@@ -484,8 +487,8 @@ def update_memory():
         try:
             memories = json.loads(memories_str)
         except json.JSONDecodeError as e:
-            print(f"JSON decode error in update_memory: {e}")
-            print(f"Malformed memories string: {memories_str}")
+            logger.warning(f"JSON decode error in update_memory: {e}")
+            logger.verbose(f"Malformed memories string: {memories_str}")
             return jsonify({"error": f"Invalid memories format: {str(e)}"}), 500
 
         # Find and update the memory with matching ID
@@ -580,7 +583,7 @@ def update_display_name():
         user = data.get('user')
         display_name = data.get('display_name', '')
 
-        print(
+        logger.verbose(
             f"DEBUG: update_display_name called - user: {user}, display_name: {display_name}"
         )
 
@@ -592,8 +595,10 @@ def update_display_name():
             return jsonify({"error": "Cannot edit Guest profile display name"}), 400
 
         profile_file = get_profiles_dir() / f"{user.lower()}.ini"
-        print(f"DEBUG: update_display_name - profile_file: {profile_file}")
-        print(f"DEBUG: update_display_name - file exists: {profile_file.exists()}")
+        logger.verbose(f"DEBUG: update_display_name - profile_file: {profile_file}")
+        logger.verbose(
+            f"DEBUG: update_display_name - file exists: {profile_file.exists()}"
+        )
         if not profile_file.exists():
             return jsonify({"error": "Profile not found"}), 404
 
@@ -625,13 +630,13 @@ def export_profile(profile_name):
     profiles_dir = get_profiles_dir()
     profile_file = profiles_dir / f"{profile_name.lower()}.ini"
 
-    print(f"DEBUG: Exporting profile {profile_name}")
-    print(f"DEBUG: Profiles dir: {profiles_dir}")
-    print(f"DEBUG: Looking for file: {profile_file}")
-    print(f"DEBUG: File exists: {profile_file.exists()}")
+    logger.verbose(f"DEBUG: Exporting profile {profile_name}")
+    logger.verbose(f"DEBUG: Profiles dir: {profiles_dir}")
+    logger.verbose(f"DEBUG: Looking for file: {profile_file}")
+    logger.verbose(f"DEBUG: File exists: {profile_file.exists()}")
 
     if not profile_file.exists():
-        print(f"DEBUG: Profile file not found: {profile_file}")
+        logger.verbose(f"DEBUG: Profile file not found: {profile_file}")
         return jsonify({'error': 'Profile not found'}), 404
 
     return send_file(

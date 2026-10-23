@@ -19,6 +19,7 @@ from dotenv import find_dotenv
 from flask import Blueprint, Response, jsonify, request, send_from_directory
 
 from core.env_utils import set_env_key
+from core.logger import logger
 from core.wakeup import generate_wake_clip_async
 
 from ..core_imports import core_config
@@ -371,7 +372,7 @@ def get_usb_pcm_card_index(preference_override: str | None = None):
 
         return None
     except Exception as e:
-        print("Failed to detect speaker card:", e)
+        logger.warning(f"Failed to detect speaker card: {e}")
         return None
 
 
@@ -400,7 +401,7 @@ def get_usb_capture_card_index():
                 return int(card_index)
         return None
     except Exception as e:
-        print("Failed to detect mic card:", e)
+        logger.warning(f"Failed to detect mic card: {e}")
         return None
 
 
@@ -550,7 +551,7 @@ def get_mic_gain_numid(card_index):
                 if match:
                     return int(match.group(1))
     except Exception as e:
-        print("Failed to get mic gain numid:", e)
+        logger.warning(f"Failed to get mic gain numid: {e}")
         return None
 
 

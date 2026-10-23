@@ -34,7 +34,7 @@ from core.status_led import (
 
 
 current_level = reload_log_level()
-print(f"🔧 Log level set to: {current_level.name}")
+logger.info(f"🔧 Log level set to: {current_level.name}")
 
 
 def signal_handler(sig, frame):
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print("❌ Unhandled exception occurred:", e)
+        logger.error(f"Unhandled exception occurred: {e}")
         traceback.print_exc()
         clear_ready()
         set_status_led_state("error")

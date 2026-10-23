@@ -1,9 +1,6 @@
 name: Billy regression tests
 
-on:
-  pull_request:
-  push:
-  workflow_dispatch:
+on: [pull_request, push, workflow_dispatch]
 
 # Tests never publish releases, use API keys or contact a Billy device.
 permissions:
@@ -66,7 +63,7 @@ jobs:
             node --check "$file"
           done < <(git ls-files -z 'webconfig/static/js/*.js')
       - name: Test Bluetooth status and restart/recovery UI
-        run: node --test tests/bluetooth/test_ui.cjs tests/webconfig/test_restart.cjs tests/webconfig/test_updates.cjs
+        run: node --test tests/bluetooth/test_ui.cjs tests/webconfig/test_restart.cjs tests/webconfig/test_updates.cjs tests/webconfig/test_release_channels.cjs tests/webconfig/test_logs.cjs
 
   regression-gate:
     # Use this stable name as the required status check in repository rules.

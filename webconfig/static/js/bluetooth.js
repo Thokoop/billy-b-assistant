@@ -114,6 +114,7 @@ window.BluetoothSettings = (() => {
                 return;
             }
             const setup = state.setup || {};
+            const connectedDevice = (state.devices || []).some((device) => device.Connected);
             el('bt-setup').textContent = setup.message || '';
             el('bt-setup').hidden = setup.state === 'ready';
             el('bt-setup-retry').hidden = true;
@@ -130,7 +131,7 @@ window.BluetoothSettings = (() => {
                 el('bt-pair-hint').hidden = true;
                 el('bt-pair-stop').hidden = true;
                 el('bt-pair-status').hidden = true;
-                el('bt-pair').hidden = false;
+                el('bt-pair').hidden = connectedDevice;
                 el('bt-devices-title').hidden = true;
                 pending = null;
                 return;
@@ -144,7 +145,7 @@ window.BluetoothSettings = (() => {
             // line at the top, and the button explains itself on hover.
             const blocked = !state.adapter ? 'No Bluetooth adapter found.'
                 : state.adapter.Powered ? '' : 'Bluetooth is off.';
-            setDisabled(el('bt-pair'), Boolean(blocked) || pairing);
+            setDisabled(el('bt-pair'), Boolean(blocked) || pairing || connectedDevice);
             el('bt-pair').title = blocked || (pairing
                 ? 'Already visible to nearby devices'
                 : 'Make Billy visible to nearby devices');
@@ -153,7 +154,7 @@ window.BluetoothSettings = (() => {
             el('bt-pair-status').hidden = !pairing;
             el('bt-pair-hint').hidden = !pairing;
             el('bt-pair-stop').hidden = !pairing;
-            el('bt-pair').hidden = pairing;
+            el('bt-pair').hidden = pairing || connectedDevice;
             pending = state.pending;
             el('bt-pending').hidden = !pending;
             el('bt-code').textContent = pending?.passkey || '';
@@ -170,13 +171,14 @@ window.BluetoothSettings = (() => {
             const addresses = new Set();
             for (const device of state.devices.filter((d) => d.Paired || d.Connected)) {
                 const connected = Boolean(device.Connected);
+                const canConnect = !connected && Boolean(device.Paired);
                 const playing = PLAYING_STATES.has(audioState.state)
                     && audioDeviceAddress(audioState) === (device.Address || '').toUpperCase()
                     ? audioState.state : null;
                 // Only visible row changes replace DOM. Sampling timestamps,
                 // transport metadata and pairing countdowns do not affect it.
                 const signature = JSON.stringify([
-                    device.Alias || device.Address, connected, Boolean(device.Paired), playing,
+                    device.Alias || device.Address, connected, Boolean(device.Paired), playing, canConnect,
                 ]);
                 addresses.add(device.Address);
                 const cached = deviceRows.get(device.Address);
@@ -184,6 +186,7 @@ window.BluetoothSettings = (() => {
                     // Also restore the switch after a rejected save, without
                     // removing its focus or replacing the row's event handlers.
                     if (cached.checkbox) cached.checkbox.checked = Boolean(device.AutoConnect);
+                    cached.selection.disabled = !connected && !canConnect;
                     rows.push(cached.item);
                     continue;
                 }
@@ -191,7 +194,8 @@ window.BluetoothSettings = (() => {
                 const state_label = connected
                     ? (device.Paired ? 'Connected' : 'Pairing…') : 'Disconnected';
                 const item = document.createElement('li');
-                item.className = 'bt-device';
+                item.className = 'bt-device selection-card';
+                item.dataset.selected = String(connected);
 
                 const orb = document.createElement('span');
                 // Written as whole class names so Tailwind's scan finds
@@ -203,11 +207,23 @@ window.BluetoothSettings = (() => {
                 orb.setAttribute('role', 'img');
                 orb.setAttribute('aria-label', state_label);
                 orb.title = state_label;
-                const identity = document.createElement('div');
-                identity.className = 'bt-device-identity';
+                // A native button provides keyboard activation, stretched across the
+                // card. The sibling controls stay outside its click target.
+                const identity = document.createElement('button');
+                identity.type = 'button';
+                identity.className = 'bt-device-identity selection-card-trigger';
+                identity.disabled = !connected && !canConnect;
+                identity.setAttribute('aria-pressed', String(connected));
+                identity.setAttribute('aria-label', device.Alias || device.Address);
+                identity.title = DEVICE_ACTIONS[connected ? 'disconnect' : 'connect'].title(
+                    device.Alias || device.Address,
+                );
+                identity.addEventListener('click', () => {
+                    if ((connected || canConnect) && !identity.disabled) act(connected ? 'disconnect' : 'select', { address: device.Address });
+                });
                 identity.append(orb);
                 item.append(identity);
-                const details = document.createElement('div');
+                const details = document.createElement('span');
                 details.className = 'bt-device-details';
                 identity.append(details);
 
@@ -234,11 +250,9 @@ window.BluetoothSettings = (() => {
                 }
 
                 const actions = document.createElement('div');
-                actions.className = 'bt-device-actions';
+                actions.className = 'bt-device-actions selection-card-actions';
                 item.append(actions);
-                const deviceActions = connected
-                    ? ['disconnect', 'forget']
-                    : ['connect', 'forget'];
+                const deviceActions = connected ? [] : ['forget'];
                 for (const action of deviceActions) {
                     const button = document.createElement('button');
                     button.type = 'button';
@@ -296,7 +310,7 @@ window.BluetoothSettings = (() => {
                     actions.append(label);
                 }
 
-                deviceRows.set(device.Address, {signature, item, checkbox: autoConnectCheckbox});
+                deviceRows.set(device.Address, {signature, item, selection: identity, checkbox: autoConnectCheckbox});
                 rows.push(item);
             }
             for (const address of deviceRows.keys()) {

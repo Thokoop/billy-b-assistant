@@ -2,6 +2,8 @@ import configparser
 
 from flask import Blueprint, jsonify, request, send_file
 
+from core.logger import logger
+
 from ..state import PERSONA_PATH
 
 
@@ -173,7 +175,7 @@ def switch_persona():
                 if guest_profile:
                     guest_profile.set_preferred_persona(persona_name)
             except Exception as e:
-                print(f"Failed to save guest persona preference: {e}")
+                logger.warning(f"Failed to save guest persona preference: {e}")
 
         return jsonify({
             "success": True,
@@ -189,11 +191,13 @@ def save_persona():
     data = request.json
     persona_name = data.get("persona_name", "default")
 
-    print(
+    logger.verbose(
         f"DEBUG: Saving persona '{persona_name}' with wake-up data: {data.get('WAKEUP', {})}"
     )
-    print(f"DEBUG: MOUTH_ARTICULATION: {data.get('MOUTH_ARTICULATION', 'NOT_FOUND')}")
-    print(f"DEBUG: Full data keys: {list(data.keys())}")
+    logger.verbose(
+        f"DEBUG: MOUTH_ARTICULATION: {data.get('MOUTH_ARTICULATION', 'NOT_FOUND')}"
+    )
+    logger.verbose(f"DEBUG: Full data keys: {list(data.keys())}")
 
     # Determine the file path based on persona name
     if persona_name == "default":
@@ -205,7 +209,7 @@ def save_persona():
         # Use new folder structure: personas/persona_name/persona.ini
         persona_file = personas_dir / persona_name / "persona.ini"
 
-    print(f"DEBUG: Saving to file: {persona_file}")
+    logger.verbose(f"DEBUG: Saving to file: {persona_file}")
 
     config = configparser.ConfigParser()
     config["PERSONALITY"] = {k: str(v) for k, v in data.get("PERSONALITY", {}).items()}
@@ -232,7 +236,7 @@ def save_persona():
             "mouth_articulation": data.get("MOUTH_ARTICULATION", "5"),
         }
 
-    print(f"DEBUG: META section being written: {config['META']}")
+    logger.verbose(f"DEBUG: META section being written: {config['META']}")
     wakeup = data.get("WAKEUP", {})
     config["WAKEUP"] = {
         str(k): v["text"] if isinstance(v, dict) and "text" in v else str(v)
@@ -341,9 +345,11 @@ def export_persona_by_name(persona_name):
             personas_dir = PROJECT_ROOT / "personas"
             persona_file = personas_dir / persona_name / "persona.ini"
 
-        print(f"DEBUG: Exporting persona '{persona_name}' from file: {persona_file}")
-        print(f"DEBUG: File exists: {persona_file.exists()}")
-        print(f"DEBUG: Absolute path: {persona_file.absolute()}")
+        logger.verbose(
+            f"DEBUG: Exporting persona '{persona_name}' from file: {persona_file}"
+        )
+        logger.verbose(f"DEBUG: File exists: {persona_file.exists()}")
+        logger.verbose(f"DEBUG: Absolute path: {persona_file.absolute()}")
 
         if not persona_file.exists():
             return jsonify({'error': f'Persona not found: {persona_file}'}), 404
@@ -355,7 +361,7 @@ def export_persona_by_name(persona_name):
             mimetype="text/plain",
         )
     except Exception as e:
-        print(f"ERROR: Export failed for persona '{persona_name}': {str(e)}")
+        logger.error(f"ERROR: Export failed for persona '{persona_name}': {str(e)}")
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 

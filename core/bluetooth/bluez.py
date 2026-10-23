@@ -106,11 +106,12 @@ class BluezController:
         self.deadline = 0
         self.timer = None
         self.pairing_lock = asyncio.Lock()
+        self.device_lock = asyncio.Lock()
 
-    def run(self, coroutine):
+    def run(self, coroutine, *, timeout=15):
         task = asyncio.run_coroutine_threadsafe(coroutine, self.loop)
         try:
-            return task.result(timeout=15)
+            return task.result(timeout=timeout)
         except TimeoutError:
             task.cancel()
             raise RuntimeError("Bluetooth operation timed out") from None
@@ -408,6 +409,70 @@ class BluezController:
         raise ValueError("Device not found")
 
     async def device_action(self, address, action):
+        # Reject overlapping requests from other tabs instead of queuing a
+        # stale selection that could undo the user's most recent action.
+        if self.device_lock.locked():
+            raise RuntimeError(
+                "Bluetooth is busy. Wait for the current action to finish."
+            )
+        async with self.device_lock:
+            if action == "select":
+                return await self.select_device(address)
+            return await self._device_action(address, action)
+
+    async def select_device(self, address):
+        """Explicit UI selection may replace a connection; startup auto-connect may not."""
+        objects = await self.objects()
+        target = next(
+            (
+                path
+                for path, interfaces in objects.items()
+                if interfaces.get("org.bluez.Device1", {})
+                .get("Address", Variant("s", ""))
+                .value
+                == address
+            ),
+            None,
+        )
+        if target is None:
+            raise ValueError("Device not found")
+        if (
+            not objects[target]["org.bluez.Device1"]
+            .get("Paired", Variant("b", False))
+            .value
+        ):
+            raise ValueError("Pair this device from your phone first")
+
+        async def disconnect_others():
+            for path, interfaces in objects.items():
+                props = interfaces.get("org.bluez.Device1", {})
+                if path != target and props.get("Connected", Variant("b", False)).value:
+                    device = await self.interface(path, "org.bluez.Device1")
+                    await self.disconnect_audio(device, path)
+            # A phone may reconnect on its own while another is disconnecting.
+            # Never start the selected connection without confirming exclusivity.
+            current = await self.objects()
+            if any(
+                path != target
+                and interfaces.get("org.bluez.Device1", {})
+                .get("Connected", Variant("b", False))
+                .value
+                for path, interfaces in current.items()
+            ):
+                raise RuntimeError(
+                    "Another phone is still connected. Try selecting your device again."
+                )
+
+        try:
+            await asyncio.wait_for(disconnect_others(), timeout=10)
+        except TimeoutError as exc:
+            raise RuntimeError(
+                "The current phone could not disconnect. The new connection was not started."
+            ) from exc
+        # Re-read pairing and availability after teardown, before connecting.
+        return await self._device_action(address, "connect")
+
+    async def _device_action(self, address, action):
         objects = await self.objects()
         for path, interfaces in objects.items():
             props = interfaces.get("org.bluez.Device1", {})

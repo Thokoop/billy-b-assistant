@@ -49,7 +49,7 @@ class UserProfile:
                 data['core_memories'] = json.loads(memories_str)
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse memories JSON for {self.name}: {e}")
-                logger.warning(f"Corrupted memories string: {memories_str[:200]}...")
+                logger.verbose(f"Corrupted memories string: {memories_str[:200]}...")
 
                 # Try to recover by extracting valid JSON entries
                 try:
@@ -347,7 +347,7 @@ class UserProfile:
 
             if config.has_section('CORE_MEMORIES'):
                 memories_str = config.get('CORE_MEMORIES', 'memories', fallback='[]')
-                logger.info(f"Raw memories string: {memories_str[:200]}...")
+                logger.verbose(f"Raw memories string: {memories_str[:200]}...")
 
                 # Try to extract valid JSON objects using regex
                 import re
@@ -381,7 +381,7 @@ class UserProfile:
                             )
                     except json.JSONDecodeError as e:
                         logger.warning(f"Failed to parse memory {i + 1}: {e}")
-                        logger.warning(f"Problematic string: {obj_str[:100]}...")
+                        logger.verbose(f"Problematic string: {obj_str[:100]}...")
 
                 if recovered_memories:
                     self.data['core_memories'] = recovered_memories

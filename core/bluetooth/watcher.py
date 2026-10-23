@@ -145,6 +145,13 @@ def _run():
             continue
         except runtime.StreamRestart as exc:
             restarts += 1
+            if restarts < runtime.MAX_CONSECUTIVE_RESTARTS:
+                # The first attach may race AVDTP Open/Start. Repeated drops
+                # deserve a warning even when a later retry succeeds.
+                report = logger.verbose if restarts == 1 else logger.warning
+                report(
+                    f"Bluetooth transport interrupted; retry {restarts}/{runtime.MAX_CONSECUTIVE_RESTARTS}: {exc}"
+                )
             if restarts >= runtime.MAX_CONSECUTIVE_RESTARTS:
                 logger.error(f"Bluetooth audio kept dropping, giving up: {exc}")
                 dismissed = route

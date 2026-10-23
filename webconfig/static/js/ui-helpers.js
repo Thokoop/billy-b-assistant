@@ -262,6 +262,9 @@ const LoadingOverlay = (() => {
     let reloadPollTimeout = null;
     let restartSawUnavailable = false;
     let restartPolling = false;
+    let softwareOperation = false;
+    let softwareFocus = null;
+    const softwareInert = new Map();
 
     const shouldReloadOnReconnect = () => (
         sessionStorage.getItem(reloadFlagKey) === "1"
@@ -296,6 +299,39 @@ const LoadingOverlay = (() => {
         const overlay = document.getElementById(overlayId);
         if (!overlay) return;
         overlay.classList.add("hidden");
+    };
+
+    // Software jobs outlive individual web workers. Only their durable status,
+    // never a WebSocket reconnect, may release the maintenance screen.
+    const showSoftware = (message) => {
+        const overlay = document.getElementById(overlayId);
+        if (!overlay) return;
+        const first = !softwareOperation;
+        if (first) softwareFocus = document.activeElement;
+        softwareOperation = true;
+        show(message);
+        const hint = document.getElementById("loading-overlay-hint");
+        if (hint) hint.hidden = false;
+        // Block keyboard interaction too, preserving any pre-existing inert
+        // state (for example an already open recovery dialog).
+        for (const sibling of document.body.children) {
+            if (sibling === overlay) continue;
+            if (!softwareInert.has(sibling)) softwareInert.set(sibling, sibling.inert);
+            sibling.inert = true;
+        }
+        if (first) overlay.focus({preventScroll: true});
+    };
+
+    const hideSoftware = () => {
+        if (!softwareOperation) return;
+        softwareOperation = false;
+        hide();
+        const hint = document.getElementById("loading-overlay-hint");
+        if (hint) hint.hidden = true;
+        for (const [element, inert] of softwareInert) element.inert = inert;
+        softwareInert.clear();
+        if (softwareFocus?.isConnected) softwareFocus.focus({preventScroll: true});
+        softwareFocus = null;
     };
 
     const isVisible = () => {
@@ -435,6 +471,7 @@ const LoadingOverlay = (() => {
     });
 
     window.addEventListener("billy:websocket:connected", () => {
+        if (softwareOperation) return;
         // A socket may connect to the old process before systemd stops it.
         // The restart poll owns recovery, including Billy's readiness check.
         if (shouldReloadOnReconnect() && (
@@ -448,7 +485,7 @@ const LoadingOverlay = (() => {
         }
     });
 
-    return { show, hide, isVisible, waitForReload, shouldReloadOnReconnect };
+    return { show, hide, showSoftware, hideSoftware, isVisible, waitForReload, shouldReloadOnReconnect };
 })();
 
 window.LoadingOverlay = LoadingOverlay;

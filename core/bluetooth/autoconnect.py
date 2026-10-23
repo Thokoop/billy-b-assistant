@@ -1,13 +1,11 @@
 """One bounded background connection pass per core startup; never an audio loop."""
 
 import asyncio
-import logging
 import threading
 
 from billy_runtime import bluetooth_preferences
 
-
-logger = logging.getLogger(__name__)
+from ..logger import logger
 
 
 async def connect_selected(manager):
@@ -23,7 +21,7 @@ async def connect_selected(manager):
             pass
         await asyncio.sleep(2)
     else:
-        logger.info("Bluetooth auto-connect skipped: adapter not ready")
+        logger.warning("Bluetooth auto-connect skipped: adapter not ready")
         return
 
     for address in bluetooth_preferences.selected():
@@ -41,14 +39,20 @@ async def connect_selected(manager):
             logger.info("Bluetooth auto-connect completed")
             return
         except Exception as exc:
-            logger.info("Bluetooth auto-connect attempt failed: %s", exc)
+            logger.info(f"Bluetooth auto-connect attempt failed: {exc}")
 
 
 async def _run(stop):
     from .bluez import BluezController
 
     manager = BluezController(threaded=False)
-    task = asyncio.create_task(asyncio.wait_for(connect_selected(manager), timeout=60))
+
+    async def bounded_connect():
+        # Create the connection coroutine only once this task starts. Otherwise
+        # cancellation before wait_for starts leaves that coroutine unawaited.
+        await asyncio.wait_for(connect_selected(manager), timeout=60)
+
+    task = asyncio.create_task(bounded_connect())
     try:
         while not task.done() and not stop.is_set():
             await asyncio.sleep(0.25)
@@ -58,9 +62,10 @@ async def _run(stop):
     except asyncio.CancelledError:
         pass
     except Exception as exc:
-        logger.info("Bluetooth auto-connect stopped: %s", exc)
+        logger.warning(f"Bluetooth auto-connect stopped: {exc}")
     finally:
         task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
         if manager.bus is not None:
             manager.bus.disconnect()
 
@@ -71,7 +76,7 @@ def start(stop):
             if not stop.is_set() and bluetooth_preferences.selected():
                 asyncio.run(_run(stop))
         except Exception as exc:
-            logger.warning("Bluetooth auto-connect unavailable: %s", exc)
+            logger.warning(f"Bluetooth auto-connect unavailable: {exc}")
 
     thread = threading.Thread(target=worker, daemon=True, name="bluetooth-autoconnect")
     thread.start()

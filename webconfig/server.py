@@ -23,12 +23,12 @@ def normal_app():
     from billy_runtime.paths import INSTALL_ROOT
     from billy_runtime.recovery import Recovery
 
-    # Normal recovery lives in Advanced Settings. The independent emergency
+    # Normal recovery lives in Software settings. The independent emergency
     # app is launched only by the supervisor when the normal app cannot run.
     @app.get('/repair/')
     @app.get('/repair/recovery')
     def repair_settings():
-        return redirect('/settings#section-advanced-settings')
+        return redirect('/settings#section-software-version')
 
     @app.get('/__runtime_health')
     def runtime_health():

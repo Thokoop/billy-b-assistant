@@ -5,6 +5,10 @@ import time
 
 from flask import Blueprint
 
+from billy_runtime.worker import read_activity
+
+from .journal import SOURCES, read_logs
+
 
 try:
     from .sock_compat import Sock
@@ -43,29 +47,16 @@ def get_service_status():
 
             return {
                 "status": status,
+                "billy_state": read_activity(),
                 "current_persona": persona_manager.current_persona,
                 "current_personality": PERSONALITY.to_dict()
                 if hasattr(PERSONALITY, 'to_dict')
                 else None,
             }
         except Exception:
-            return {"status": status}
+            return {"status": status, "billy_state": read_activity()}
     except Exception:
         return {"status": "unknown"}
-
-
-def get_logs(lines=50):
-    """Get recent logs from billy.service."""
-    try:
-        result = subprocess.run(
-            ["journalctl", "-u", "billy.service", "-n", str(lines), "--no-pager"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        return result.stdout
-    except Exception:
-        return ""
 
 
 class _BackgroundStatus:
@@ -137,14 +128,43 @@ _bluetooth_status = _BackgroundStatus('bluetooth', _read_bluetooth_status, 2)
 _device_info_status = _BackgroundStatus('device-info', _read_device_info, 5)
 
 
+# A slow journal read never blocks connection/recovery status. Multiple tabs
+# share one read per source per second; closed panels request no samples.
+_log_status = {
+    source: _BackgroundStatus(f"logs-{source}", lambda s=source: read_logs(s), 1)
+    for source in SOURCES
+}
+
+
 @sock.route("/ws")
 def websocket_handler(ws):
     """WebSocket endpoint for real-time updates."""
     last_status = None
     last_logs = None
+    log_source = "billy"  # Older clients do not send subscriptions.
 
     while True:
         try:
+            # Non-blocking, one control message per tick. Invalid source names
+            # cannot become journal arguments or terminate status updates.
+            control = ws.receive(timeout=0)
+            if control:
+                try:
+                    message = json.loads(control)
+                    if (
+                        isinstance(message, dict)
+                        and message.get("type") == "logs_subscribe"
+                    ):
+                        source = message.get("source")
+                        if source is None or (
+                            isinstance(source, str) and source in SOURCES
+                        ):
+                            if source != log_source:
+                                last_logs = None
+                            log_source = source
+                except (ValueError, TypeError):
+                    pass
+
             # Check for status changes
             status = get_service_status()
             for name, sampler in (
@@ -159,11 +179,18 @@ def websocket_handler(ws):
                 ws.send(json.dumps({"type": "status", "data": status}))
                 last_status = status
 
-            # Check for new logs
-            logs = get_logs(50)
-            if logs != last_logs:
-                ws.send(json.dumps({"type": "logs", "data": logs}))
-                last_logs = logs
+            if log_source is not None:
+                snapshot = _log_status[log_source].get()
+                if snapshot is not None and snapshot != last_logs:
+                    ws.send(
+                        json.dumps({
+                            "type": "logs",
+                            "source": log_source,
+                            "data": snapshot.get("logs", ""),
+                            "error": snapshot.get("error", ""),
+                        })
+                    )
+                    last_logs = snapshot
 
             # Sleep to avoid excessive polling
             time.sleep(1)

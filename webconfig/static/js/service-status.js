@@ -6,6 +6,30 @@ const ServiceStatus = (() => {
     const RESTART_GRACE_MS = 12000;
     let restartInProgressUntil = 0;
     let restartButtonRef = null;
+    let renderedControlStatus = null;
+    let activityState = null;
+    const activityLabels = {
+        idle: 'Ready', listening: 'Listening', speaking: 'Speaking',
+        playing_song: 'Playing music', bt_media: 'Playing Bluetooth audio',
+        in_call: 'Bluetooth call', ringing: 'Incoming call', interrupted: 'Listening',
+        starting: 'Starting…', stopping: 'Stopping…', off: 'Stopped',
+        wifi_setup: 'Wi-Fi setup', wifi_setup_starting: 'Starting Wi-Fi setup…',
+        error: 'Needs attention',
+    };
+    const serviceLabels = {
+        active: 'Running', inactive: 'Stopped', failed: 'Needs attention',
+        activating: 'Starting…', starting: 'Starting…', restarting: 'Restarting…',
+        deactivating: 'Stopping…', stopping: 'Stopping…', unknown: 'Reconnecting…',
+    };
+    const updateBluetoothIndicator = (snapshot) => {
+        const indicator = document.getElementById('header-bluetooth');
+        if (!indicator) return;
+        const devices = (snapshot?.devices || []).filter(device => device.Connected);
+        indicator.hidden = devices.length === 0;
+        const label = 'Bluetooth connected: ' + devices.map(device => device.Alias || 'Device').join(', ');
+        indicator.title = label;
+        indicator.setAttribute('aria-label', label);
+    };
 
     const isRestartInProgress = () => Date.now() < restartInProgressUntil;
 
@@ -31,7 +55,7 @@ const ServiceStatus = (() => {
         
         // Return cached data if still fresh
         if (!forceRefresh && statusCache && (now - lastFetch) < CACHE_DURATION) {
-            updateServiceStatusUI(statusCache.status);
+            updateServiceStatusUI(statusCache.status, statusCache);
             return statusCache;
         }
 
@@ -47,16 +71,17 @@ const ServiceStatus = (() => {
                     return statusCache || {status: "restarting"};
                 }
                 const fallback = statusCache || {status: "unknown"};
-                updateServiceStatusUI(fallback.status || "unknown");
+                updateServiceStatusUI("unknown");
                 console.error(`Failed to fetch service status: HTTP ${res.status}`);
                 return fallback;
             }
 
             const data = await res.json();
+            if (lastFetch > now && statusCache) return statusCache;
             window.updateRecoveryNotice?.(data.recovery);
             statusCache = data;
             lastFetch = now;
-            updateServiceStatusUI(data.status);
+            updateServiceStatusUI(data.status, data);
             return data;
         } catch (err) {
             if (isRestartInProgress()) {
@@ -66,36 +91,41 @@ const ServiceStatus = (() => {
 
             console.error("Failed to fetch service status:", err);
             const fallback = statusCache || {status: "unknown"};
-            updateServiceStatusUI(fallback.status || "unknown");
+            updateServiceStatusUI("unknown");
             return fallback;
         }
     };
 
-    const updateServiceStatusUI = (status) => {
+    const updateServiceStatusUI = (status, details = null) => {
+        if (details && typeof details === "object") activityState = details.billy_state || null;
+        if (status !== "active") activityState = null;
         const statusEl = document.getElementById("service-status");
         const controlsEl = document.getElementById("service-controls");
         const logoEl = document.getElementById("status-logo");
         const stopDropdownBtn = document.getElementById("stop-billy-btn");
 
-        statusEl.textContent = `(${status})`;
+        const label = (status === 'active' && activityLabels[activityState]) || serviceLabels[status] || 'Status unavailable';
+        if (statusEl.textContent !== label) statusEl.textContent = label;
+        statusEl.title = label;
+        const dot = document.getElementById('service-status-dot');
+        const tone = status === 'failed' || activityState === 'error' ? '#fb7185'
+            : status === 'active' ? (['bt_media', 'in_call', 'ringing'].includes(activityState) ? '#60a5fa' : '#34d399')
+            : ['starting', 'activating', 'restarting', 'stopping', 'deactivating'].includes(status) ? '#fbbf24' : '#94a3b8';
+        if (dot) dot.style.backgroundColor = tone;
+        updateBluetoothIndicator(window.billyWebSocket?.getBluetoothStatus?.());
         statusEl.classList.remove("text-emerald-500", "text-amber-500", "text-rose-500");
 
         let logoSrc = "/static/images/status-inactive.png";
         if (status === "active") {
-            statusEl.classList.add("text-emerald-500");
             logoSrc = "/static/images/status-active.png";
         } else if (status === "inactive") {
-            statusEl.classList.add("text-amber-500");
             logoSrc = "/static/images/status-inactive.png";
         } else if (status === "failed") {
-            statusEl.classList.add("text-rose-500");
             logoSrc = "/static/images/status-inactive.png"; // fallback
         } else if (status === "restarting" || status === "starting") {
-            statusEl.classList.add("text-amber-500");
             // Avoid fetching transient assets during service restart window.
             logoSrc = "/static/images/status-active.png";
         } else if (status === "stopping") {
-            statusEl.classList.add("text-rose-500");
             // Keep using stable icon to avoid request failures while stopping.
             logoSrc = "/static/images/status-inactive.png";
         }
@@ -104,7 +134,7 @@ const ServiceStatus = (() => {
             status === "restarting" || status === "starting" || status === "stopping";
         // During restart window, do not trigger extra image requests for transient states.
         if (logoEl && !(isRestartInProgress() && transientStatus)) {
-            logoEl.src = logoSrc;
+            if (!logoEl.src?.endsWith(logoSrc)) logoEl.src = logoSrc;
         }
 
         if (stopDropdownBtn) {
@@ -113,10 +143,16 @@ const ServiceStatus = (() => {
             stopDropdownBtn.classList.toggle("flex", showStop);
         }
 
+        // Activity snapshots must not replace focused buttons or their handlers.
+        if (renderedControlStatus === status) return;
+        renderedControlStatus = status;
         controlsEl.innerHTML = "";
         const createButton = (label, action, colorClass, iconName) => {
             const btn = document.createElement("button");
-            btn.className = `secondary-action ${colorClass} text-sm p-2`;
+            btn.className = `secondary-action ${colorClass} header-service-button ${action === 'restart' ? 'button-reveal' : ''}`;
+            btn.type = 'button';
+            btn.title = label;
+            btn.setAttribute('aria-label', label);
 
             const icon = document.createElement("i");
             icon.className = "material-icons";
@@ -124,7 +160,7 @@ const ServiceStatus = (() => {
             btn.appendChild(icon);
 
             const labelSpan = document.createElement("span");
-            labelSpan.className = "hidden md:inline";
+            labelSpan.className = action === 'restart' ? 'button-reveal-label' : 'header-service-label';
             labelSpan.textContent = label;
             btn.appendChild(labelSpan);
 
@@ -140,17 +176,22 @@ const ServiceStatus = (() => {
             controlsEl.appendChild(restartBtn);
             restartButtonRef = restartBtn;
         } else {
-            controlsEl.textContent = "Unknown status.";
-            restartButtonRef = null;
+            const pending = createButton(status === 'stopping' || status === 'deactivating' ? 'Stopping' : 'Restart', 'restart', 'secondary-action--hover--amber', 'restart_alt');
+            pending.disabled = true;
+            controlsEl.appendChild(pending);
+            restartButtonRef = pending;
         }
     };
 
     // Expose for WebSocket
-    window.updateServiceStatus = updateServiceStatusUI;
+    window.updateServiceStatus = (status, details = null) => {
+        statusCache = {...statusCache, ...(details && typeof details === 'object' ? details : {}), status,
+            billy_state: details?.billy_state || null};
+        lastFetch = Date.now();
+        updateServiceStatusUI(status, statusCache);
+    };
 
     const handleServiceAction = async (action, buttonEl = null) => {
-        const statusEl = document.getElementById("service-status");
-        const logoEl = document.getElementById("status-logo");
         let previousWebconfigInstance = statusCache?.webconfig_instance || null;
         let restartRequestedAt = null;
 
@@ -166,22 +207,9 @@ const ServiceStatus = (() => {
             }
         }
 
-        const statusMap = {
-            restart: {text: "restarting", color: "text-amber-500", logo: "/static/images/status-active.png"},
-            stop:    {text: "stopping",   color: "text-rose-500",   logo: "/static/images/status-inactive.png"},
-            start:   {text: "starting",   color: "text-emerald-500",logo: "/static/images/status-inactive.png"}
-        };
-
-        if (statusMap[action]) {
-            const {text, color, logo} = statusMap[action];
-            statusEl.textContent = text;
-            statusEl.classList.remove("text-emerald-500", "text-amber-500", "text-rose-500");
-            statusEl.classList.add(color);
-            // Avoid image fetches during restart while webconfig is going down.
-            if (logoEl && !(action === "restart" && isRestartInProgress())) {
-                logoEl.src = logo;
-            }
-        }
+        const pendingStatus = {restart: 'restarting', stop: 'stopping', start: 'starting'}[action];
+        if (pendingStatus) updateServiceStatusUI(pendingStatus);
+        if (action === 'restart') setRestartButtonLoading(true);
 
         try {
             if (action === "restart") {
@@ -238,6 +266,13 @@ const ServiceStatus = (() => {
         restartInProgressUntil = 0;
         setRestartButtonLoading(false);
         showNotification("Restart is taking longer than expected. Reload the page to reconnect.", "warning", 8000);
+    });
+
+    window.addEventListener('billy:bluetooth:status', event => updateBluetoothIndicator(event.detail));
+    window.addEventListener('billy:websocket:disconnected', () => {
+        lastFetch = 0;
+        updateServiceStatusUI(isRestartInProgress() ? 'restarting' : 'unknown');
+        updateBluetoothIndicator(null);
     });
 
     return api;

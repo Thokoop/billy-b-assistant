@@ -9,7 +9,7 @@ const flush = async () => { for(let i=0;i<20;i++) await Promise.resolve(); };
 function setup(storage = new Map()) {
     let now = 100000, next = 1, reloads = 0, stops = 0;
     const timers = new Map(), events = new Map(), elements = new Map();
-    const makeElement = () => ({textContent:'', children:[], style:{}, classList:{add(){},remove(){},toggle(){},contains(){return false;}}, appendChild(el){this.children.push(el);}, querySelector(){return makeElement();}});
+    const makeElement = () => ({textContent:'', children:[], style:{}, setAttribute(k,v){this[k]=v;}, classList:{add(){},remove(){},toggle(){},contains(){return false;}}, appendChild(el){this.children.push(el);}, querySelector(){return makeElement();}});
     const context = { console:{log(){},error(){}}, AbortController,
         Date: {now:()=>now},
         sessionStorage:{getItem:k=>storage.get(k)||null, setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
@@ -141,4 +141,78 @@ test('image errors do not reload, unavailable storage uses manual retry',async()
     await h.advance(0);assert.equal(h.reloads,0);
     h.context.sessionStorage.getItem=()=>{throw new Error('storage blocked');};
     await h.advance(10000);assert.equal(h.reloads,0);assert.equal(h.elements.get('loading-overlay-text').children.length,1);
+});
+
+
+test('software maintenance blocks background controls and survives WebSocket reconnects',()=>{
+ const h=setup();h.run(helper);
+ const overlay=h.context.document.getElementById('loading-overlay');
+ const classes=new Set(['hidden']);
+ overlay.classList={add:n=>classes.add(n),remove:n=>classes.delete(n),contains:n=>classes.has(n)};
+ let focus=0,restored=0;overlay.focus=()=>focus++;
+ const button={inert:false,isConnected:true,focus(){restored++;}},modal={inert:true};
+ h.context.document.body={children:[button,modal,overlay]};
+ h.context.document.activeElement=button;
+ h.context.LoadingOverlay.showSoftware('Installing components');
+ assert.equal(classes.has('hidden'),false);assert.equal(button.inert,true);assert.equal(modal.inert,true);
+ assert.equal(h.elements.get('loading-overlay-hint').hidden,false);assert.equal(focus,1);
+ h.context.dispatchEvent({type:'billy:websocket:connected'});
+ assert.equal(classes.has('hidden'),false);assert.equal(h.reloads,0);
+ h.context.LoadingOverlay.showSoftware('Checking Billy');assert.equal(focus,1);
+ assert.equal(h.elements.get('loading-overlay-text').textContent,'Checking Billy');
+ h.context.LoadingOverlay.hideSoftware();
+ assert.equal(classes.has('hidden'),true);assert.equal(button.inert,false);assert.equal(modal.inert,true);
+ assert.equal(h.elements.get('loading-overlay-hint').hidden,true);assert.equal(restored,1);
+ h.context.LoadingOverlay.hideSoftware();assert.equal(restored,1);
+});
+
+
+test('header translates activity, keeps controls stable and never shows raw MQTT state',()=>{
+    const h=setup(); h.run(service);
+    const update=h.context.ServiceStatus.updateServiceStatusUI;
+    update('active',{billy_state:'idle'});
+    assert.equal(h.elements.get('service-status').textContent,'Ready');
+    const control=h.elements.get('service-controls').children[0];
+    for(const [state,label] of Object.entries({listening:'Listening',speaking:'Speaking',bt_media:'Playing Bluetooth audio',in_call:'Bluetooth call',playing_song:'Playing music'})){
+        update('active',{billy_state:state});
+        assert.equal(h.elements.get('service-status').textContent,label);
+        assert.equal(h.elements.get('service-controls').children[0],control);
+        assert.equal(h.elements.get('service-controls').children.length,1);
+    }
+    update('active',{billy_state:'future_internal_state'});
+    assert.equal(h.elements.get('service-status').textContent,'Running');
+    update('inactive',{billy_state:'bt_media'});
+    assert.equal(h.elements.get('service-status').textContent,'Stopped');
+    assert.equal(control['aria-label'],'Restart');
+});
+test('header separates connected Bluetooth from playback and clears stale activity offline',()=>{
+    const h=setup(); h.run(service);
+    const update=h.context.ServiceStatus.updateServiceStatusUI;
+    h.context.billyWebSocket={getBluetoothStatus:()=>({devices:[{Alias:'Phone',Connected:true}]})};
+    update('active',{billy_state:'idle'});
+    assert.equal(h.elements.get('service-status').textContent,'Ready');
+    assert.equal(h.elements.get('header-bluetooth').hidden,false);
+    assert.equal(h.elements.get('header-bluetooth')['aria-label'],'Bluetooth connected: Phone');
+    h.context.dispatchEvent({type:'billy:websocket:disconnected'});
+    assert.equal(h.elements.get('service-status').textContent,'Reconnecting…');
+    assert.equal(h.elements.get('header-bluetooth').hidden,true);
+    update('active',{billy_state:null});
+    assert.equal(h.elements.get('service-status').textContent,'Running');
+});
+
+
+test('late HTTP and offline fallback do not restore stale header activity',async()=>{
+    const h=setup();h.run(service);
+    let reply;
+    h.context.fetch=()=>new Promise(resolve=>reply=resolve);
+    const pending=h.context.ServiceStatus.fetchStatus(true);
+    await h.advance(10);
+    h.context.updateServiceStatus('active',{billy_state:'listening'});
+    reply({ok:true,json:async()=>({status:'active',billy_state:'bt_media'})});
+    await pending;
+    assert.equal(h.elements.get('service-status').textContent,'Listening');
+    h.context.dispatchEvent({type:'billy:websocket:disconnected'});
+    h.context.fetch=async()=>{throw new Error('offline');};
+    await h.context.ServiceStatus.fetchStatus();
+    assert.equal(h.elements.get('service-status').textContent,'Reconnecting…');
 });

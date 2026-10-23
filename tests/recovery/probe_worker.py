@@ -12,7 +12,7 @@ from flask import Flask
 from billy_runtime import supervisor
 from billy_runtime.recovery import Recovery
 from billy_runtime.recovery_ui import create_recovery_app
-from billy_runtime.worker import notify
+from billy_runtime.worker import notify, set_activity
 
 
 root = Path(os.environ['RECOVERY_TEST_ROOT'])
@@ -27,6 +27,11 @@ else:
     content = supervisor.worker_environment()
     if os.environ['BILLY_WORKER_MODE'] == 'core':
         notify('ready')
+        if (root / 'mode').read_text() == 'core-activity':
+            while True:
+                set_activity('bt_media')
+                notify('progress')
+                time.sleep(0.1)
         if (root / 'mode').read_text() == 'core-loop-hang':
             notify('loop-start:test')
             while True:

@@ -320,3 +320,15 @@ def test_mic_close_attempted_even_when_abort_and_stop_fail(audio_module, isolate
     mic.stop()
     stream.close.assert_called_once()
     assert mic.stream is None
+
+
+def test_supported_mic_resampling_is_informational(audio_module):
+    a = audio_module
+    a.sd.query_devices = lambda: [device('mic', 1), device('speaker', outputs=2)]
+    a._pick_mic_rate = Mock(return_value=48000)
+    a.sd.check_output_settings = Mock()
+    a.logger = Mock()
+    a.detect_devices()
+    assert a.MIC_RATE == 48000
+    a.logger.info.assert_any_call('Mic capture at 48000Hz; resampling to 24000Hz.')
+    a.logger.warning.assert_not_called()

@@ -28,6 +28,7 @@ from billy_runtime.configuration import (
 from billy_runtime.configuration import save_env as persist_env
 from billy_runtime.profiles import profile_lock
 from billy_runtime.recovery import Recovery
+from billy_runtime.release_policy import update_channel
 from core.env_utils import set_env_key
 from core.news_manager import load_news_sources, save_news_sources
 from core.vision import describe_scene, detect_rpi_camera_available
@@ -37,6 +38,8 @@ from ..core_imports import core_config, voice_provider_registry
 from ..state import (
     PROJECT_ROOT,
     RELEASE_NOTE,
+    available_version,
+    bootstrap_versions_and_release_note,
     get_current_version,
     load_versions,
     save_versions,
@@ -88,6 +91,7 @@ CONFIG_KEYS = [
     "DEFAULT_USER",
     "CURRENT_USER",
     "SHOW_RC_VERSIONS",
+    "UPDATE_CHANNEL",
     "FLAP_ON_BOOT",
     "SHOW_TOOLTIPS",
     "NEWS_REQUEST_TIMEOUT_SECONDS",
@@ -1054,7 +1058,7 @@ def version_info():
     versions = load_versions()
     # Always check the current checked-out version from git
     current = get_current_version()
-    latest = versions["version"].get("latest", "unknown")
+    latest = available_version(current, versions["version"].get("latest", "unknown"))
 
     logger.verbose(
         f"[version_info] Detected current version: {current}, stored: {versions['version'].get('current', 'unknown')}, latest: {latest}"
@@ -1111,8 +1115,9 @@ def software_status():
 @bp.post('/update')
 def perform_update():
     versions = load_versions()
-    latest = versions['version'].get('latest', 'unknown')
-    if latest == get_current_version():
+    current = get_current_version()
+    latest = available_version(current, versions['version'].get('latest', 'unknown'))
+    if latest == current:
         return jsonify(status='up-to-date')
     return _software_action('update', latest)
 
@@ -1134,6 +1139,10 @@ def software_rollback():
 
 @bp.route("/release-note")
 def release_note():
+    current = get_current_version()
+    latest = available_version(current, load_versions()['version'].get('latest'))
+    if RELEASE_NOTE.get('tag') != latest:
+        return jsonify(tag=latest, body='', url='')
     return jsonify(RELEASE_NOTE)
 
 
@@ -1141,6 +1150,7 @@ def release_note():
 def save():
     data = request.json
     existing_env = dotenv_values(ENV_PATH) if os.path.exists(ENV_PATH) else {}
+    previous_channel = update_channel(existing_env)
     old_port = os.getenv("FLASK_PORT", "80")
     changed_port = False
     audio_restart_required = False
@@ -1157,7 +1167,9 @@ def save():
     updates = {}
     for key, value in data.items():
         if key in CONFIG_KEYS:
-            if key == "FOLLOW_UP_RETRY_LIMIT":
+            if key == "UPDATE_CHANNEL":
+                value = str(value).strip().lower()
+            elif key == "FOLLOW_UP_RETRY_LIMIT":
                 try:
                     parsed = int(str(value).strip())
                 except (TypeError, ValueError):
@@ -1215,6 +1227,12 @@ def save():
                 changed_port = True
             if key in audio_restart_keys and new_value != old_value:
                 audio_restart_required = True
+    if 'UPDATE_CHANNEL' in updates:
+        # Keep the legacy preference meaningful if the user rolls back software.
+        # Invalid explicit channels are rejected by patch_env before any write.
+        updates['SHOW_RC_VERSIONS'] = (
+            'False' if updates['UPDATE_CHANNEL'] == 'stable' else 'True'
+        )
     try:
         patch_env(ENV_PATH, updates)
     except ConfigError as exc:
@@ -1232,6 +1250,15 @@ def save():
     importlib.reload(core_config)
     # /config would otherwise reload it a second time on the next request.
     _mark_core_config_fresh()
+    if update_channel() != previous_channel:
+        # Refilter cached tags immediately, and refresh notes/network metadata
+        # in the background without delaying a settings save or restarting audio.
+        response['update_channel_changed'] = True
+        threading.Thread(
+            target=bootstrap_versions_and_release_note,
+            daemon=True,
+            name='update-channel-refresh',
+        ).start()
     if audio_restart_required:
         response["audio_restart_required"] = True
     if changed_port:
@@ -1691,7 +1718,7 @@ def get_config():
             try:
                 current_user = user_manager.identify_user(current_user_name, "high")
             except Exception as e:
-                print(f"Failed to load current user {current_user_name}: {e}")
+                logger.warning(f"Failed to load current user {current_user_name}: {e}")
 
         # Only fall back to DEFAULT_USER if CURRENT_USER is completely empty (not set)
         # If CURRENT_USER is explicitly set to "guest", respect that choice
@@ -1706,7 +1733,7 @@ def get_config():
                 # Only update CURRENT_USER in .env if it was completely empty
                 config_data["CURRENT_USER"] = DEFAULT_USER
             except Exception as e:
-                print(f"Failed to load default user {DEFAULT_USER}: {e}")
+                logger.warning(f"Failed to load default user {DEFAULT_USER}: {e}")
 
         # Add user profile data
         if current_user:
@@ -1736,7 +1763,7 @@ def get_config():
                         "data": profile.data,
                     })
                 except Exception as e:
-                    print(f"Failed to load profile {user_name}: {e}")
+                    logger.warning(f"Failed to load profile {user_name}: {e}")
                     # Add basic info even if full profile can't be loaded
                     available_profiles.append({
                         "name": user_name,
@@ -1744,7 +1771,7 @@ def get_config():
                     })
             config_data["AVAILABLE_PROFILES"] = available_profiles
         except Exception as e:
-            print(f"Failed to load profile data: {e}")
+            logger.warning(f"Failed to load profile data: {e}")
             config_data["AVAILABLE_PROFILES"] = []
 
         # Add available personas and current persona
@@ -1754,12 +1781,12 @@ def get_config():
             config_data["AVAILABLE_PERSONAS"] = persona_manager.get_available_personas()
             config_data["CURRENT_PERSONA"] = persona_manager.current_persona
         except Exception as e:
-            print(f"Failed to load personas: {e}")
+            logger.warning(f"Failed to load personas: {e}")
             config_data["AVAILABLE_PERSONAS"] = []
             config_data["CURRENT_PERSONA"] = "default"
 
     except Exception as e:
-        print(f"Failed to load user profile data: {e}")
+        logger.warning(f"Failed to load user profile data: {e}")
         config_data["CURRENT_USER"] = None
         config_data["AVAILABLE_PROFILES"] = []
         config_data["AVAILABLE_PERSONAS"] = []
@@ -1876,7 +1903,9 @@ def auto_refresh_config():
                 try:
                     current_user = user_manager.identify_user(current_user_name, "high")
                 except Exception as e:
-                    print(f"Failed to load current user {current_user_name}: {e}")
+                    logger.warning(
+                        f"Failed to load current user {current_user_name}: {e}"
+                    )
 
             # Only fall back to DEFAULT_USER if CURRENT_USER is completely empty
             if (
@@ -1889,7 +1918,7 @@ def auto_refresh_config():
                     current_user = user_manager.identify_user(DEFAULT_USER, "high")
                     config_data["CURRENT_USER"] = DEFAULT_USER
                 except Exception as e:
-                    print(f"Failed to load default user {DEFAULT_USER}: {e}")
+                    logger.warning(f"Failed to load default user {DEFAULT_USER}: {e}")
 
             # Add user profile data
             if current_user:
@@ -1917,7 +1946,7 @@ def auto_refresh_config():
                             "data": profile.data,
                         })
                     except Exception as e:
-                        print(f"Failed to load profile {user_name}: {e}")
+                        logger.warning(f"Failed to load profile {user_name}: {e}")
                         # Add basic info even if full profile can't be loaded
                         available_profiles.append({
                             "name": user_name,
@@ -1925,7 +1954,7 @@ def auto_refresh_config():
                         })
                 config_data["AVAILABLE_PROFILES"] = available_profiles
             except Exception as e:
-                print(f"Failed to load profile data: {e}")
+                logger.warning(f"Failed to load profile data: {e}")
                 config_data["AVAILABLE_PROFILES"] = []
 
             # Add available personas
@@ -1936,11 +1965,11 @@ def auto_refresh_config():
                     persona_manager.get_available_personas()
                 )
             except Exception as e:
-                print(f"Failed to load personas: {e}")
+                logger.warning(f"Failed to load personas: {e}")
                 config_data["AVAILABLE_PERSONAS"] = []
 
         except Exception as e:
-            print(f"Failed to load user profile data: {e}")
+            logger.warning(f"Failed to load user profile data: {e}")
             config_data["CURRENT_USER"] = None
             config_data["AVAILABLE_PROFILES"] = []
             config_data["AVAILABLE_PERSONAS"] = []

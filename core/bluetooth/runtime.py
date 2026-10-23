@@ -13,14 +13,12 @@ same microphone and motor pins. There is no systemd unit for it any more.
 
 import contextlib
 import json
-import logging
 import math
 import os
 import queue
 import select
 import signal
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -28,6 +26,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from ..logger import logger
 from .diagnostics import UplinkTiming, format_timing
 from .endpoints import ServiceEndpoints
 from .transport import (
@@ -47,7 +46,6 @@ STATUS_PATH = (
 STOP = threading.Event()
 _status_lock = threading.Lock()
 _status_write_failed = False
-_status_logger = logging.getLogger(__name__)
 # A freshly configured A2DP transport exposes its node before AVDTP Open/Start
 # completes, so the first pw-cat attach can lose a harmless race.
 MAX_CONSECUTIVE_RESTARTS = 5
@@ -110,10 +108,8 @@ def status(state, **details):
         except OSError as exc:
             # Report once per outage, not once per audio timing update.
             if not _status_write_failed:
-                _status_logger.warning(
-                    "Bluetooth status could not be saved to %s: %s. Billy will continue.",
-                    STATUS_PATH,
-                    exc,
+                logger.warning(
+                    f"Bluetooth status could not be saved to {STATUS_PATH}: {exc}. Billy will continue."
                 )
             _status_write_failed = True
             return False
@@ -122,7 +118,7 @@ def status(state, **details):
                 with contextlib.suppress(OSError):
                     temporary.unlink(missing_ok=True)
         if _status_write_failed:
-            _status_logger.info("Bluetooth status reporting restored.")
+            logger.info("Bluetooth status reporting restored.")
         _status_write_failed = False
         return True
 
@@ -254,11 +250,9 @@ def session(route, endpoints=None, stop=None):
                     stack.enter_context(open(f"{UPLINK_CAPTURE}.mic.s16", "wb")),
                     stack.enter_context(open(f"{UPLINK_CAPTURE}.sent.s16", "wb")),
                 )
-                print(
+                logger.info(
                     f"bluetooth mic: capturing to {UPLINK_CAPTURE}.mic.s16 "
-                    f"({int(mic_rate)} Hz) and .sent.s16 (48000 Hz)",
-                    file=sys.stderr,
-                    flush=True,
+                    f"({int(mic_rate)} Hz) and .sent.s16 (48000 Hz)"
                 )
             mic_error = []
             session_stop = threading.Event()
@@ -267,15 +261,13 @@ def session(route, endpoints=None, stop=None):
             uplink = UplinkBuffer() if outgoing else None
             if outgoing:
                 pipe_ms = f"{pipe_bytes / 96:.1f}" if pipe_bytes else "unknown"
-                print(
+                logger.verbose(
                     "bluetooth mic: "
                     f"buffer_prefill_ms={UplinkBuffer.prefill_samples / 48:.0f} "
                     f"buffer_target_ms={UplinkBuffer.target_samples / 48:.0f} "
                     f"buffer_limit_ms={UplinkBuffer.capacity / 48:.0f} "
                     f"pipe_capacity_ms={pipe_ms} "
-                    f"pipe_limit_ms={MIC_PIPE_LIMIT_BYTES / 96:.1f}",
-                    file=sys.stderr,
-                    flush=True,
+                    f"pipe_limit_ms={MIC_PIPE_LIMIT_BYTES / 96:.1f}"
                 )
 
             def pump():
@@ -449,11 +441,11 @@ def session(route, endpoints=None, stop=None):
                         # Always report the first interval, then every five
                         # seconds while healthy; anomalies remain visible sooner.
                         if not warmed or anomalous or ticks % 5 == 0:
-                            print(
-                                format_timing(metrics, blocks_per_second),
-                                file=sys.stderr,
-                                flush=True,
-                            )
+                            (
+                                logger.warning
+                                if warmed and anomalous
+                                else logger.verbose
+                            )(format_timing(metrics, blocks_per_second))
                         status(
                             "call_audio",
                             aec=aec.active,

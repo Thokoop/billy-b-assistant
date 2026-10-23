@@ -3,6 +3,8 @@ let ws = null;
 let reconnectTimeout = null;
 let bluetoothStatus = null;
 let deviceInfo = null;
+let requestedLogSource = null;
+let receivedLogSource = null;
 
 // Recovery is confirmed by both workers, not systemd's "active" flag.
 // Missing/failed snapshots keep the last notice rather than hiding a problem.
@@ -39,6 +41,8 @@ function connectWebSocket() {
     ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
+        ws.send(JSON.stringify({type: 'logs_subscribe', source: requestedLogSource}));
+        receivedLogSource = null;
         console.log('WebSocket connected');
         window.dispatchEvent(new CustomEvent('billy:websocket:connected'));
         if (reconnectTimeout) {
@@ -67,7 +71,7 @@ function connectWebSocket() {
 
                 // Update service status display
                 if (window.updateServiceStatus) {
-                    window.updateServiceStatus(statusData.status || statusData);
+                    window.updateServiceStatus(statusData.status || statusData, statusData);
                 }
                 
                 // Handle full status updates (persona/personality)
@@ -75,9 +79,10 @@ function connectWebSocket() {
                     window.handleStatusUpdate(statusData);
                 }
             } else if (message.type === 'logs') {
+                receivedLogSource = message.source || 'billy';
                 // Update logs display
                 if (window.updateLogs) {
-                    window.updateLogs(message.data);
+                    window.updateLogs(message.data, message.source || 'billy', message.error || '');
                 }
             }
         } catch (e) {
@@ -93,6 +98,7 @@ function connectWebSocket() {
     };
     
     ws.onclose = () => {
+        receivedLogSource = null;
         bluetoothStatus = null;
         deviceInfo = null;
         ws = null;
@@ -117,11 +123,20 @@ if (document.readyState === 'loading') {
 // Export for use in other scripts
 window.billyWebSocket = {
     connect: connectWebSocket,
+    subscribeLogs: (source) => {
+        requestedLogSource = source;
+        receivedLogSource = null;
+        if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'logs_subscribe', source}));
+        }
+    },
+    hasLogStream: (source) => ws?.readyState === WebSocket.OPEN && receivedLogSource === source,
     // Only a received Bluetooth snapshot proves the backend supports this.
     // Older backends and installations without WebSockets retain HTTP fallback.
     getBluetoothStatus: () => ws?.readyState === WebSocket.OPEN ? bluetoothStatus : null,
     getDeviceInfo: () => ws?.readyState === WebSocket.OPEN ? deviceInfo : null,
     disconnect: () => {
+        receivedLogSource = null;
         bluetoothStatus = null;
         deviceInfo = null;
         if (ws) {

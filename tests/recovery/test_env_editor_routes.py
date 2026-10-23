@@ -93,7 +93,7 @@ def test_history_metadata_is_uncached_without_contents(editor):
     assert 'FLASK_PORT' not in response.text
 
 
-def test_normal_web_routes_repair_to_advanced_settings(editor, monkeypatch):
+def test_normal_web_routes_repair_to_software_settings(editor, monkeypatch):
     import os
     import sys
     from types import ModuleType, SimpleNamespace
@@ -112,7 +112,7 @@ def test_normal_web_routes_repair_to_advanced_settings(editor, monkeypatch):
     ).normal_app()
     response = normal.test_client().get('/repair/')
     assert response.status_code == 302
-    assert response.location == '/settings#section-advanced-settings'
+    assert response.location == '/settings#section-software-version'
     assert normal.test_client().get('/__runtime_health').status_code == 200
     assert any(
         fn().get('recovery_notice') == store.notice()

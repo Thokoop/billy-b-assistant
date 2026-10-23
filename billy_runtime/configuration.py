@@ -64,6 +64,7 @@ BOOLEANS = set([
     'WEB_SEARCH_ENABLED',
 ])
 ENUMS = {
+    'UPDATE_CHANNEL': {'stable', 'rc', 'beta'},
     'REALTIME_AI_PROVIDER': {'openai', 'xai'},
     'BILLY_MODEL': {'modern', 'classic'},
     'BILLY_PINS': {'new', 'legacy'},

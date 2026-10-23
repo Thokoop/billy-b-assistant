@@ -117,13 +117,20 @@ test/
 !/tests/webconfig/test_*.py
 !/tests/webconfig/test_restart.cjs
 !/tests/webconfig/test_updates.cjs
+!/tests/webconfig/test_release_channels.cjs
+!/tests/webconfig/test_logs.cjs
 /.ci-results/
 
 !/tests/deployment/
 /tests/deployment/*
 !/tests/deployment/test_*.py
 !/tests/deployment/install-container.sh
+!/tests/deployment/packages-container.py
 
 # Local test documentation
 /docs/bluetooth-audio-testing.md
 /docs/core-regression-testing.md
+
+# Local navigation into the selected software release
+/current-source
+/.current-source-*

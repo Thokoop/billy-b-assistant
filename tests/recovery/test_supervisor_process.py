@@ -13,18 +13,37 @@ import pytest
 ROOT = Path(__file__).parents[2]
 
 
-def wait_for(url, text, timeout=20):
+def wait_for(url, text, timeout=20, *, exact=False):
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         try:
             with urllib.request.urlopen(url, timeout=1) as r:
                 body = r.read().decode()
-            if text in body:
+            matches = body == text if exact else text in body
+            if matches:
                 return body
         except (OSError, urllib.error.URLError):
             pass
         time.sleep(0.15)
     raise AssertionError('Did not receive ' + text)
+
+
+def test_normal_settings_readiness_waits_past_recovery_page(monkeypatch):
+    from io import BytesIO
+
+    from billy_runtime.recovery_ui import PAGE
+
+    # Recovery links to "normal settings" before the normal worker is ready.
+    assert 'normal settings' in PAGE
+    responses = iter([PAGE.encode(), b'normal settings'])
+    monkeypatch.setattr(
+        urllib.request, 'urlopen', lambda *args, **kwargs: BytesIO(next(responses))
+    )
+    monkeypatch.setattr(time, 'sleep', lambda _: None)
+
+    assert wait_for('http://localhost/settings', 'normal settings', exact=True) == (
+        'normal settings'
+    )
 
 
 @pytest.mark.parametrize('mode', ['crash', 'startup-hang', 'healthy'])
@@ -47,7 +66,7 @@ def test_independent_recovery_and_normal_process_handoff(tmp_path, mode):
     url = f'http://127.0.0.1:{port}/settings'
     try:
         if mode == 'healthy':
-            wait_for(url, 'normal settings')
+            wait_for(url, 'normal settings', exact=True)
             import asyncio
 
             import websockets
@@ -182,7 +201,7 @@ def test_operator_retry_reloads_healthy_web_worker_without_counting_failure(tmp_
             stderr=log,
         )
         try:
-            wait_for(f'http://127.0.0.1:{port}/settings', 'normal settings')
+            wait_for(f'http://127.0.0.1:{port}/settings', 'normal settings', exact=True)
             store = Recovery(tmp_path)
             report = store.runtime / 'web.json'
             import json
@@ -203,6 +222,37 @@ def test_operator_retry_reloads_healthy_web_worker_without_counting_failure(tmp_
             else:
                 raise AssertionError('Healthy worker did not restart on explicit retry')
             assert not store.read_state().get('failures')
+        finally:
+            proc.terminate()
+            proc.wait(timeout=12)
+
+
+def test_core_activity_reaches_status_without_a_broker(tmp_path):
+    from billy_runtime.worker import read_activity
+
+    (tmp_path / '.env').write_text('FLASK_PORT=8080\n')
+    (tmp_path / 'mode').write_text('core-activity')
+    with (tmp_path / 'output').open('w') as log:
+        proc = subprocess.Popen(
+            [sys.executable, str(ROOT / 'tests/recovery/probe_worker.py')],
+            env=dict(
+                os.environ,
+                RECOVERY_TEST_ROOT=str(tmp_path),
+                RECOVERY_TEST_ROLE='core',
+                BILLY_INSTALL_ROOT=str(tmp_path),
+                PYTHONDONTWRITEBYTECODE='1',
+            ),
+            stdout=log,
+            stderr=log,
+        )
+        try:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if read_activity(tmp_path) == 'bt_media':
+                    break
+                time.sleep(0.1)
+            else:
+                raise AssertionError((tmp_path / 'output').read_text())
         finally:
             proc.terminate()
             proc.wait(timeout=12)

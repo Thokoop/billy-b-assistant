@@ -125,6 +125,10 @@ def action(action):
             result = manager.run(
                 manager.set_auto_connect(data.get('address'), data.get('enabled'))
             )
+        elif action == 'select':
+            result = manager.run(
+                manager.device_action(data.get('address'), action), timeout=30
+            )
         elif action in {'connect', 'disconnect', 'forget'}:
             result = manager.run(manager.device_action(data.get('address'), action))
         else:

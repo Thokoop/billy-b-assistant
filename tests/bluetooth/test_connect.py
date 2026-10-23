@@ -38,6 +38,7 @@ def fast_connect_clock(monkeypatch, tmp_path):
 
 def fixture(*, paired=True, connected=True, media=True, transport=False):
     manager = bluez.BluezController.__new__(bluez.BluezController)
+    manager.device_lock = asyncio.Lock()
     manager.pending = None
     manager.deadline = 0
     objects = {
@@ -406,3 +407,107 @@ def test_hung_disconnect_is_cancelled(monkeypatch):
     with pytest.raises(RuntimeError, match='still connected'):
         asyncio.run(manager.device_action(ADDRESS, 'disconnect'))
     assert cancelled == [True]
+
+
+OTHER = '/org/bluez/hci0/dev_11_22_33_44_55_66'
+
+
+def switch_fixture():
+    manager, selected, objects = fixture(connected=False, media=False)
+    objects[OTHER] = {
+        'org.bluez.Device1': {
+            'Address': Variant('s', '11:22:33:44:55:66'),
+            'Paired': Variant('b', True),
+            'Connected': Variant('b', True),
+        }
+    }
+    old = AsyncMock()
+    events = []
+
+    async def disconnect():
+        events.append('disconnect')
+        objects[OTHER]['org.bluez.Device1']['Connected'] = Variant('b', False)
+
+    async def connect_new():
+        assert not objects[OTHER]['org.bluez.Device1']['Connected'].value
+        events.append('connect')
+        objects[PHONE]['org.bluez.Device1']['Connected'] = Variant('b', True)
+
+    old.call_disconnect.side_effect = disconnect
+    selected.call_connect.side_effect = connect_new
+    manager.interface = AsyncMock(
+        side_effect=lambda path, _: old if path == OTHER else selected
+    )
+    return manager, selected, old, objects, events
+
+
+def test_select_disconnects_old_phone_before_connecting_new_one():
+    manager, selected, old, objects, events = switch_fixture()
+    assert asyncio.run(manager.device_action(ADDRESS, 'select')) == {'ok': True}
+    assert events == ['disconnect', 'connect']
+    old.call_disconnect.assert_awaited_once()
+    assert objects[PHONE]['org.bluez.Device1']['Connected'].value
+
+
+@pytest.mark.parametrize('failure', ['timeout', 'dbus', 'reconnected'])
+def test_select_does_not_connect_when_teardown_fails(failure):
+    manager, selected, old, objects, _ = switch_fixture()
+    if failure == 'timeout':
+        old.call_disconnect.side_effect = None
+    elif failure == 'dbus':
+        old.call_disconnect.side_effect = DBusError('org.bluez.Error.Failed', 'failed')
+    else:
+        # A different phone returned after disconnect_audio completed.
+        manager.disconnect_audio = AsyncMock()
+    with pytest.raises(Exception):
+        asyncio.run(manager.device_action(ADDRESS, 'select'))
+    selected.call_connect.assert_not_awaited()
+    assert not manager.device_lock.locked()
+
+
+@pytest.mark.parametrize('invalid', ['missing', 'unpaired'])
+def test_select_validates_target_before_disconnecting(invalid):
+    manager, selected, old, objects, _ = switch_fixture()
+    if invalid == 'missing':
+        del objects[PHONE]
+    else:
+        objects[PHONE]['org.bluez.Device1']['Paired'] = Variant('b', False)
+    with pytest.raises(ValueError):
+        asyncio.run(manager.device_action(ADDRESS, 'select'))
+    old.call_disconnect.assert_not_awaited()
+    selected.call_connect.assert_not_awaited()
+
+
+def test_select_failure_leaves_actual_disconnected_state_and_releases_lock():
+    manager, selected, old, objects, _ = switch_fixture()
+    selected.call_connect.side_effect = DBusError(
+        'org.bluez.Error.Failed', 'unreachable'
+    )
+    with pytest.raises(DBusError):
+        asyncio.run(manager.device_action(ADDRESS, 'select'))
+    assert not objects[OTHER]['org.bluez.Device1']['Connected'].value
+    assert not objects[PHONE]['org.bluez.Device1']['Connected'].value
+    assert not manager.device_lock.locked()
+
+
+def test_select_rejects_concurrent_device_action_and_releases_lock_on_cancellation():
+    async def scenario():
+        manager, selected, old, objects, _ = switch_fixture()
+        entered = asyncio.Event()
+
+        async def wait():
+            entered.set()
+            await asyncio.Event().wait()
+
+        old.call_disconnect.side_effect = wait
+        task = asyncio.create_task(manager.device_action(ADDRESS, 'select'))
+        await entered.wait()
+        with pytest.raises(RuntimeError, match='busy'):
+            await manager.device_action(ADDRESS, 'forget')
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not manager.device_lock.locked()
+        selected.call_connect.assert_not_awaited()
+
+    asyncio.run(scenario())

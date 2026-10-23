@@ -19,7 +19,10 @@ PIPE_READERS = {}
 
 @pytest.fixture
 def runtime(monkeypatch):
-    name = "bt_runtime_test"
+    parent = ModuleType("bt_runtime_test_core")
+    parent.__path__ = [str(Path(__file__).parents[2] / "core")]
+    monkeypatch.setitem(sys.modules, parent.__name__, parent)
+    name = "bt_runtime_test_core.bluetooth"
     package = ModuleType(name)
     package.__path__ = [str(Path(__file__).parents[2] / "core/bluetooth")]
     monkeypatch.setitem(sys.modules, name, package)
@@ -209,7 +212,7 @@ def test_shared_output_failure_stops_transport_and_capture(
     """A real failed playback queue must propagate through SharedEndpoints."""
     import contextlib
 
-    endpoints_module = sys.modules['bt_runtime_test.endpoints']
+    endpoints_module = sys.modules['bt_runtime_test_core.bluetooth.endpoints']
     monkeypatch.setitem(sys.modules, 'core', SimpleNamespace(audio=audio_module))
     audio_module.playback_queue.fail(OSError('speaker unplugged'))
     shared = endpoints_module.SharedEndpoints(want_aec=call, want_microphone=call)
@@ -526,7 +529,7 @@ def test_full_pipe_stops_on_deadline_without_capture_blocking(runtime, monkeypat
 
 
 def test_status_missing_runtime_directory_is_nonfatal_and_recovers(
-    runtime, monkeypatch, tmp_path, caplog
+    runtime, monkeypatch, tmp_path, capsys
 ):
     import json
 
@@ -537,14 +540,14 @@ def test_status_missing_runtime_directory_is_nonfatal_and_recovers(
     assert (
         not target.parent.exists()
     )  # Only the OS should create its runtime directory.
-    assert len([r for r in caplog.records if 'Billy will continue' in r.message]) == 1
+    assert capsys.readouterr().out.count('Billy will continue') == 1
     target.parent.mkdir()
     assert runtime.status('media_audio', source='bluez_input.phone') is True
     assert json.loads(target.read_text())['state'] == 'media_audio'
     target.unlink()
     target.parent.rmdir()
     assert runtime.status('idle') is False
-    assert len([r for r in caplog.records if 'Billy will continue' in r.message]) == 2
+    assert capsys.readouterr().out.count('Billy will continue') == 1
 
 
 @pytest.mark.parametrize('failure', ['create', 'write', 'replace'])

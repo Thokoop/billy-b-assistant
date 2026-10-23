@@ -31,6 +31,7 @@ def load_watcher():
         "mode": SimpleNamespace(observe_route=lambda route: True),
         "logger": SimpleNamespace(
             info=lambda *a, **k: None,
+            warning=lambda *a, **k: None,
             error=lambda *a, **k: None,
             verbose=lambda *a, **k: None,
         ),

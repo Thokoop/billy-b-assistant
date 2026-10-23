@@ -24,8 +24,9 @@ that swap possible without rewriting the loop. An implementation provides:
 
 import contextlib
 import queue
-import sys
 import time
+
+from ..logger import logger
 
 
 # The pump drains continuously, so this only has to absorb scheduler jitter.
@@ -86,13 +87,11 @@ class _Endpoints:
         # level test do. Block size deliberately does not: see MIC_BLOCK_MS.
         microphone = self._open_capture_stream(stack, sd, audio)
         self.aec.set_capture_latency(microphone.latency)
-        print(
+        logger.verbose(
             f"bluetooth mic: rate={self.mic_rate} Hz "
             f"block={self._block_frames} frames "
             f"capture_latency_ms={microphone.latency * 1000:.1f} "
-            f"aec={self.aec.active} similarity=False",
-            file=sys.stderr,
-            flush=True,
+            f"aec={self.aec.active} similarity=False"
         )
 
     def _select_capture_rate(self, sd, audio):
@@ -106,11 +105,9 @@ class _Endpoints:
             )
         except sd.PortAudioError as exc:
             self.mic_rate = audio.MIC_RATE
-            print(
+            logger.warning(
                 f"bluetooth mic: 48000 Hz unavailable ({exc}); "
-                f"falling back to {self.mic_rate} Hz with resampling",
-                file=sys.stderr,
-                flush=True,
+                f"falling back to {self.mic_rate} Hz with resampling"
             )
         else:
             self.mic_rate = 48000
@@ -135,11 +132,9 @@ class _Endpoints:
             except Exception as exc:
                 if attempt == MIC_OPEN_ATTEMPTS - 1:
                     raise
-                print(
+                logger.verbose(
                     f"bluetooth mic: capture device busy ({exc}); "
-                    f"retry {attempt + 1}/{MIC_OPEN_ATTEMPTS - 1}",
-                    file=sys.stderr,
-                    flush=True,
+                    f"retry {attempt + 1}/{MIC_OPEN_ATTEMPTS - 1}"
                 )
                 time.sleep(MIC_OPEN_RETRY_SECONDS)
         raise RuntimeError("unreachable")

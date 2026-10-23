@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 
 from billy_runtime.paths import INSTALL_ROOT
+from billy_runtime.release_policy import update_channel
 
 from .persona import (
     PersonaProfile,
@@ -324,6 +325,7 @@ FLASK_PORT = int(os.getenv("FLASK_PORT", "80"))
 SHOW_SUPPORT = os.getenv("SHOW_SUPPORT", True)
 FORCE_PASS_CHANGE = os.getenv("FORCE_PASS_CHANGE", "false").lower() == "true"
 SHOW_RC_VERSIONS = os.getenv("SHOW_RC_VERSIONS", "False")
+UPDATE_CHANNEL = update_channel()
 FLAP_ON_BOOT = os.getenv("FLAP_ON_BOOT", "false").lower() == "true"
 # webconfig-only preference: hides the (?) tooltip help icons across the UI
 # when off. Enabled by default.

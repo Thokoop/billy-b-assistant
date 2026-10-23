@@ -7,13 +7,13 @@ const wsSource=fs.readFileSync('webconfig/static/js/websocket.js','utf8');
 const audioSource=fs.readFileSync('webconfig/static/js/audio-panel.js','utf8');
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
 function target(){const events=new Map();return {addEventListener(type,fn){if(!events.has(type))events.set(type,new Set());events.get(type).add(fn);},removeEventListener(type,fn){events.get(type)?.delete(fn);},dispatchEvent(event){for(const fn of events.get(event.type)||[])fn(event);},count(type){return events.get(type)?.size||0;}};}
-function element(id='') {return Object.assign(target(),{id,dataset:{},children:[],style:{},textContent:'',classList:{add(){},remove(){},toggle(){}},append(...items){this.children.push(...items);},replaceChildren(){this.children=[];},removeChild(child){this.children.splice(this.children.indexOf(child),1);},insertBefore(child,before){const old=this.children.indexOf(child);if(old>=0)this.children.splice(old,1);this.children.splice(before?this.children.indexOf(before):this.children.length,0,child);},setAttribute(){},parentElement:{classList:{add(){},toggle(){}}}});}
+function element(id='') {return Object.assign(target(),{id,dataset:{},children:[],style:{},textContent:'',classList:{add(){},remove(){},toggle(){}},append(...items){this.children.push(...items);},replaceChildren(){this.children=[];},removeChild(child){this.children.splice(this.children.indexOf(child),1);},insertBefore(child,before){const old=this.children.indexOf(child);if(old>=0)this.children.splice(old,1);this.children.splice(before?this.children.indexOf(before):this.children.length,0,child);},attributes:{},setAttribute(name,value){this.attributes[name]=value;},parentElement:{classList:{add(){},toggle(){}}}});}
 function section(){const nodes=new Map();const get=id=>{if(!nodes.has(id))nodes.set(id,element(id));return nodes.get(id);};const pair=get('bt-pair');pair.dataset.action='pair';return {dataset:{token:'page-token'},isConnected:true,nodes,get,querySelector:s=>get(s.slice(1)),querySelectorAll:s=>s==='[data-action]'?[pair]:[pair,get('bt-pair-stop'),get('bt-setup-retry')]};}
 function setup({mounted=true,live=null}={}){
  const timers=new Map(),requests=[],labels=new Map();let serial=0;
  const h={root:mounted?section():null,live,info:null};
  const win=target(),doc=target();Object.assign(doc,{hidden:false,readyState:'loading',getElementById:id=>id==='bluetooth-settings'?h.root:labels.get(id)||null,createElement:()=>element()});
- const c={window:win,document:doc,console,AbortSignal,CustomEvent:class{constructor(type,options={}){this.type=type;Object.assign(this,options);}},setInterval(fn){const id=++serial;timers.set(id,fn);return id;},clearInterval(id){timers.delete(id);},setTimeout(fn){const id=++serial;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},fetch(url,options){requests.push({url,options});return h.fetch(url,options);}};
+ const c={window:win,document:doc,console,AbortSignal,AbortController,CustomEvent:class{constructor(type,options={}){this.type=type;Object.assign(this,options);}},setInterval(fn){const id=++serial;timers.set(id,fn);return id;},clearInterval(id){timers.delete(id);},setTimeout(fn){const id=++serial;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},fetch(url,options){requests.push({url,options});return h.fetch(url,options);}};
  h.fetch=async()=>({ok:true,json:async()=>state()});win.billyWebSocket={getBluetoothStatus:()=>h.live,getDeviceInfo:()=>h.info};
  Object.assign(h,{c,timers,requests,labels,run:source=>vm.runInContext(source,c),status(data){h.live=data;win.dispatchEvent({type:'billy:bluetooth:status',detail:data});},device(data){h.info=data;win.dispatchEvent({type:'billy:device-info:status',detail:data});}});vm.createContext(c);return h;
 }
@@ -93,14 +93,16 @@ test('device live status arriving during bootstrap prevents a fallback request',
  assert.equal(h.requests.length,0);assert.equal(h.labels.get('mic-label').textContent,'Live mic');
 });
 
-test('connected device without media transport keeps one Disconnect action',async()=>{
+test('connected device without media transport disconnects by selecting its card',async()=>{
  const h=setup({live:state({devices:[{Address:'AA',Alias:'Phone',Paired:true,Connected:true,MediaSupported:true,MediaConnected:false}]})});
  h.run(btSource);h.c.window.BluetoothSettings.init();
  const row=h.root.get('bt-devices').children[0];
  assert.equal(row.children[0].children[1].children[1].textContent,'Connected');
  const actions=row.children[1].children.filter(c=>c.type==='button');
- assert.deepEqual(actions.map(b=>b.children[1].textContent),['Disconnect','Forget']);
- actions[0].dispatchEvent({type:'click'});await flush();
+ assert.deepEqual(actions,[]);
+ assert.equal(row.dataset.selected,'true');
+ assert.equal(row.children[0].attributes['aria-pressed'],'true');
+ row.children[0].dispatchEvent({type:'click'});await flush();
  assert.equal(h.requests[0].url,'/api/bluetooth/disconnect');
  assert.equal(JSON.parse(h.requests[0].options.body).address,'AA');
 });
@@ -109,7 +111,7 @@ test('idle media connection needs no retry and legacy status still renders',()=>
   const h=setup({live:state({devices:[{Address:'AA',Paired:true,Connected:true,...extra}]})});
   h.run(btSource);h.c.window.BluetoothSettings.init();
   const row=h.root.get('bt-devices').children[0];
-  assert.deepEqual(row.children[1].children.filter(c=>c.type==='button').map(b=>b.children[1].textContent),['Disconnect','Forget']);
+  assert.deepEqual(row.children[1].children.filter(c=>c.type==='button').map(b=>b.children[1].textContent),[]);
  }
 });
 
@@ -192,11 +194,11 @@ test('disconnect refresh and late cached live snapshot retain latest device stat
  const h=setup({live:state({sampled_at:10,devices:[phone]})});h.run(btSource);h.c.window.BluetoothSettings.init();
  assert.equal(h.root.get('bt-audio').textContent,'No Bluetooth audio playing.');
  h.fetch=async()=>({ok:true,json:async()=>state({sampled_at:12,devices:[{...phone,Connected:false}]})});
- h.root.get('bt-devices').children[0].children[1].children[0].dispatchEvent({type:'click'});await flush();
+ h.root.get('bt-devices').children[0].children[0].dispatchEvent({type:'click'});await flush();
  h.status(state({sampled_at:11,devices:[phone]}));
  const row=h.root.get('bt-devices').children[0];
  assert.equal(row.children[0].children[1].children[1].textContent,'Disconnected');
- assert.deepEqual(row.children[1].children.filter(c=>c.type==='button').map(b=>b.children[1].textContent),['Connect','Forget']);
+ assert.deepEqual(row.children[1].children.filter(c=>c.type==='button').map(b=>b.children[1].textContent),['Forget']);
  assert.equal(h.root.get('bt-audio').textContent,'No phone connected.');
  h.status(state({sampled_at:13,devices:[phone],audio:{state:'media_audio',source:'bluez_input.AA.0'}}));
  assert.match(h.root.get('bt-audio').textContent,/Playing media/);
@@ -216,9 +218,10 @@ test('failed disconnect remains an error and keeps Disconnect available',async()
  h.fetch=async(url,options)=>options?.method==='POST'
   ? {ok:false,json:async()=>({error:'Phone is still connected'})}
   : {ok:true,json:async()=>live};
- h.root.get('bt-devices').children[0].children[1].children[0].dispatchEvent({type:'click'});await flush();
+ h.root.get('bt-devices').children[0].children[0].dispatchEvent({type:'click'});await flush();
  assert.equal(h.root.get('bt-error').textContent,'Phone is still connected');
- assert.equal(h.root.get('bt-devices').children[0].children[1].children[0].children[1].textContent,'Disconnect');
+ assert.equal(h.root.get('bt-devices').children[0].dataset.selected,'true');
+ assert.equal(h.root.get('bt-devices').children[0].children[0].disabled,false);
 });
 
 
@@ -254,7 +257,7 @@ test('Open Debug opens an already visible panel without toggling it closed',asyn
  h.c.window.LogPanel.openLogPanel();await flush();
  h.c.window.LogPanel.openLogPanel();await flush();
  assert.equal(classes.has('hidden'),false);assert.equal(highlighted,true);assert.equal(scrolled,2);
- assert.deepEqual(h.requests.map(r=>r.url),['/logs','/logs']);
+ assert.deepEqual(h.requests.map(r=>r.url),['/logs?source=billy','/logs?source=billy']);
 });
 
 
@@ -267,7 +270,7 @@ test('unchanged Bluetooth snapshots preserve rows and handlers while live detail
  for(let i=1;i<=5;i++)h.status(state({sampled_at:i,pairing_seconds:100-i,audio:{state:'idle',updated:i},devices:[{...phone,RSSI:-i,MediaConnected:!!(i%2)},other]}));
  assert.equal(list.children[0],row);assert.equal(list.children[1],second);
  assert.equal(h.root.get('bt-pair-status').textContent,'Visible for 95s');
- assert.equal(row.children[1].children[0].count('click'),1);
+ assert.equal(row.children[0].count('click'),1);
  h.status(state({devices:[{...phone,AutoConnect:true},{...other,Connected:true}]}));
  assert.equal(list.children[0],row);assert.notEqual(list.children[1],second);assert.equal(toggle.checked,true);
  h.status(state({devices:[phone]}));assert.equal(list.children.length,1);assert.equal(list.children[0],row);assert.equal(toggle.checked,false);
@@ -297,4 +300,109 @@ test('failed auto-connect save restores checkbox without replacing its row',asyn
   : {ok:true,json:async()=>state({devices:[phone]})};
  checkbox.checked=true;checkbox.dispatchEvent({type:'change'});await flush();
  assert.equal(list.children[0],row);assert.equal(checkbox.checked,false);assert.equal(h.root.get('bt-error').textContent,'Save failed');
+});
+
+
+test('pair new device is hidden for any active connection and returns after disconnect',()=>{
+ const h=setup({live:state()});h.run(btSource);h.c.window.BluetoothSettings.init();
+ const pair=h.root.get('bt-pair');
+ assert.equal(pair.hidden,false);assert.equal(pair.disabled,false);
+ for(const extra of [{Paired:true},{Paired:false},{Paired:true,MediaConnected:false}]){
+  h.status(state({devices:[{Address:'AA',Alias:'Phone',Connected:true,...extra}]}));
+  assert.equal(pair.hidden,true);assert.equal(pair.disabled,true);
+ }
+ h.status(state({devices:[{Address:'AA',Alias:'Phone',Paired:true,Connected:false}]}));
+ assert.equal(pair.hidden,false);assert.equal(pair.disabled,false);
+});
+test('pairing confirmation and stop control stay available while a phone is connecting',()=>{
+ const h=setup({live:state()});h.run(btSource);h.c.window.BluetoothSettings.init();
+ h.status(state({pairing_seconds:45,devices:[{Address:'AA',Connected:true,Paired:false}],pending:{name:'Phone',passkey:'012345'}}));
+ assert.equal(h.root.get('bt-pair').hidden,true);
+ assert.equal(h.root.get('bt-pair-stop').hidden,false);assert.equal(h.root.get('bt-pending').hidden,false);
+ assert.equal(h.root.get('bt-code').textContent,'012345');
+});
+test('other disconnected paired devices do not hide pairing; setup errors hide pairing',()=>{
+ const h=setup({live:state({devices:[{Address:'AA',Paired:true,Connected:false},{Address:'BB',Paired:true,Connected:false}]})});h.run(btSource);h.c.window.BluetoothSettings.init();
+ assert.equal(h.root.get('bt-pair').hidden,false);
+ h.status(state({setup:{state:'missing'},devices:[{Address:'AA',Connected:true}]}));
+ assert.equal(h.root.get('bt-pair').hidden,true);
+});
+
+
+test('selecting another paired phone requests one server-side switch without optimistic selection',async()=>{
+ const phone={Address:'AA',Alias:'Phone',Paired:true,Connected:true};
+ const other={Address:'BB',Alias:'Other',Paired:true,Connected:false};
+ const h=setup({live:state({devices:[phone,other]})});h.run(btSource);h.c.window.BluetoothSettings.init();
+ const list=h.root.get('bt-devices'),otherRow=list.children[1];
+ assert.equal(otherRow.children[0].disabled,false);
+ h.status(state({devices:[{...phone,Connected:false},other]}));
+ assert.equal(list.children[1],otherRow,'another phone changing must not replace the unchanged target');
+ h.status(state({devices:[phone,other]}));
+ let complete;
+ h.fetch=async(url,options)=>options?.method==='POST'
+  ? new Promise(resolve=>complete=resolve)
+  : {ok:true,json:async()=>state({devices:[{...phone,Connected:false},{...other,Connected:true}]})};
+ otherRow.children[0].dispatchEvent({type:'click'});
+ otherRow.children[0].dispatchEvent({type:'click'});
+ assert.equal(h.requests.length,1);
+ assert.equal(h.requests[0].url,'/api/bluetooth/select');
+ assert.equal(JSON.parse(h.requests[0].options.body).address,'BB');
+ assert.equal(otherRow.dataset.selected,'false');
+ assert.equal(list.children[0].dataset.selected,'true');
+ complete({ok:true,json:async()=>({ok:true})});await flush();
+ assert.equal(list.children[0].dataset.selected,'false');
+ assert.equal(list.children[1].dataset.selected,'true');
+ assert.equal(h.root.get('bt-pair').hidden,true);
+});
+
+test('Forget follows its own device connection state, including after a live disconnect',()=>{
+ const connected={Address:'AA',Alias:'Phone',Paired:true,Connected:true};
+ const other={Address:'BB',Alias:'Other',Paired:true,Connected:false};
+ const h=setup({live:state({devices:[connected,other]})});h.run(btSource);h.c.window.BluetoothSettings.init();
+ const list=h.root.get('bt-devices');
+ const actions=row=>row.children[1].children.filter(child=>child.type==='button').map(button=>button.children[1].textContent);
+ assert.deepEqual(actions(list.children[0]),[]);
+ assert.deepEqual(actions(list.children[1]),['Forget']);
+ h.status(state({devices:[{...connected,Connected:false},{...other,Connected:true}]}));
+ assert.deepEqual(actions(list.children[0]),['Forget']);
+ assert.deepEqual(actions(list.children[1]),[]);
+ h.status(state({devices:[{...connected,Connected:false},other]}));
+ assert.deepEqual(actions(list.children[0]),['Forget']);
+ assert.deepEqual(actions(list.children[1]),['Forget']);
+});
+
+
+test('card selection connects once and waits for confirmed state; failed connect stays unselected',async()=>{
+ const phone={Address:'AA',Alias:'Phone',Paired:true,Connected:false};
+ const live=state({devices:[phone]});
+ const h=setup({live});h.run(btSource);h.c.window.BluetoothSettings.init();
+ const row=h.root.get('bt-devices').children[0],select=row.children[0];
+ assert.equal(select.type,'button');
+ assert.equal(select.attributes['aria-label'],'Phone');
+ assert.equal(select.attributes['aria-pressed'],'false');
+ let complete;
+ h.fetch=async(url,options)=>options?.method==='POST'
+  ? new Promise(resolve=>complete=resolve) : {ok:true,json:async()=>live};
+ select.dispatchEvent({type:'click'});select.dispatchEvent({type:'click'});
+ assert.equal(h.requests.length,1);
+ assert.equal(h.requests[0].url,'/api/bluetooth/select');
+ assert.equal(JSON.parse(h.requests[0].options.body).address,'AA');
+ assert.equal(row.dataset.selected,'false');
+ complete({ok:false,json:async()=>({error:'Could not connect'})});await flush();
+ assert.equal(h.root.get('bt-devices').children[0],row);
+ assert.equal(row.dataset.selected,'false');
+ assert.equal(h.root.get('bt-error').textContent,'Could not connect');
+ h.status(state({devices:[{...phone,Connected:true}]}));
+ assert.equal(h.root.get('bt-devices').children[0].dataset.selected,'true');
+});
+
+test('Forget only sends forget and auto-connect remains a separate sibling control',async()=>{
+ const live=state({devices:[{Address:'AA',Alias:'Phone',Paired:true}]});
+ const h=setup({live});h.run(btSource);h.c.window.BluetoothSettings.init();
+ const row=h.root.get('bt-devices').children[0];
+ h.c.window.confirm=()=>true;
+ h.fetch=async()=>({ok:true,json:async()=>live});
+ row.children[1].children[0].dispatchEvent({type:'click'});await flush();
+ assert.deepEqual(h.requests.filter(r=>r.options?.method==='POST').map(r=>r.url),['/api/bluetooth/forget']);
+ assert.equal(row.count('click'),0,'the card wrapper must not capture sibling control clicks');
 });

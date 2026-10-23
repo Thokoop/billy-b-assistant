@@ -81,7 +81,7 @@ def on_connect(client, userdata, flags, rc):
 def start_mqtt():
     global mqtt_client
     if not mqtt_available():
-        logger.warning("MQTT not configured, skipping.")
+        logger.info("MQTT not configured, skipping.")
         return
 
     mqtt_client = mqtt.Client()
@@ -590,7 +590,7 @@ def on_message(client, userdata, msg):
         return
 
     if msg.topic == "billy/song":
-        print(f"📩 Received SONG command: {msg.payload.decode()}")
+        logger.info(f"📩 Received SONG command: {msg.payload.decode()}")
         try:
             from .audio import play_song
 
@@ -598,7 +598,7 @@ def on_message(client, userdata, msg):
             if song_name:
                 _run_async(play_song(song_name))
             else:
-                print("⚠️ SONG command received, but song name was empty")
+                logger.warning("SONG command received, but song name was empty")
         except Exception as e:
             logger.error(f"Failed to run play_song(): {e}")
         return

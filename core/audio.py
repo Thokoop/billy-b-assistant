@@ -279,9 +279,8 @@ def detect_devices(debug=False):
     if output_index is not None:
         logger.success(f"Output device index {output_index} selected.")
     if mic_rate != PROVIDER_MIC_RATE:
-        logger.warning(
-            f"Mic does not support {PROVIDER_MIC_RATE}Hz; using {mic_rate}Hz "
-            f"and resampling to {PROVIDER_MIC_RATE}Hz."
+        logger.info(
+            f"Mic capture at {mic_rate}Hz; resampling to {PROVIDER_MIC_RATE}Hz."
         )
 
 
@@ -396,7 +395,7 @@ def playback_worker(chunk_ms):
                         move_head("off")
                         movements.head_out = False
                         head_move_active = False
-                        print("🛑 Head move ended")
+                        logger.verbose("🛑 Head move ended")
 
                     if not head_move_active and not head_move_queue.empty():
                         move_time, move_duration = head_move_queue.queue[0]  # peek
@@ -406,7 +405,7 @@ def playback_worker(chunk_ms):
                             movements.head_out = True
                             head_move_active = True
                             head_move_end_time = now + move_duration
-                            print(
+                            logger.verbose(
                                 f"🐟 Head move started for {move_duration:.2f} seconds"
                             )
 
@@ -419,7 +418,7 @@ def playback_worker(chunk_ms):
                         if now - song_start_time >= move_time:
                             tail_move_queue.get()
                             move_tail_async(duration=move_duration)
-                            print(
+                            logger.verbose(
                                 f"🐟 Manual tail move started for {move_duration:.2f} seconds"
                             )
 
@@ -902,8 +901,10 @@ async def play_song(song_name, interrupt_event=None):
                 break
 
     if not song_metadata:
-        print(f"❌ Song not found in custom_songs: {song_name}")
-        print(f"💡 Tip: Use the web UI to copy example songs to custom_songs first")
+        logger.error(f"Song not found in custom_songs: {song_name}")
+        logger.info(
+            f"💡 Tip: Use the web UI to copy example songs to custom_songs first"
+        )
         return
 
     # Get the actual song directory path using the song name (directory name)
@@ -912,8 +913,8 @@ async def play_song(song_name, interrupt_event=None):
 
     # Double-check the directory exists
     if not os.path.exists(SONG_DIR):
-        print(f"❌ Song directory not found: {SONG_DIR}")
-        print(f"💡 Tip: Use the web UI to copy example songs or create new ones")
+        logger.error(f"Song directory not found: {SONG_DIR}")
+        logger.info(f"💡 Tip: Use the web UI to copy example songs or create new ones")
         return
 
     has_full = bool(song_metadata.get('has_full'))
@@ -924,7 +925,7 @@ async def play_song(song_name, interrupt_event=None):
     # full mix) can just be a vocals.wav. If full.wav exists, it always wins
     # as the main audio - vocals stays purely a mouth-flap driver in that case.
     if not has_vocals:
-        print(f"❌ Song '{song_name}' has no vocals stem (required to play)")
+        logger.error(f"Song '{song_name}' has no vocals stem (required to play)")
         return
 
     song_manager.set_last_song(actual_song_name)
@@ -1013,7 +1014,7 @@ async def play_song(song_name, interrupt_event=None):
         # Fallback to old metadata.txt format
         metadata_txt = os.path.join(song_dir, "metadata.txt")
         if not os.path.exists(metadata_txt):
-            print(f"⚠️ No metadata found at {song_dir}")
+            logger.warning(f"No metadata found at {song_dir}")
             return metadata
 
         with open(metadata_txt) as f:
@@ -1095,7 +1096,7 @@ async def play_song(song_name, interrupt_event=None):
         else status_led.parse_hex_color(led_color_setting)
     )
     mqtt_publish("billy/state", "playing_song")
-    print(
+    logger.info(
         f"\n🎧 Playing {song_name}"
         + (" (vocals-only)" if not has_full else "")
         + " with mouth (vocals) flaps"
@@ -1128,7 +1129,7 @@ async def play_song(song_name, interrupt_event=None):
                 if (interrupt_event and interrupt_event.is_set()) or not (
                     is_current_song_generation(my_generation)
                 ):
-                    print("🛑 Song playback interrupted")
+                    logger.info("🛑 Song playback interrupted")
                     break
 
                 frames_main = wf_main.readframes(chunk_size_main)
@@ -1185,7 +1186,7 @@ async def play_song(song_name, interrupt_event=None):
                     rms_drums,
                 ))
 
-        print("⌛ Waiting for song playback to complete...")
+        logger.info("⌛ Waiting for song playback to complete...")
         # Wait for playback with periodic interrupt checks
         max_wait_time = 300  # 5 minutes maximum
         check_interval = 0.5  # Check every 500ms
@@ -1194,7 +1195,7 @@ async def play_song(song_name, interrupt_event=None):
         while elapsed < max_wait_time:
             # Check for interruption
             if interrupt_event and interrupt_event.is_set():
-                print("🛑 Song playback wait interrupted")
+                logger.info("🛑 Song playback wait interrupted")
                 # Flush remaining queue items
                 audio.playback_queue.discard_pending()
                 break
@@ -1203,7 +1204,7 @@ async def play_song(song_name, interrupt_event=None):
                 # A newer song now owns the shared queue - it's no longer
                 # ours to flush or wait on, just stop (see
                 # begin_song_generation()'s comment).
-                print("🛑 Superseded by a newer song, abandoning wait")
+                logger.info("🛑 Superseded by a newer song, abandoning wait")
                 break
 
             # Check if queue is done
@@ -1218,7 +1219,7 @@ async def play_song(song_name, interrupt_event=None):
             elapsed += check_interval
 
     except Exception as e:
-        print(f"❌ Playback failed: {e}")
+        logger.error(f"Playback failed: {e}")
 
     finally:
         # A superseded call must not run end-of-song cleanup - stop_all_motors()
@@ -1231,9 +1232,9 @@ async def play_song(song_name, interrupt_event=None):
             status_led.set_song_color(None)
             status_led.set_song_led_off(False)
             mqtt_publish("billy/state", "idle")
-            print("🎶 Song finished, waiting for button press.")
+            logger.info("🎶 Song finished, waiting for button press.")
         else:
-            print(
+            logger.info(
                 "🧹 Superseded song cleanup skipped (a newer song owns playback state now)"
             )
 

@@ -8,6 +8,8 @@ import threading
 import time
 from pathlib import Path
 
+from billy_runtime.worker import set_activity
+
 from . import config
 from .logger import logger
 from .wifi_setup import ONBOARDING_FLAG
@@ -155,7 +157,10 @@ class StatusLed:
             logger.warning(f"Unknown status LED state '{state}', ignoring.", "💡")
             return
         with self._lock:
+            changed = self._state != state
             self._state = state
+            if changed:
+                set_activity(state)
             # A real state transition ends any previous listening countdown.
             # The timeout checker will explicitly start a new one when needed.
             self._timeout_progress = None
@@ -183,6 +188,7 @@ class StatusLed:
         duration = max(0.0, float(duration_seconds))
         with self._lock:
             self._state = "listening"
+            set_activity('listening')
             self._timeout_progress = None
             self._timeout_started_at = 0.0
             if duration > 0.0:

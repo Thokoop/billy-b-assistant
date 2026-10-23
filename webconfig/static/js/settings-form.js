@@ -67,7 +67,7 @@ const SettingsForm = (() => {
     // Same idea for the few selects drawn as a stepped slider: the select is
     // the form control, the slider is the picture of it, and population and
     // refresh set the select without firing 'change'.
-    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB']);
+    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB', 'UPDATE_CHANNEL']);
 
     const syncStepSlider = (selectElement) => {
         if (!selectElement || !STEP_SLIDER_SELECT_IDS.has(selectElement.id)) return;
@@ -85,12 +85,7 @@ const SettingsForm = (() => {
         bar.setAttribute('aria-valuemax', String(count));
         bar.setAttribute('aria-valuenow', String(index + 1));
         bar.setAttribute('aria-valuetext', selectElement.options[index]?.text || '');
-        bar.querySelectorAll('[data-step-dot]').forEach((dot, dotIndex) => {
-            // Dots sit on both the filled and unfilled part of the track, so
-            // they are drawn dark rather than tinted to match either side.
-            dot.classList.toggle('bg-zinc-900', dotIndex <= index);
-            dot.classList.toggle('bg-zinc-500', dotIndex > index);
-        });
+
     };
 
     const ensureSelectHasValue = (element, preferredValue, fallbackValue = null) => {
@@ -270,7 +265,38 @@ const SettingsForm = (() => {
         });
     };
 
+    const populateUpdateChannel = (cfg) => {
+        // Explicit channel wins; old installs keep their RC opt-in. Never use
+        // localStorage here: another unit's Beta selection must not leak in.
+        const channel = document.getElementById('UPDATE_CHANNEL');
+        if (channel) {
+            const syncWarning = () => {
+                const warning = document.getElementById('update-channel-warning');
+                const preview = ['rc', 'beta'].includes(channel.value);
+                if (warning) {
+                    warning.hidden = !preview;
+                    if (!preview) warning.open = false;
+                }
+                for (const control of [channel, document.getElementById('UPDATE_CHANNEL-bar')]) {
+                    if (!control) continue;
+                    if (preview) control.setAttribute('aria-describedby', 'update-channel-warning-text');
+                    else control.removeAttribute('aria-describedby');
+                }
+            };
+            if (!channel.dataset.warningBound) {
+                channel.addEventListener('change', syncWarning);
+                channel.dataset.warningBound = 'true';
+            }
+            const saved = String(cfg.UPDATE_CHANNEL || '').trim().toLowerCase();
+            channel.value = saved ? (['stable', 'rc', 'beta'].includes(saved) ? saved : 'stable')
+                : (String(cfg.SHOW_RC_VERSIONS).trim().toLowerCase() === 'true' ? 'rc' : 'stable');
+            syncWarning();
+            syncStepSlider(channel);
+        }
+    };
+
     const populateDropdowns = (cfg) => {
+        populateUpdateChannel(cfg);
         // Populate dropdown values with saved configuration
         const dropdowns = [
             { id: 'REALTIME_AI_PROVIDER', key: 'REALTIME_AI_PROVIDER' },
@@ -478,14 +504,6 @@ const SettingsForm = (() => {
                 payload.STATUS_LED_ENABLED = parseFloat(statusLedBrightnessInput.value) > 0 ? 'true' : 'false';
             }
 
-            // Manually add SHOW_RC_VERSIONS value (only set to True when checked)
-            const showRCVersionsCheckbox = document.getElementById("SHOW_RC_VERSIONS");
-            if (showRCVersionsCheckbox && showRCVersionsCheckbox.checked) {
-                payload.SHOW_RC_VERSIONS = 'True';
-            } else {
-                payload.SHOW_RC_VERSIONS = 'False';
-            }
-
             // Manually add FLAP_ON_BOOT value (only set to True when checked)
             const flapOnBootCheckbox = document.getElementById("FLAP_ON_BOOT");
             if (flapOnBootCheckbox && flapOnBootCheckbox.checked) {
@@ -512,6 +530,10 @@ const SettingsForm = (() => {
                 error: "The settings could not be saved",
             });
             const portChanged = saveResult.port_changed || (oldPort !== newPort);
+            if (saveResult.update_channel_changed) {
+                await window.BillyVersionUI?.reloadVersion?.();
+                window.ReleaseNotes?.reload?.();
+            }
 
             // Re-read the saved .env through webconfig so controls stay aligned
             // with normalized server values without restarting the web UI.
@@ -617,8 +639,6 @@ const SettingsForm = (() => {
         const gitCheckbox = document.getElementById("factory-reset-git");
         const wifiCheckbox = document.getElementById("factory-reset-wifi");
         const rebootCheckbox = document.getElementById("factory-reset-reboot");
-        const advancedWrap = document.getElementById("factory-reset-advanced");
-        const advancedToggle = document.getElementById("toggle-factory-advanced");
 
         if (!resetBtn || !resetBtnWrapper) return;
         if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
@@ -632,17 +652,9 @@ const SettingsForm = (() => {
                 }
             });
         }
-        if (advancedWrap && advancedToggle) {
-            advancedToggle.addEventListener("click", () => {
-                const isHidden = advancedWrap.classList.contains("hidden");
-                advancedWrap.classList.toggle("hidden", !isHidden);
-                advancedToggle.textContent = isHidden
-                    ? "Hide advanced settings"
-                    : "Show advanced settings";
-            });
-        }
-
+        const resetSection = document.getElementById("recovery-reset-section");
         const openModal = () => {
+            if (resetSection) resetSection.open = false;
             modal.classList.remove("hidden");
             window.BillyVersionUI?.refresh();
         };
@@ -667,7 +679,12 @@ const SettingsForm = (() => {
         });
 
         closeBtn.addEventListener("click", closeModal);
-        cancelBtn.addEventListener("click", closeModal);
+        cancelBtn.addEventListener("click", () => {
+            if (resetSection) {
+                resetSection.open = false;
+                resetSection.querySelector('summary')?.focus();
+            }
+        });
         modal.addEventListener("click", (e) => {
             if (e.target === modal) closeModal();
         });
@@ -753,17 +770,8 @@ const SettingsForm = (() => {
     };
 
     const bindEnvEditorCard = () => {
-        const envEditorCard = document.getElementById("env-editor-card");
-        const envEditorBtnWrapper = document.getElementById("env-editor-btn-wrapper");
         const openEnvEditorBtn = document.getElementById("open-env-editor-modal-btn");
-
-        if (!envEditorCard || !envEditorBtnWrapper || !openEnvEditorBtn) return;
-
-        envEditorCard.addEventListener("click", (e) => {
-            if (e.target.closest("#open-env-editor-modal-btn")) return;
-            const isHidden = envEditorBtnWrapper.classList.contains("hidden");
-            envEditorBtnWrapper.classList.toggle("hidden", !isHidden);
-        });
+        if (!openEnvEditorBtn) return;
 
         if (openEnvEditorBtn.dataset.envEditorOpenBound !== "true") {
             openEnvEditorBtn.dataset.envEditorOpenBound = "true";
@@ -954,7 +962,7 @@ const SettingsForm = (() => {
                 for (let index = 0; index < count; index += 1) {
                     const dot = document.createElement('span');
                     dot.dataset.stepDot = String(index);
-                    dot.className = 'absolute top-1/2 w-2 h-2 rounded-full bg-zinc-500 pointer-events-none';
+                    dot.className = 'settings-step-dot';
                     // Nudged inwards at both ends so the outer dots are not
                     // clipped by the track's rounded, overflow-hidden edges.
                     const fraction = count > 1 ? index / (count - 1) : 0;
@@ -977,21 +985,29 @@ const SettingsForm = (() => {
 
             if (bar.dataset.bound !== 'true') {
                 bar.dataset.bound = 'true';
-                let isDragging = false;
+                let pointerId = null;
                 const indexFromPointer = (event) => {
                     const rect = bar.getBoundingClientRect();
                     if (!rect.width) return;
                     const fraction = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
                     selectIndex(Math.round(fraction * (select.options.length - 1)));
                 };
-                bar.addEventListener('mousedown', (event) => {
-                    isDragging = true;
+                bar.addEventListener('pointerdown', (event) => {
+                    if (event.button !== 0 || pointerId !== null) return;
+                    pointerId = event.pointerId;
+                    bar.setPointerCapture(pointerId);
+                    bar.focus();
                     indexFromPointer(event);
                 });
-                document.addEventListener('mousemove', (event) => {
-                    if (isDragging) indexFromPointer(event);
+                bar.addEventListener('pointermove', (event) => {
+                    if (event.pointerId === pointerId) indexFromPointer(event);
                 });
-                document.addEventListener('mouseup', () => { isDragging = false; });
+                const finishDrag = (event) => {
+                    if (event.pointerId === pointerId) pointerId = null;
+                };
+                bar.addEventListener('pointerup', finishDrag);
+                bar.addEventListener('pointercancel', finishDrag);
+                bar.addEventListener('lostpointercapture', finishDrag);
                 bar.addEventListener('keydown', (event) => {
                     if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
                         selectIndex(select.selectedIndex - 1);
@@ -1103,6 +1119,7 @@ const SettingsForm = (() => {
     }
 
     const refreshFromConfig = (config) => {
+        populateUpdateChannel(config);
         // Update dropdowns with new configuration values
         const dropdowns = [
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',

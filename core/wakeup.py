@@ -5,6 +5,7 @@ import wave
 from typing import Optional
 
 from .config import CUSTOM_INSTRUCTIONS
+from .logger import logger
 from .realtime_ai_provider import voice_provider_registry
 
 
@@ -97,7 +98,7 @@ class WakeupClipGenerator:
 
         provider = voice_provider_registry.get_provider()
 
-        print(f"🔊 Generating wakeup clip for: {prompt} → {index}")
+        logger.info(f"🔊 Generating wakeup clip for: {prompt} → {index}")
 
         # Get current persona instructions
         try:
@@ -132,7 +133,7 @@ class WakeupClipGenerator:
             wf.setframerate(24000)
             wf.writeframes(audio_bytes)
 
-        print(f"✅ Saved wakeup clip: {path}")
+        logger.info(f"✅ Saved wakeup clip: {path}")
         return path
 
 

@@ -602,3 +602,30 @@ def test_auto_connect_endpoint_requires_token_and_persists_boolean(
         == 200
     )
     assert bluez.bluetooth_preferences.selected() == []
+
+
+def test_select_route_requires_token_and_allows_time_for_teardown_and_connect(
+    web, monkeypatch
+):
+    client, module = web
+    calls = []
+
+    def run(operation, *, timeout):
+        calls.append((operation, timeout))
+        return {'ok': True}
+
+    manager = SimpleNamespace(
+        device_action=lambda address, action: (address, action), run=run
+    )
+    monkeypatch.setattr(module, 'controller', lambda: manager)
+    assert (
+        client.post('/api/bluetooth/select', json={'address': 'AA'}).status_code == 403
+    )
+    assert calls == []
+    response = client.post(
+        '/api/bluetooth/select',
+        json={'address': 'AA'},
+        headers={'X-Bluetooth-Token': module._csrf},
+    )
+    assert response.status_code == 200
+    assert calls == [(('AA', 'select'), 30)]

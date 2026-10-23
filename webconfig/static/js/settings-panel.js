@@ -332,17 +332,14 @@ class UserProfilePanel {
         if (!hasGuestProfile) {
             // Guest row
             const guestRow = document.createElement('div');
-            const isGuestActive = currentUser.toLowerCase() === 'guest' || currentUser === null;
+            const isGuestActive = currentUser.toLowerCase() === 'guest';
             const isGuestDefault = currentDefault.toLowerCase() === 'guest';
             const guestPersona = isGuestActive ? currentPersona : 'default';
 
-            guestRow.className = 'flex items-center justify-between p-3 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors cursor-pointer border border-zinc-700';
+            guestRow.className = 'selection-card flex items-center justify-between p-3';
             guestRow.setAttribute('data-profile', 'guest');
 
-            if (isGuestActive) {
-                guestRow.classList.remove('border-zinc-700');
-                guestRow.classList.add('border-emerald-500', 'bg-emerald-900/20');
-            }
+            guestRow.dataset.selected = String(isGuestActive);
 
             guestRow.innerHTML = `
                 <div class="flex items-center">
@@ -393,13 +390,10 @@ class UserProfilePanel {
             }
 
             const row = document.createElement('div');
-            row.className = 'flex items-center justify-between p-3 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors cursor-pointer border border-zinc-700';
+            row.className = 'selection-card flex items-center justify-between p-3';
             row.setAttribute('data-profile', profileName);
 
-            if (isCurrent) {
-                row.classList.remove('border-zinc-700');
-                row.classList.add('border-emerald-500', 'bg-emerald-900/20');
-            }
+            row.dataset.selected = String(isCurrent);
 
             // Special handling for guest profile
             const isGuestProfile = profileName.toLowerCase() === 'guest';
@@ -688,7 +682,7 @@ class UserProfilePanel {
             };
 
             // Create stats content
-            const statsHTML = `
+            statsContent.innerHTML = `
                 <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-600">
                     <div class="space-y-3 text-sm">
                         <div class="flex items-center gap-2">
@@ -710,7 +704,6 @@ class UserProfilePanel {
                 </div>
             `;
 
-            statsContent.innerHTML = statsHTML;
         } catch (error) {
             console.error('Failed to load stats:', error);
             const statsContent = document.getElementById('stats-content') || document.getElementById('stats-content-main');
@@ -1233,7 +1226,6 @@ class UserProfilePanel {
 
         document.body.appendChild(editForm);
 
-        const form = editForm.querySelector('#edit-memory-form');
         const closeButton = editForm.querySelector('#close-edit-memory');
         const cancelButton = editForm.querySelector('#cancel-edit-memory');
         const saveButton = editForm.querySelector('#save-edit-memory');
@@ -1894,9 +1886,9 @@ window.uploadUserProfile = async function (input) {
 
         const formData = new FormData();
         formData.append('file', file);
-        const current = await fetch(`/profiles/${encodeURIComponent(currentUser)}`, {cache: 'no-store'});
-        if (!current.ok) throw new Error('Could not read the current profile');
-        const currentProfile = await current.json();
+        const currentProfile = await requestJson(`/profiles/${encodeURIComponent(currentUser)}`, {
+            cache: 'no-store', error: 'Could not read the current profile',
+        });
         formData.append('revision', currentProfile.revision);
 
         const response = await fetch(`/profiles/import/${currentUser}`, {

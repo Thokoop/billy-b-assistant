@@ -308,10 +308,10 @@ class FunctionHandler:
                 changes.append((trait, numeric_val))
 
         if changes:
-            print("\n🎛️ Personality updated via function_call:")
+            logger.verbose("\n🎛️ Personality updated via function_call:")
             for trait, val in changes:
                 level = PERSONALITY._bucket(val)
-                print(f"  - {trait.capitalize()}: {val}% ({level.upper()})")
+                logger.verbose(f"  - {trait.capitalize()}: {val}% ({level.upper()})")
 
             self.session.state.full_response_text = ""
             self.session.last_activity[0] = time.time()
@@ -448,7 +448,7 @@ class FunctionHandler:
             speech_text = ha_response.get("speech", {}).get("plain", {}).get("speech")
             if speech_text:
                 logger.verbose(f"HA debug: {ha_response.get('data')}", "🔍")
-                print(f"\n📣 Home Assistant says: {speech_text}")
+                logger.info(f"\n📣 Home Assistant says: {speech_text}")
 
             if call_id:
                 await self.session._ws_send_json({

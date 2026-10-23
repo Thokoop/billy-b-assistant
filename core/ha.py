@@ -7,6 +7,8 @@ import aiohttp
 
 from core.config import HA_AGENT_ID, HA_HOST, HA_LANG, HA_TOKEN
 
+from .logger import logger
+
 
 def ha_available():
     return bool(HA_HOST and HA_TOKEN)
@@ -65,7 +67,7 @@ async def preferred_agent_id(force: bool = False) -> str:
                     agent = str(pipeline.get("conversation_engine") or "").strip()
                     break
     except Exception as exc:
-        print(f"⚠️ Could not read Home Assistant's preferred assistant: {exc}")
+        logger.warning(f"Could not read Home Assistant's preferred assistant: {exc}")
         agent = ""
 
     _preferred_agent = agent
@@ -84,7 +86,7 @@ async def resolve_agent_id() -> str:
 
 async def send_conversation_prompt(prompt: str) -> str | None:
     if not ha_available():
-        print("⚠️ Home Assistant not configured.")
+        logger.info("Home Assistant not configured, skipping.")
         return None
 
     url = f"{HA_HOST.rstrip('/')}/api/conversation/process"
@@ -106,8 +108,8 @@ async def send_conversation_prompt(prompt: str) -> str | None:
             if resp.status == 200:
                 data = await resp.json()
                 return data.get("response", "")
-            print(f"⚠️ HA API returned HTTP {resp.status}")
+            logger.warning(f"HA API returned HTTP {resp.status}")
             return None
     except Exception as e:
-        print(f"❌ Error reaching Home Assistant API: {e}")
+        logger.error(f"Error reaching Home Assistant API: {e}")
         return None

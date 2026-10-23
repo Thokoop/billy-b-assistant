@@ -1077,12 +1077,43 @@ button {
 }
 
 /* Bluetooth controls: compact device rows and a readable pairing code. */
+/* Shared selection treatment for songs, personas, profiles and Bluetooth devices. */
+.selection-card {
+    position: relative;
+    isolation: isolate;
+    border: 1px solid #3f3f46;
+    border-radius: .5rem;
+    background: #27272a;
+    transition: border-color .15s, background-color .15s;
+    cursor: pointer;
+}
+.selection-card[data-selected="true"] {
+    border-color: #10b981;
+    background: #10b9811a;
+    box-shadow: inset 0 1px 0 #ffffff14;
+}
+.selection-card:hover:not(:has(.selection-card-trigger:disabled)) { border-color: #10b981; }
+.selection-card:has(.selection-card-trigger:disabled) { cursor: default; }
+.selection-card-trigger {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: inherit;
+    border-radius: inherit;
+}
+.selection-card-trigger::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.selection-card-trigger:focus-visible { outline: none; }
+.selection-card-trigger:focus-visible::after { outline: 2px solid #67e8f9; outline-offset: 3px; }
+.selection-card-actions { position: relative; z-index: 1; }
+
 #bluetooth-settings { display: flex; flex-direction: column; gap: 1rem; }
 #bluetooth-settings [hidden] { display: none !important; }
 #bluetooth-settings p { margin: 0; }
 #bluetooth-settings #bt-audio, #bluetooth-settings .bt-pair-hint { color: #a7bac9; font-size: .875rem; line-height: 1.6; }
 #bluetooth-settings .bt-devices { display: grid; gap: .625rem; margin: 0; padding: 0; list-style: none; }
-#bluetooth-settings .bt-device { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: .875rem; border: 1px solid #ffffff12; border-radius: .875rem; background: #ffffff04; }
 #bluetooth-settings .bt-device-identity { display: flex; align-items: center; gap: .75rem; flex: 1 1 10rem; min-width: 0; }
 #bluetooth-settings .bt-device-identity > [role="img"] { width: .5rem; height: .5rem; }
 #bluetooth-settings .bt-device-details { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
@@ -1107,9 +1138,9 @@ button {
 
 
 /* Keep Bluetooth actions and auto-connect together, separate from identity. */
-#bluetooth-settings .bt-device { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1rem; padding: 1rem; border-color: #ffffff14; background: #08232d24; }
-#bluetooth-settings .bt-device-identity { align-self: start; padding-top: .375rem; }
-#bluetooth-settings .bt-device-details { gap: .3rem; }
+#bluetooth-settings .bt-device { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .625rem; padding: .625rem .75rem; border-radius: .5rem; }
+#bluetooth-settings .bt-device-identity { align-self: center; min-height: 2.75rem; }
+#bluetooth-settings .bt-device-details { gap: .125rem; }
 #bluetooth-settings .bt-device-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem .625rem; }
 #bluetooth-settings .bt-device-actions .wf-toggle { flex-direction: column; justify-content: flex-end; width: auto; margin-left: auto; white-space: nowrap; gap: 0; min-height: 2.75rem; color: #b8cbd6; font-size: .75rem; }
 #bluetooth-settings .bt-device-actions .wf-toggle-track { width: 34px; height: 20px; flex-shrink: 0; }
@@ -1119,7 +1150,7 @@ button {
 #bluetooth-settings .bt-device-actions .wf-toggle:has(input:disabled) { opacity: .45; cursor: not-allowed; }
 #bluetooth-settings .bt-device-actions .wf-toggle input:disabled { cursor: not-allowed; }
 @media (max-width: 600px) {
-    #bluetooth-settings .bt-device { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+    #bluetooth-settings .bt-device { grid-template-columns: minmax(0, 1fr); gap: .375rem; }
     #bluetooth-settings .bt-device-actions { width: 100%; }
     #bluetooth-settings .bt-device-identity { padding-top: 0; }
 }
@@ -1155,3 +1186,112 @@ button {
 /* Keep power-menu icons and labels in consistent left-aligned columns. */
 #power-dropdown .secondary-action { justify-content: flex-start; text-align: left; white-space: nowrap; }
 #power-dropdown .material-icons { width: 1.125rem; flex-shrink: 0; }
+
+
+/* Compact settings controls shared by software stability and operating mode. */
+.settings-select-row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: .75rem 1.5rem; padding: .75rem; }
+.settings-select-label { display: flex; align-items: center; gap: .75rem; color: #fff; font-size: .875rem; }
+.settings-select-label > .material-icons { font-size: 1.25rem; flex-shrink: 0; }
+.settings-select-controls { display: flex; align-items: center; justify-content: flex-end; gap: .625rem; min-width: 0; }
+.settings-select { width: 16rem; max-width: 100%; min-width: 0; color: #fff; }
+.settings-select:focus-visible, .settings-inline-help > summary:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
+.settings-inline-help { flex-shrink: 0; }
+.settings-inline-help[hidden] { display: none; }
+.settings-inline-help > summary { display: flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 50%; cursor: pointer; color: #a4bac7; list-style: none; }
+.settings-inline-help > summary::-webkit-details-marker { display: none; }
+.settings-inline-help > summary:hover { background: #ffffff10; color: #fff; }
+.settings-warning-help > summary { color: #fcd34d; }
+.settings-warning-help > summary:hover { color: #fde68a; }
+.settings-help-panel { position: absolute; top: calc(100% - .25rem); right: .75rem; z-index: 30; width: min(22rem, calc(100% - 1.5rem)); padding: .875rem; border: 1px solid #ffffff30; border-radius: .5rem; background: #142e3b; color: #e2e8f0; font-size: .75rem; line-height: 1.6; box-shadow: 0 .5rem 1.5rem #0005; }
+.settings-warning-help .settings-help-panel { border-color: #fbbf2466; }
+.settings-warning-help strong { color: #fcd34d; }
+.settings-card:has(.settings-inline-help[open]:not([hidden])) { position: relative; z-index: 30; }
+.tooltips-hidden .settings-mode-help { display: none; }
+.software-version-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 0 .75rem; }
+.software-version-labels { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; font-size: .75rem; color: #a4bac7; }
+.software-version-labels span span { color: #e2e8f0; }
+#software-operation-status:empty { display: none; }
+@media (max-width: 600px) {
+    .settings-select-row { flex-direction: column; align-items: stretch; }
+    .settings-select-controls { width: 100%; }
+    .settings-select { flex: 1; width: 100%; }
+    .software-version-summary #update-btn { width: 100%; }
+}
+
+
+.recovery-reset-toggle { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: #fff; cursor: pointer; list-style: none; }
+.recovery-reset-toggle::-webkit-details-marker { display: none; }
+.recovery-reset-toggle:hover { color: #fb7185; }
+.recovery-reset-toggle:focus-visible { outline: 2px solid #fb7185; outline-offset: 4px; border-radius: .25rem; }
+#recovery-reset-section[open] > summary > .material-icons { transform: rotate(180deg); }
+
+
+.log-toolbar-actions { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .75rem; max-width: 100%; }
+.log-source-control { display: flex; align-items: center; gap: .75rem; min-width: 0; max-width: 100%; }
+.log-source-control label { flex-shrink: 0; }
+#log-source-select { min-width: 0; max-width: 100%; }
+
+
+/* Status stays left; navigation and service controls share one compact toolbar. */
+.billy-header { background: transparent; backdrop-filter: blur(8px); box-shadow: 0 4px 10px #00000040; }
+.billy-topbar { max-width: 72rem; margin-inline: auto; padding: 10px 1rem; display: flex; align-items: center; gap: 12px; }
+.billy-brand { display: flex; align-items: center; gap: 10px; min-width: 0; color: #f8fafc; text-decoration: none; flex: 0 1 auto; }
+.billy-brand:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; border-radius: 8px; }
+#status-logo { width: 48px; height: 48px; flex-shrink: 0; object-fit: contain; }
+.billy-brand-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.billy-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.billy-brand-name { font-size: 16px; font-weight: 650; line-height: 1.2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.billy-state-line { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 1.4; color: #bbced8; }
+#service-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.billy-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: #94a3b8; }
+.header-bluetooth { display: inline-flex; align-items: center; flex-shrink: 0; color: #34d399; }
+.header-bluetooth[hidden] { display: none; }
+.header-bluetooth .material-icons { font-size: 20px; }
+.billy-header-actions, .header-navigation, .header-service-actions, #service-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.header-service-actions { padding-left: 12px; margin-left: 4px; border-left: 1px solid #ffffff24; }
+.billy-topbar .secondary-action { height: 44px; min-width: 44px; padding: 0 12px; border-radius: 12px; font-size: 14px; line-height: 1; }
+.billy-topbar .material-icons { font-size: 20px; }
+.billy-topbar .button-reveal-label { font-size: 14px; }
+.billy-topbar .button-icon { width: 44px; }
+#power-dropdown { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; min-width: 168px; padding: 6px; border: 1px solid #ffffff24; border-radius: 14px; background: #142e3b; box-shadow: 0 10px 24px #0005; }
+#power-dropdown .secondary-action { width: 100%; border-color: transparent; background: transparent; box-shadow: none; }
+#power-dropdown .secondary-action + .secondary-action { margin-top: 4px; }
+.billy-header #log-panel { max-width: 72rem; margin-inline: auto; }
+@media (max-width: 767px) {
+    .billy-topbar { padding: 8px; gap: 6px; }
+    #status-logo { width: 36px; height: 40px; }
+    .billy-brand { gap: 6px; }
+    .billy-header-actions, .header-navigation, .header-service-actions { gap: 4px; }
+    .header-service-actions { padding-left: 6px; margin-left: 2px; }
+    .header-service-label { display: none; }
+    .billy-topbar .secondary-action { padding: 0; }
+    .billy-brand-name { font-size: 14px; }
+    .billy-state-line { font-size: 11px; }
+    .header-bluetooth .material-icons { font-size: 14px; }
+    #power-dropdown .secondary-action { padding-inline: 10px; }
+}
+
+.billy-header-actions { margin-left: auto; }
+.billy-topbar .secondary-action { min-height: 44px; }
+@media (max-width: 480px) {
+    .billy-topbar { position: relative; padding-bottom: 28px; }
+    .billy-state-line { position: absolute; left: 12px; right: 12px; bottom: 6px; font-size: 12px; }
+}
+
+
+/* A hidden select retains form values; the same stepped control presents them. */
+.settings-step-control { width: 100%; min-width: 0; }
+.settings-step-bar { position: relative; height: 1rem; margin-top: .75rem; border-radius: 999px; background: #3f3f46; cursor: pointer; user-select: none; touch-action: pan-y; }
+.settings-step-bar:focus-visible { outline: 2px solid #67e8f9; outline-offset: 4px; }
+.settings-step-fill { position: absolute; inset: 0 auto 0 0; height: 100%; border-radius: inherit; background: #10b981; transition: width .1s; }
+.settings-step-dots { position: absolute; inset: 0; pointer-events: none; }
+.settings-step-dot { position: absolute; top: 50%; width: .5rem; height: .5rem; border-radius: 50%; background: #fff; pointer-events: none; }
+.settings-step-label { margin-top: .5rem; color: #e5e7eb; font-size: .875rem; }
+.update-channel-setting .settings-step-control { width: 16rem; max-width: 100%; }
+@media (max-width: 600px) {
+    .update-channel-setting .settings-step-control { flex: 1; width: 100%; }
+}
+
+.update-channel-setting { flex-direction: column; align-items: stretch; gap: 0; }
+.settings-step-heading { display: flex; align-items: center; justify-content: space-between; min-height: 2rem; gap: .75rem; }
+.update-channel-setting .settings-select-controls, .update-channel-setting .settings-step-control { width: 100%; }

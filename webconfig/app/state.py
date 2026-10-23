@@ -14,6 +14,7 @@ from packaging.version import parse as parse_version
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from billy_runtime.paths import CODE_ROOT, INSTALL_ROOT
+from billy_runtime.release_policy import newest_release, release_version, update_channel
 from core.logger import logger
 
 
@@ -26,6 +27,7 @@ WAKE_UP_DIR_DEFAULT = CODE_ROOT / "sounds" / "wake-up" / "default"
 
 RELEASE_NOTE = {"tag": None, "body": "", "url": "", "fetched_at": 0}
 VERSION_STATE_LOCK = threading.RLock()
+KNOWN_RELEASE_TAGS = ()
 GITHUB_CONNECT_TIMEOUT_SECONDS = 2
 GITHUB_REQUEST_TIMEOUT_SECONDS = 4
 
@@ -48,9 +50,15 @@ def _fetch_github_json(url: str):
     return json.loads(output)
 
 
-def _show_rc_versions_enabled() -> bool:
-    """Return whether prerelease/RC tags should be considered."""
-    return os.getenv("SHOW_RC_VERSIONS", "false").strip().lower() == "true"
+def available_version(current, stored):
+    """Apply today's preference even when versions.ini was saved on another channel."""
+    with VERSION_STATE_LOCK:
+        tags = (*KNOWN_RELEASE_TAGS, stored)
+    latest = newest_release(tags)
+    installed = release_version(current)
+    if not latest or installed is None or release_version(latest) <= installed:
+        return current
+    return latest
 
 
 def load_versions():
@@ -186,37 +194,24 @@ def get_current_version():
 
 
 def fetch_latest_tag():
+    global KNOWN_RELEASE_TAGS
     try:
-        data = _fetch_github_json(
-            "https://api.github.com/repos/Thokoop/Billy-B-assistant/tags"
-        )
-        if isinstance(data, dict) and data.get("message"):
-            logger.warning(f"[fetch_latest_tag] GitHub error: {data['message']}")
-            return None
-        if not isinstance(data, list):
-            logger.warning("[fetch_latest_tag] Unexpected response format")
-            return None
-        filtered = [tag["name"] for tag in data if "name" in tag]
-        include_prerelease = _show_rc_versions_enabled()
-        valid_tags: list[str] = []
-        for tag_name in filtered:
-            try:
-                parsed = parse_version(tag_name.lstrip("v"))
-                if parsed.is_prerelease and not include_prerelease:
-                    logger.verbose(
-                        f"[fetch_latest_tag] Skipping prerelease tag (SHOW_RC_VERSIONS=false): {tag_name}"
-                    )
-                    continue
-                valid_tags.append(tag_name)
-            except InvalidVersion:
-                logger.verbose(
-                    f"[fetch_latest_tag] Skipping non-semver tag: {tag_name}"
-                )
-
-        if valid_tags:
-            return max(valid_tags, key=lambda v: parse_version(v.lstrip("v")))
-        logger.warning("[fetch_latest_tag] No tags found")
-        return None
+        tags = []
+        # A busy beta channel must not hide stable releases beyond page one.
+        # Keep the background lookup bounded; no network work on /version.
+        for page in range(1, 11):
+            data = _fetch_github_json(
+                f"https://api.github.com/repos/Thokoop/Billy-B-assistant/tags?per_page=100&page={page}"
+            )
+            if not isinstance(data, list):
+                logger.warning("[fetch_latest_tag] Invalid GitHub tag response")
+                return None
+            tags.extend(item.get('name') for item in data if isinstance(item, dict))
+            if len(data) < 100:
+                break
+        with VERSION_STATE_LOCK:
+            KNOWN_RELEASE_TAGS = tuple(tag for tag in tags if release_version(tag))
+        return newest_release(tags)
     except Exception as e:
         logger.warning(f"[fetch_latest_tag] Exception: {e}")
         return None
@@ -240,6 +235,7 @@ def fetch_release_note_for_tag(tag: str):
 
 
 def bootstrap_versions_and_release_note():
+    channel = update_channel()
     latest = fetch_latest_tag()
     current = get_current_version()
     if not latest:
@@ -247,8 +243,7 @@ def bootstrap_versions_and_release_note():
             latest = load_versions()["version"].get("latest")
         except Exception:
             latest = None
-    if not latest:
-        latest = current
+    latest = available_version(current, latest)
     save_versions(current, latest)
     try:
         versions_cfg = load_versions()
@@ -257,7 +252,7 @@ def bootstrap_versions_and_release_note():
         ].get("current")
         if tag_for_notes:
             note = fetch_release_note_for_tag(tag_for_notes)
-            if note:
+            if note and channel == update_channel():
                 RELEASE_NOTE.update(note)
                 RELEASE_NOTE["fetched_at"] = int(time.time())
                 logger.info(f"[release-note] Cached notes for {RELEASE_NOTE['tag']}")

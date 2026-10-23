@@ -13,6 +13,11 @@ except ModuleNotFoundError:
     SOCK_AVAILABLE = False
 
 
+def header_context():
+    # The device name comes from the OS, also when the UI is opened by IP.
+    return {'device_hostname': os.uname().nodename}
+
+
 def create_app() -> Flask:
     # Ensure project root on path for core imports
     sys.path.append(
@@ -25,6 +30,8 @@ def create_app() -> Flask:
         template_folder=os.path.join(base_dir, "..", "templates"),
         static_folder=os.path.join(base_dir, "..", "static"),
     )
+
+    app.context_processor(header_context)
 
     # Late imports to avoid circulars
     from . import websocket

@@ -6,6 +6,7 @@ from flask import Blueprint, Flask, jsonify, request
 from billy_runtime import updates
 from billy_runtime.recovery import Recovery
 from billy_runtime.recovery_ui import create_recovery_app
+from billy_runtime.release_policy import newest_release, release_version
 
 
 def normal_app(root):
@@ -27,8 +28,9 @@ def normal_app(root):
             'request': request,
             'PROJECT_ROOT': root,
             'Recovery': Recovery,
-            'load_versions': lambda: {'version': {'latest': 'v2'}},
-            'get_current_version': lambda: 'v1',
+            'load_versions': lambda: {'version': {'latest': 'v2.0.0'}},
+            'get_current_version': lambda: 'v1.0.0',
+            'available_version': lambda current, stored: stored,
         },
     )
     app.register_blueprint(bp)
@@ -51,7 +53,7 @@ def test_update_mutations_require_browser_header_and_return_immediately(
     queue.assert_not_called()
     response = client.post('/update', headers={'X-Billy-Update': '1'})
     assert response.status_code == 202
-    queue.assert_called_once_with('update', 'v2', root=tmp_path)
+    queue.assert_called_once_with('update', 'v2.0.0', root=tmp_path)
     assert 'Set-Cookie' not in response.headers
 
 
@@ -132,3 +134,58 @@ def test_recovery_package_repair_uses_same_job_and_csrf(tmp_path, monkeypatch):
         == 200
     )
     queue.assert_called_once_with('packages', root=tmp_path)
+
+
+def test_update_endpoint_refilters_stale_metadata_and_never_queues_downgrade(
+    tmp_path, monkeypatch
+):
+    import threading
+
+    policy = definitions(
+        'webconfig/app/state.py',
+        ['available_version'],
+        {
+            'VERSION_STATE_LOCK': threading.RLock(),
+            'KNOWN_RELEASE_TAGS': (),
+            'newest_release': newest_release,
+            'release_version': release_version,
+        },
+    )
+    queue = Mock(return_value={'job': {'id': 'abc', 'state': 'queued'}})
+    monkeypatch.setattr(updates, 'queue', queue)
+    app = Flask('channel-endpoint')
+    bp = Blueprint('channel-endpoint', __name__)
+    namespace = {
+        'bp': bp,
+        'jsonify': jsonify,
+        'request': request,
+        'PROJECT_ROOT': tmp_path,
+        'load_versions': lambda: {'version': {'latest': 'v2.8.0-beta.1'}},
+        'get_current_version': lambda: 'v2.7.0-RC3',
+        'available_version': policy.available_version,
+    }
+    definitions(
+        'webconfig/app/routes/system.py',
+        ['_software_action', 'perform_update'],
+        namespace,
+    )
+    app.register_blueprint(bp)
+    client = app.test_client()
+    for channel in ('stable', 'rc'):
+        monkeypatch.setenv('UPDATE_CHANNEL', channel)
+        assert (
+            client.post('/update', headers={'X-Billy-Update': '1'}).json['status']
+            == 'up-to-date'
+        )
+        queue.assert_not_called()
+    monkeypatch.setenv('UPDATE_CHANNEL', 'beta')
+    assert client.post('/update', headers={'X-Billy-Update': '1'}).status_code == 202
+    queue.assert_called_once_with('update', 'v2.8.0-beta.1', root=tmp_path)
+    queue.reset_mock()
+    monkeypatch.setenv('UPDATE_CHANNEL', 'stable')
+    namespace['load_versions'] = lambda: {'version': {'latest': 'v2.6.0'}}
+    assert (
+        client.post('/update', headers={'X-Billy-Update': '1'}).json['status']
+        == 'up-to-date'
+    )
+    queue.assert_not_called()

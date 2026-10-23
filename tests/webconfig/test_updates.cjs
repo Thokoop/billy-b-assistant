@@ -7,7 +7,8 @@ const flush = async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
 function setup() {
     let now=1000,id=0,reloads=0;
     const timers=new Map(),elements=new Map(),calls=[],notices=[];
-    const element=()=>({dataset:{},disabled:false,textContent:'',classList:{toggle(){}},querySelector(){return null;},addEventListener(type,fn){this[type]=fn;}});
+    const overlay={visible:false,message:"",showSoftware(message){this.visible=true;this.message=message;},hideSoftware(){this.visible=false;}};
+    const element=()=>{const classes=new Set(['animate-spin']);const icon={classList:{remove(name){classes.delete(name);},contains:name=>classes.has(name)}};return {dataset:{},disabled:false,textContent:'',classList:{toggle(){}},querySelector(){return icon;},addEventListener(type,fn){this[type]=fn;}};};
     let status={rollback_available:true,job:{}},post=async()=>({job:{id:'new',state:'queued'}});
     const ctx={console,AbortController,TypeError,Date:{now:()=>now},CustomEvent:class{},confirm:()=>true,
         location:{reload(){reloads++;}},sessionStorage:{removeItem(){}},showNotification:(...args)=>notices.push(args),
@@ -15,9 +16,10 @@ function setup() {
         document:{getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},dispatchEvent(){}},
         addEventListener(){},BootstrapData:{take:()=>({current:'v1',latest:'v2',update_available:true})},
         fetch:async(url,options)=>{calls.push([url,options]);const value=options?.method==='POST'?await post(options):status;return {ok:value.ok!==false,json:async()=>value};}};
+    ctx.LoadingOverlay=overlay;
     ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source,ctx);ctx.BillyVersionUI.refresh();
     async function advance(ms){const end=now+ms;await flush();while(true){const due=[...timers].filter(([,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!due)break;now=due[1].at;timers.delete(due[0]);due[1].fn();await flush();}now=end;await flush();}
-    return {ctx,calls,notices,elements,advance,set status(value){status=value;},set post(fn){post=fn;},get reloads(){return reloads;}};
+    return {ctx,calls,notices,elements,advance,overlay,set status(value){status=value;},set post(fn){post=fn;},get reloads(){return reloads;}};
 }
 test('update submits once, follows durable progress, and reloads only after completion',async()=>{
     const h=setup();await flush();
@@ -130,4 +132,74 @@ test('component actions distinguish installation, updates, damage and setup with
   assert.equal(h.elements.get('system-packages-status').textContent,'');
  }
  assert.equal(h.elements.get('system-packages-detail-panel').hidden,true);
+});
+
+
+test('software operations use maintenance progress without spinning icons and release on failure',async()=>{
+ const h=setup();await flush();
+ let finish;h.post=()=>new Promise(resolve=>{finish=resolve;});
+ const button=h.elements.get('update-btn');
+ const action=button.click();await flush();
+ assert.equal(h.overlay.visible,true);assert.match(h.overlay.message,/Preparing/);
+ assert.equal(button.querySelector('.material-icons').classList.contains('animate-spin'),false);
+ h.status={job:{id:'new',state:'installing_packages',message:'Installing components'}};
+ finish({job:{id:'new',state:'queued'}});await action;
+ assert.equal(h.overlay.message,'Installing components');
+ h.status={job:{id:'new',state:'validating',message:'Checking Billy'}};
+ await h.advance(2000);assert.equal(h.overlay.visible,true);assert.equal(h.overlay.message,'Checking Billy');
+ h.status={job:{id:'new',state:'failed',message:'Could not install'}};
+ await h.advance(2000);assert.equal(h.overlay.visible,false);assert.equal(button.disabled,false);
+ assert.equal(h.reloads,0);
+});
+
+test('maintenance resumes for a running job and stays up through temporary connection loss',async()=>{
+ const h=setup();await flush();
+ h.status={job:{id:'running',state:'validating',message:'Checking startup'}};
+ h.ctx.BillyVersionUI.refresh();await flush();
+ assert.equal(h.overlay.visible,true);assert.equal(h.overlay.message,'Checking startup');
+ h.status={ok:false,error:'Unavailable'};
+ await h.advance(2000);assert.equal(h.overlay.visible,true);assert.match(h.overlay.message,/Reconnecting/);
+ h.status={job:{id:'running',state:'complete',message:'Done'}};
+ await h.advance(2000);assert.equal(h.overlay.visible,false);
+ await h.advance(1200);assert.equal(h.reloads,1);
+ assert.equal(h.calls.filter(([,o])=>o.method==='POST').length,0);
+});
+
+test('rejected software request releases maintenance even if the status endpoint then fails',async()=>{
+ const h=setup();await flush();
+ h.post=async()=>{h.status={ok:false,error:'Unavailable'};return {ok:false,error:'Request rejected'};};
+ await h.elements.get('update-btn').click();
+ assert.equal(h.overlay.visible,false);assert.equal(h.elements.get('update-btn').disabled,false);
+ assert.equal(h.reloads,0);
+});
+
+test('unconfirmed request releases maintenance after its deadline without resubmitting',async()=>{
+ const h=setup();await flush();
+ h.post=async()=>{throw new TypeError('Connection lost');};
+ await h.elements.get('update-btn').click();
+ assert.equal(h.overlay.visible,true);
+ await h.advance(32000);assert.equal(h.overlay.visible,false);
+ assert.equal(h.calls.filter(([,o])=>o.method==='POST').length,1);
+});
+
+
+test('completed software status stays clear while failures and rollback remain visible', async()=>{
+ const h=setup();await flush();
+ for(const [state,message,expected] of [
+  ['preparing','Preparing software','Preparing software'],
+  ['complete','Software is ready. Both services passed startup checks.',''],
+  ['failed','Preparation failed','Preparation failed'],
+  ['rolled_back','Previous version restored','Previous version restored'],
+ ]){
+  h.status={job:{id:'job',state,message}};
+  h.ctx.BillyVersionUI.refresh();await flush();
+  assert.equal(h.elements.get('software-operation-status').textContent,expected);
+  assert.equal(h.elements.get('recovery-software-status').textContent,expected);
+ }
+ const fresh=setup();await flush();
+ fresh.status={job:{id:'old',state:'complete',message:'Software is ready. Both services passed startup checks.'}};
+ fresh.ctx.BillyVersionUI.refresh();await flush();
+ assert.equal(fresh.elements.get('software-operation-status').textContent,'');
+ assert.equal(fresh.notices.length,0);
+ assert.equal(fresh.overlay.visible,false);
 });

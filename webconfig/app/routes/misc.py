@@ -79,24 +79,14 @@ def _restart_billy_only_in_background():
 
 @bp.route("/logs")
 def logs():
+    from ..journal import read_logs
+
     try:
-        output = subprocess.check_output([
-            "journalctl",
-            "-u",
-            "billy.service",
-            "-n",
-            "100",
-            "--no-pager",
-            "--output=short",
-        ])
-        return jsonify({"logs": output.decode("utf-8")})
-    except FileNotFoundError:
-        # journalctl not available, return mock logs
-        return jsonify({
-            "logs": "Running in development mode - no systemd logs available"
-        })
-    except subprocess.CalledProcessError as e:
-        return jsonify({"logs": "Failed to retrieve logs", "error": str(e)}), 500
+        response = jsonify(read_logs(request.args.get("source", "billy")))
+    except ValueError:
+        return jsonify({"error": "Unknown log source"}), 400
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.route("/logs/clear", methods=["POST"])
@@ -230,6 +220,7 @@ def _billy_service_state() -> str:
 @bp.route("/service/status")
 def service_status():
     from billy_runtime.recovery import Recovery
+    from billy_runtime.worker import read_activity
 
     recovery = Recovery().notice()
     try:
@@ -282,7 +273,7 @@ def service_status():
                 )  # Get up to 100 memories to count
                 memory_count = len(memories)
             except Exception as e:
-                print(f"Failed to get memory count: {e}")
+                logger.warning(f"Failed to get memory count: {e}")
 
         # Get config hash to detect config changes
         config_hash = None
@@ -305,7 +296,7 @@ def service_status():
             config_string = "|".join(config_values)
             config_hash = hashlib.md5(config_string.encode()).hexdigest()
         except Exception as e:
-            print(f"Failed to get config hash: {e}")
+            logger.warning(f"Failed to get config hash: {e}")
 
         # Get current personality traits
         current_personality = None
@@ -343,16 +334,17 @@ def service_status():
                 "formality": traits.get("formality", 50),
             }
         except Exception as e:
-            print(f"Failed to get current personality: {e}")
+            logger.warning(f"Failed to get current personality: {e}")
 
         current_mood = None
         try:
             current_mood = mood_manager.snapshot()
         except Exception as e:
-            print(f"Failed to get current mood: {e}")
+            logger.warning(f"Failed to get current mood: {e}")
 
         return jsonify({
             "status": service_status,
+            "billy_state": read_activity(),
             "recovery": recovery,
             "webconfig_instance": WEBCONFIG_INSTANCE_ID,
             "mood": current_mood,
@@ -373,6 +365,7 @@ def service_status():
         # Fallback to basic service status if profile loading fails
         return jsonify({
             "status": service_status,
+            "billy_state": read_activity(),
             "recovery": recovery,
             "webconfig_instance": WEBCONFIG_INSTANCE_ID,
             "error": f"Failed to load profile status: {str(e)}",
@@ -476,7 +469,7 @@ def change_password():
                         importlib.reload(sys.modules['core.config'])
 
                 except Exception as e:
-                    print(f"Warning: Could not update .env file: {e}")
+                    logger.warning(f"Warning: Could not update .env file: {e}")
 
                 return jsonify({
                     "status": "ok",

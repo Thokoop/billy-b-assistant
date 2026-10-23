@@ -69,16 +69,20 @@
          style="z-index: 2147483647;">{% if notice.get('active') %}{{ notice.get('message', '') }} {% if notice.get('kind') == 'configuration' %}<button type="button" class="underline ml-2" onclick="window.LogPanel?.openEnvEditorModal()">Open .env editor</button>{% elif notice.get('kind') != 'startup' %}<button type="button" class="underline ml-2" onclick="window.LogPanel?.openLogPanel()">Open Debug</button>{% endif %}{% endif %}</div>
 
     <!-- Loading Overlay -->
-    <div id="loading-overlay"
+    <div id="loading-overlay" role="dialog" aria-modal="true" aria-label="Billy maintenance" tabindex="-1"
         class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
         style="z-index: 2147483000;">
-        <div>
+        <div class="flex flex-col items-center">
             <img src="{{ url_for('static', filename='images/status-reloading.gif') }}"
-                 alt="Reloading"
+                 alt="Billy is working on it"
                  class="w-full max-w-[300px] h-auto object-contain select-none"
                  draggable="false">
-            <p id="loading-overlay-text" class="bg-zinc-900/80 border border-zinc-700 rounded-lg px-6 py-5 shadow-2xl w-full max-w-2xl text-sm text-zinc-200 text-center">
+            <p id="loading-overlay-text" role="status" aria-live="polite" aria-atomic="true" class="bg-zinc-900/80 border border-zinc-700 rounded-lg px-6 py-5 shadow-2xl w-full max-w-2xl text-sm text-zinc-200 text-center">
                 Restarting Billy... reconnecting interface.
+            </p>
+            <p id="loading-overlay-hint" hidden class="mt-4 text-sm text-zinc-200 text-center">
+                Billy is taking care of it. Please keep the power connected.
+                You can change settings again when this is finished.
             </p>
         </div>
     </div>

@@ -8,9 +8,16 @@ const LogPanel = (() => {
     let autoScrollEnabled = false;
     let isLogHidden = true;
     let restoreSettingsPanelAfterEnvClose = false;
+    let recoveryModalAfterEnvClose = null;
     let lastLogsSnapshot = "";
     const MAX_LOG_BUFFER_CHARS = 400000;
     let uiBound = false;
+    let logSource = 'billy';
+    let logTimer = null;
+    let logRequest = null;
+    let logGeneration = 0;
+    let logSnapshotRevision = 0;
+    const logsVisible = () => !isLogHidden && !document.hidden;
 
     const rebootBilly = async () => {
         if (!confirm("Are you sure you want to reboot Billy? This will reboot the whole system.")) return;
@@ -201,53 +208,67 @@ const LogPanel = (() => {
         }
     };
 
-    const clearServiceLogs = async () => {
-        try {
-            const res = await fetch("/logs/clear", {method: "POST"});
-            const data = await res.json();
-            if (!res.ok || data.status !== "ok") {
-                const errorMsg = Array.isArray(data.errors)
-                    ? data.errors.join(" | ")
-                    : (data.error || "Failed to clear service logs");
-                showNotification(errorMsg, "error");
-                return;
-            }
-            setLogsUI("");
-            showNotification("Service logs cleared", "success");
-            await fetchLogs();
-        } catch (err) {
-            console.error("Failed to clear service logs:", err);
-            showNotification("Failed to clear service logs", "error");
-        }
+    // Clearing the view must not vacuum the Pi's shared system journal.
+    const clearLogView = () => {
+        setLogsUI('');
     };
 
     const fetchLogs = async () => {
+        if (!logsVisible() || logRequest) return;
+        const generation = logGeneration;
+        const revision = logSnapshotRevision;
+        const source = logSource;
+        const controller = new AbortController();
+        logRequest = controller;
+        const timeout = setTimeout(() => controller.abort(), 5000);
         try {
-            const res = await fetch("/logs");
+            const res = await fetch(`/logs?source=${encodeURIComponent(source)}`, {
+                cache: 'no-store', signal: controller.signal,
+            });
             if (!res.ok) {
-                console.error(`Failed to fetch logs: HTTP ${res.status}`);
-                return {logs: ""};
+                if (generation === logGeneration && revision === logSnapshotRevision && logsVisible()) {
+                    showLogError('Waiting for service logs to reconnect…');
+                }
+                return;
             }
             const data = await res.json();
-            setLogsUI(data.logs || "No logs found.");
+            if (generation === logGeneration && revision === logSnapshotRevision && logsVisible()) {
+                if ((data.source || 'billy') !== source) {
+                    showLogError('This software version does not provide the selected logs. Reload after updating.');
+                } else {
+                    window.updateLogs(data.logs || '', source, data.error || '');
+                }
+            }
             return data;
         } catch (err) {
-            const serviceStatusApi =
-                window.ServiceStatus ||
-                (typeof ServiceStatus !== "undefined" ? ServiceStatus : null);
-            const restartInProgress =
-                serviceStatusApi &&
-                typeof serviceStatusApi.isRestartInProgress === "function" &&
-                serviceStatusApi.isRestartInProgress();
-
-            if (restartInProgress) {
-                setLogsUI("Restart in progress... waiting for logs to reconnect.");
-                return {logs: ""};
+            if (generation === logGeneration && revision === logSnapshotRevision && logsVisible()) {
+                showLogError('Waiting for service logs to reconnect…');
             }
-
-            console.error("Failed to fetch logs:", err);
-            return {logs: ""};
+        } finally {
+            clearTimeout(timeout);
+            if (logRequest === controller) logRequest = null;
         }
+    };
+
+    const showLogError = (message) => {
+        if (!elements.logError) return;
+        elements.logError.hidden = !message;
+        elements.logError.textContent = message;
+    };
+
+    const syncLogSubscription = () => {
+        if (logTimer) clearInterval(logTimer);
+        logTimer = null;
+        logGeneration += 1;
+        logRequest?.abort();
+        logRequest = null;
+        window.billyWebSocket?.subscribeLogs?.(logsVisible() ? logSource : null);
+        if (!logsVisible()) return;
+        fetchLogs();
+        // Compatibility for installations without WebSockets, plus reconnects.
+        logTimer = setInterval(() => {
+            if (!window.billyWebSocket?.hasLogStream?.(logSource)) fetchLogs();
+        }, 2000);
     };
 
     const trimLogBuffer = (text) => {
@@ -265,7 +286,6 @@ const LogPanel = (() => {
     const setLogsUI = (logs) => {
         if (!elements.logOutput || !elements.logContainer) return;
         const normalized = String(logs || "");
-        lastLogsSnapshot = normalized;
         elements.logOutput.textContent = trimLogBuffer(normalized);
         if (isAutoScrollActive()) {
             requestAnimationFrame(() => {
@@ -284,31 +304,23 @@ const LogPanel = (() => {
         return 0;
     };
 
-    window.updateLogs = (incomingLogs) => {
+    window.updateLogs = (incomingLogs, source = 'billy', error = '') => {
+        if (!logsVisible() || source !== logSource) return;
         if (!elements.logOutput || !elements.logContainer) return;
-        const incoming = String(incomingLogs || "");
-        const existing = String(elements.logOutput.textContent || "");
-        if (!incoming) return;
-        if (!existing) {
-            setLogsUI(incoming);
-            return;
-        }
+        logSnapshotRevision += 1;
+        showLogError(error);
+        const incoming = String(incomingLogs || '');
         if (incoming === lastLogsSnapshot) return;
+        // Compare source snapshots, not the displayed buffer. This lets Clear
+        // view retain its position without deleting system diagnostics.
+        let delta = incoming;
+        if (lastLogsSnapshot) {
+            if (lastLogsSnapshot.includes(incoming)) return;
+            delta = incoming.slice(findOverlap(lastLogsSnapshot, incoming));
+        }
         lastLogsSnapshot = incoming;
-
-        // Snapshot reset/reconnect case.
-        if (incoming.includes(existing)) {
-            setLogsUI(incoming);
-            return;
-        }
-        // No new data case.
-        if (existing.includes(incoming)) {
-            return;
-        }
-
-        const overlap = findOverlap(existing, incoming);
-        const merged = overlap > 0 ? `${existing}${incoming.slice(overlap)}` : `${existing}\n${incoming}`;
-        setLogsUI(merged);
+        const existing = elements.logOutput.textContent || '';
+        setLogsUI(existing && delta ? `${existing}${existing.endsWith('\n') ? '' : '\n'}${delta}` : existing || delta);
     };
 
     const openLogPanel = () => {
@@ -318,13 +330,14 @@ const LogPanel = (() => {
         panel.classList.remove('hidden');
         document.getElementById('toggle-log-btn')?.classList.add('secondary-action--active-cyan');
         panel.scrollIntoView?.({block: 'nearest'});
-        fetchLogs();
+        syncLogSubscription();
     };
 
     const toggleLogPanel = () => {
         isLogHidden = !isLogHidden;
         elements.logPanel.classList.toggle("hidden", isLogHidden);
         elements.toggleBtn.classList.toggle("secondary-action--active-cyan", !isLogHidden);
+        syncLogSubscription();
     };
 
     const loadEnvContent = async (source = '.env') => {
@@ -336,11 +349,19 @@ const LogPanel = (() => {
         try {
             const url = source === '.env' ? '/get-env' : `/get-env?source=${encodeURIComponent(source)}`;
             const res = await fetch(url, {cache: 'no-store', signal: AbortSignal.timeout(10000)});
-            if (!res.ok) throw new Error('Configuration could not be loaded. Your edits have been kept.');
+            if (!res.ok) {
+                if (loadId === envLoadId) {
+                    showNotification('Configuration could not be loaded. Your edits have been kept.', "error");
+                }
+                return;
+            }
             const text = await res.text();
             if (loadId !== envLoadId) return;
             const revision = res.headers.get('X-Config-Revision');
-            if (!revision) throw new Error('Configuration revision is missing. Reopen the editor before saving.');
+            if (!revision) {
+                showNotification('Configuration revision is missing. Reopen the editor before saving.', "error");
+                return;
+            }
             envRevision = revision;
             envBaseline = text;
             envSource = source;
@@ -364,7 +385,10 @@ const LogPanel = (() => {
         if (!elements.envSource) return;
         try {
             const res = await fetch('/env-history', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
-            if (!res.ok) throw new Error('Configuration history is unavailable; the current file can still be edited.');
+            if (!res.ok) {
+                showNotification('Configuration history is unavailable; the current file can still be edited.', "error");
+                return;
+            }
             const data = await res.json();
             const options = data.files.map((file) => {
                 const option = document.createElement('option');
@@ -382,7 +406,11 @@ const LogPanel = (() => {
     };
 
     const openEnvEditorModal = async () => {
-        if (!elements.envEditorModal) return;
+        if (!elements.envEditorModal || !elements.envEditorModal.classList.contains("hidden")) return;
+        const recoveryModal = document.getElementById("factory-reset-modal");
+        recoveryModalAfterEnvClose = recoveryModal && !recoveryModal.classList.contains("hidden")
+            ? recoveryModal : null;
+        recoveryModalAfterEnvClose?.classList.add("hidden");
         const settingsPanel = document.getElementById("settings-panel");
         if (settingsPanel && !settingsPanel.classList.contains("hidden")) {
             settingsPanel.classList.add("hidden");
@@ -401,6 +429,11 @@ const LogPanel = (() => {
     const closeEnvEditorModal = () => {
         if (!elements.envEditorModal) return;
         elements.envEditorModal.classList.add("hidden");
+        if (recoveryModalAfterEnvClose?.isConnected) {
+            recoveryModalAfterEnvClose.classList.remove("hidden");
+            recoveryModalAfterEnvClose.querySelector('#open-env-editor-modal-btn')?.focus();
+        }
+        recoveryModalAfterEnvClose = null;
         envLoadId += 1;
         envLoading = false;
         if (restoreSettingsPanelAfterEnvClose) {
@@ -515,6 +548,8 @@ const LogPanel = (() => {
 
         elements = {
             logOutput: document.getElementById("log-output"),
+            logSource: document.getElementById("log-source-select"),
+            logError: document.getElementById("log-error"),
             logContainer: document.getElementById("log-container"),
             toggleFullscreenBtn: document.getElementById("toggle-fullscreen-btn"),
             scrollBtn: document.getElementById("scroll-bottom-btn"),
@@ -541,11 +576,23 @@ const LogPanel = (() => {
         }
 
         uiBound = true;
+        setLogsUI('');
+        elements.logSource?.addEventListener('change', () => {
+            logSource = elements.logSource.value;
+            lastLogsSnapshot = '';
+            setLogsUI('');
+            showLogError('');
+            syncLogSubscription();
+        });
+        document.addEventListener('visibilitychange', syncLogSubscription);
 
         if (elements.powerBtn) {
             elements.powerBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                if (elements.powerDropdown) elements.powerDropdown.classList.toggle("hidden");
+                if (elements.powerDropdown) {
+                    const hidden = elements.powerDropdown.classList.toggle("hidden");
+                    elements.powerBtn.setAttribute('aria-expanded', String(!hidden));
+                }
             });
         }
 
@@ -553,6 +600,15 @@ const LogPanel = (() => {
             const menu = document.getElementById("power-menu");
             if (!menu || !menu.contains(e.target)) {
                 if (elements.powerDropdown) elements.powerDropdown.classList.add("hidden");
+                elements.powerBtn?.setAttribute('aria-expanded', 'false');
+            }
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && elements.powerDropdown && !elements.powerDropdown.classList.contains('hidden')) {
+                elements.powerDropdown.classList.add('hidden');
+                elements.powerBtn?.setAttribute('aria-expanded', 'false');
+                elements.powerBtn?.focus();
             }
         });
 
@@ -611,6 +667,7 @@ const LogPanel = (() => {
                 }
                 if (elements.powerDropdown) {
                     elements.powerDropdown.classList.add("hidden");
+                    elements.powerBtn?.setAttribute('aria-expanded', 'false');
                 }
             });
         }
@@ -625,7 +682,7 @@ const LogPanel = (() => {
         const applyLogLevelBtn = document.getElementById("apply-log-level-btn");
         if (applyLogLevelBtn) applyLogLevelBtn.addEventListener("click", applyLogLevel);
         const clearLogsBtn = document.getElementById("clear-logs-btn");
-        if (clearLogsBtn) clearLogsBtn.addEventListener("click", clearServiceLogs);
+        if (clearLogsBtn) clearLogsBtn.addEventListener("click", clearLogView);
         
         // Set current log level in dropdown
         const logLevelSelect = document.getElementById("log-level-select");
@@ -633,14 +690,10 @@ const LogPanel = (() => {
             logLevelSelect.value = cfg.LOG_LEVEL;
         }
 
-        // Load RC versions / startup flap settings into their toggles. These
+        // Load startup flap settings into their toggles. These
         // come from the configuration this function was handed - fetching
         // /config again here asked the device for a payload already in hand.
         const data = cfg || {};
-        const rcVersionsCheckbox = document.getElementById("SHOW_RC_VERSIONS");
-        if (rcVersionsCheckbox) {
-            rcVersionsCheckbox.checked = data.SHOW_RC_VERSIONS === 'True' || data.SHOW_RC_VERSIONS === true;
-        }
         const flapOnBootCheckbox = document.getElementById("FLAP_ON_BOOT");
         if (flapOnBootCheckbox) {
             flapOnBootCheckbox.checked = data.FLAP_ON_BOOT === 'True' || data.FLAP_ON_BOOT === true;
