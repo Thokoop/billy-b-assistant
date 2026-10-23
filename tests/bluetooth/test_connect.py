@@ -511,3 +511,117 @@ def test_select_rejects_concurrent_device_action_and_releases_lock_on_cancellati
         selected.call_connect.assert_not_awaited()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('connected', [False, True])
+def test_le_abort_uses_known_audio_profile_and_waits_for_media(connected, caplog):
+    manager, device, objects = fixture(connected=connected)
+    props = objects[PHONE]['org.bluez.Device1']
+    props['ServicesResolved'] = Variant('b', False)
+    device.call_connect.side_effect = DBusError(
+        'org.bluez.Error.Failed', 'le-connection-abort-by-local'
+    )
+    establish = device.call_connect_profile.side_effect
+    device.call_connect_profile.side_effect = None
+
+    async def snapshot():
+        if device.call_connect_profile.await_count and bluez.time.monotonic() >= 0.5:
+            props['Connected'] = Variant('b', True)
+            await establish()
+        return objects
+
+    manager.objects.side_effect = snapshot
+    with caplog.at_level('INFO'):
+        assert connect(manager) == {'ok': True}
+    assert 'le-connection-abort-by-local' in caplog.text
+    assert bluez.time.monotonic() >= 0.5
+    device.call_connect.assert_awaited_once()
+    device.call_connect_profile.assert_awaited_once_with(bluez.A2DP_SOURCE)
+    device.call_disconnect.assert_not_awaited()
+
+
+def test_le_abort_without_known_audio_profile_has_actionable_message():
+    manager, device, _ = fixture(connected=False, media=False)
+    error = DBusError('org.bluez.Error.Failed', 'le-connection-abort-by-local')
+    device.call_connect.side_effect = error
+    with pytest.raises(RuntimeError, match='Make sure Bluetooth is on') as failure:
+        connect(manager)
+    assert failure.value.__cause__ is error
+    assert 'le-connection-abort-by-local' not in str(failure.value)
+    device.call_connect_profile.assert_not_awaited()
+    device.call_disconnect.assert_not_awaited()
+
+
+def test_le_audio_fallback_failure_is_bounded_without_restarting_generic_connect():
+    manager, device, _ = fixture(connected=False)
+    device.call_connect.side_effect = DBusError(
+        'org.bluez.Error.Failed', 'le-connection-abort-by-local'
+    )
+    attempts = []
+
+    async def unavailable(*_):
+        attempts.append(bluez.time.monotonic())
+        raise DBusError('org.bluez.Error.NotAvailable', 'unavailable')
+
+    device.call_connect_profile.side_effect = unavailable
+    with pytest.raises(RuntimeError, match='could not connect in time'):
+        connect(manager)
+    assert attempts == [0, 1, 3, 7]
+    device.call_connect.assert_awaited_once()
+    device.call_disconnect.assert_not_awaited()
+    assert not manager.device_lock.locked()
+
+
+@pytest.mark.parametrize('change', ['remove', 'unpair'])
+def test_le_fallback_rechecks_pairing_before_connecting_profile(change):
+    manager, device, objects = fixture(connected=False)
+
+    async def abort():
+        if change == 'remove':
+            del objects[PHONE]
+        else:
+            objects[PHONE]['org.bluez.Device1']['Paired'] = Variant('b', False)
+        raise DBusError('org.bluez.Error.Failed', 'le-connection-abort-by-local')
+
+    device.call_connect.side_effect = abort
+    with pytest.raises(RuntimeError, match='no longer paired'):
+        connect(manager)
+    device.call_connect_profile.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    'kind,text',
+    [
+        ('AuthenticationRejected', 'le-connection-abort-by-local'),
+        ('Failed', 'br-connection-key-missing'),
+        ('Failed', 'le-connection-abort-by-remote'),
+    ],
+)
+def test_other_connection_errors_do_not_trigger_audio_fallback(kind, text):
+    manager, device, _ = fixture(connected=False)
+    device.call_connect.side_effect = DBusError('org.bluez.Error.' + kind, text)
+    with pytest.raises(DBusError):
+        connect(manager)
+    device.call_connect_profile.assert_not_awaited()
+    device.call_disconnect.assert_not_awaited()
+
+
+@pytest.mark.parametrize('state', ['link-only', 'transport-only'])
+def test_le_profile_reply_does_not_report_success_without_link_and_media(state):
+    manager, device, objects = fixture(connected=False)
+    device.call_connect.side_effect = DBusError(
+        'org.bluez.Error.Failed', 'le-connection-abort-by-local'
+    )
+    establish = device.call_connect_profile.side_effect
+
+    async def partial(*_):
+        if state == 'transport-only':
+            await establish()
+        else:
+            objects[PHONE]['org.bluez.Device1']['Connected'] = Variant('b', True)
+
+    device.call_connect_profile.side_effect = partial
+    with pytest.raises(RuntimeError, match='could not connect in time'):
+        connect(manager)
+    device.call_connect_profile.assert_awaited_once()
+    device.call_disconnect.assert_not_awaited()

@@ -205,6 +205,11 @@ def test_startup_does_not_start_consumers_or_mark_ready_before_audio(
     def record(name):
         return lambda *a, **kw: events.append(name)
 
+    monkeypatch.setitem(
+        sys.modules,
+        'core.providers',
+        SimpleNamespace(initialize_providers=record('providers')),
+    )
     user = Mock(load_default_user=record('profile'))
     monkeypatch.setitem(
         sys.modules, 'core.profile_manager', SimpleNamespace(user_manager=user)
@@ -244,11 +249,12 @@ def test_startup_does_not_start_consumers_or_mark_ready_before_audio(
     if fail_probe:
         with pytest.raises(RuntimeError):
             main()
-        assert events == ['clear', 'profile', 'audio']
+        assert events == ['clear', 'providers', 'profile', 'audio']
     else:
         main()
         assert events == [
             'clear',
+            'providers',
             'profile',
             'audio',
             'watchdog',

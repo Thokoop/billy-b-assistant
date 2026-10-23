@@ -297,10 +297,34 @@ class BluezController:
         self.pending = None
 
     async def connect_audio(self, device, path, initial_props):
+        media_fallback = False
         try:
             await device.call_connect()
         except DBusError as exc:
-            if exc.type not in {
+            if (
+                exc.type == "org.bluez.Error.Failed"
+                and exc.text == "le-connection-abort-by-local"
+            ):
+                # Generic Connect may choose LE on a dual-mode phone/laptop.
+                # A paired device with a known A2DP source can instead connect
+                # that classic audio profile, within the same action timeout.
+                media_fallback = A2DP_SOURCE in {
+                    uuid.lower()
+                    for uuid in initial_props.get("UUIDs", Variant("as", [])).value
+                }
+                logging.getLogger(__name__).log(
+                    logging.INFO if media_fallback else logging.WARNING,
+                    "Bluetooth generic connection failed: %s (%s); audio fallback: %s",
+                    exc.type,
+                    exc.text,
+                    media_fallback,
+                )
+                if not media_fallback:
+                    raise RuntimeError(
+                        "Could not connect. Make sure Bluetooth is on and select "
+                        "Billy on your device, then try again."
+                    ) from exc
+            elif exc.type not in {
                 "org.bluez.Error.AlreadyConnected",
                 "org.bluez.Error.InProgress",
             }:
@@ -325,37 +349,44 @@ class BluezController:
                 return
             resolved = props.get("ServicesResolved")
             uuids = props.get("UUIDs", initial_props.get("UUIDs", Variant("as", [])))
-            supports_media = A2DP_SOURCE in {uuid.lower() for uuid in uuids.value}
-            if connected and (resolved is None or resolved.value):
-                if not supports_media:
-                    return  # A device without A2DP needs no media connection.
-                if (
-                    not accepted
-                    and attempts < MEDIA_CONNECT_ATTEMPTS
-                    and time.monotonic() >= next_attempt
-                ):
-                    attempts += 1
-                    try:
-                        await device.call_connect_profile(A2DP_SOURCE)
+            supports_media = media_fallback or A2DP_SOURCE in {
+                uuid.lower() for uuid in uuids.value
+            }
+            link_ready = connected and (resolved is None or resolved.value)
+            if link_ready and not supports_media:
+                return  # A device without A2DP needs no media connection.
+            if (
+                supports_media
+                and (link_ready or media_fallback)
+                and not accepted
+                and attempts < MEDIA_CONNECT_ATTEMPTS
+                and time.monotonic() >= next_attempt
+            ):
+                attempts += 1
+                try:
+                    await device.call_connect_profile(A2DP_SOURCE)
+                    accepted = True
+                except DBusError as exc:
+                    if exc.type == "org.bluez.Error.AlreadyConnected":
                         accepted = True
-                    except DBusError as exc:
-                        if exc.type == "org.bluez.Error.AlreadyConnected":
-                            accepted = True
-                        elif exc.type in MEDIA_RETRY_ERRORS:
-                            logging.getLogger(__name__).info(
-                                "Bluetooth media attempt %s/%s deferred: %s (%s)",
-                                attempts,
-                                MEDIA_CONNECT_ATTEMPTS,
-                                exc.type,
-                                exc.text,
-                            )
-                            next_attempt = time.monotonic() + min(
-                                2 ** (attempts - 1), 4
-                            )
-                        else:
-                            raise RuntimeError(
-                                "Media audio could not connect. Check Bluetooth on your phone."
-                            ) from exc
+                    elif exc.type in MEDIA_RETRY_ERRORS:
+                        logging.getLogger(__name__).info(
+                            "Bluetooth media attempt %s/%s deferred: %s (%s)",
+                            attempts,
+                            MEDIA_CONNECT_ATTEMPTS,
+                            exc.type,
+                            exc.text,
+                        )
+                        next_attempt = time.monotonic() + min(2 ** (attempts - 1), 4)
+                    else:
+                        logging.getLogger(__name__).warning(
+                            "Bluetooth media connection failed: %s (%s)",
+                            exc.type,
+                            exc.text,
+                        )
+                        raise RuntimeError(
+                            "Media audio could not connect. Check Bluetooth on your phone."
+                        ) from exc
             # A successful D-Bus return alone does not mean audio is ready yet.
             await asyncio.sleep(0.25)
         logging.getLogger(__name__).warning(

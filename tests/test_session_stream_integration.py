@@ -33,7 +33,7 @@ def test_receiver_processes_speech_while_real_tool_runner_waits(
         'profile_manager',
         'status_led',
         'mqtt',
-        'realtime_ai_provider',
+        'providers.realtime',
     ]:
         monkeypatch.setitem(sys.modules, f'isolated_core.{name}', Mock())
     websockets = ModuleType('websockets')

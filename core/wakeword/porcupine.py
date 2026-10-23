@@ -1,35 +1,12 @@
 from __future__ import annotations
 
 import contextlib
-from pathlib import Path
 
 import numpy as np
 
 from ..logger import logger
-from ..wakeword_provider import WakeWordBackend
-
-
-def _resolve_path(root_dir: str, value: str) -> Path:
-    path = Path(value)
-    if not path.is_absolute():
-        path = Path(root_dir) / path
-    return path
-
-
-def _resolve_keyword_path(root_dir: str, value: str) -> Path:
-    if not value:
-        return Path("")
-
-    raw = Path(value)
-    # Backward compatibility: existing absolute/relative paths continue to work.
-    if raw.is_absolute() or raw.parent != Path("."):
-        return _resolve_path(root_dir, value)
-
-    # Filename-only mode: resolve from wakewords folder.
-    candidate = Path(root_dir) / "wakewords" / raw.name
-    if candidate.exists():
-        return candidate
-    return Path(root_dir) / "wakewords" / raw.name
+from .paths import resolve_keyword_path
+from .provider import WakeWordBackend
 
 
 class PorcupineWakeWordBackend(WakeWordBackend):
@@ -87,7 +64,7 @@ class PorcupineWakeWordBackend(WakeWordBackend):
             )
             return False
 
-        keyword_path = _resolve_keyword_path(self.root_dir, self.keyword_path_raw)
+        keyword_path = resolve_keyword_path(self.root_dir, self.keyword_path_raw)
         if not keyword_path.exists():
             logger.warning(
                 f"Porcupine keyword file does not exist: {keyword_path}", "⚠️"

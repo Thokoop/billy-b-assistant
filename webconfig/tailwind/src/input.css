@@ -1293,6 +1293,7 @@ button {
 .update-channel-setting .settings-select-controls { flex: 0 0 auto; width: clamp(6rem, 42%, 16rem); }
 .update-channel-setting .settings-step-bar { margin-top: .25rem; }
 .update-channel-setting .settings-step-label { text-align: center; }
+.update-channel-warning-slot { flex: 0 0 2rem; min-height: 2rem; margin-top: -.25rem; }
 @media (max-width: 600px) {
     .update-channel-setting { padding-inline: 0; }
     .update-channel-setting .settings-select-label { gap: .375rem; font-size: .8125rem; }

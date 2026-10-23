@@ -10,7 +10,7 @@ from typing import Any, Optional
 from billy_runtime.paths import INSTALL_ROOT
 
 from .logger import logger
-from .realtime_ai_provider import voice_provider_registry
+from .providers.realtime import voice_provider_registry
 
 
 class PersonaManager:

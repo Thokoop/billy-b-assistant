@@ -6,7 +6,7 @@ from typing import Optional
 
 from .config import CUSTOM_INSTRUCTIONS
 from .logger import logger
-from .realtime_ai_provider import voice_provider_registry
+from .providers.realtime import voice_provider_registry
 
 
 WAKEUP_DIR = os.path.abspath(

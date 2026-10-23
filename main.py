@@ -53,6 +53,9 @@ def signal_handler(sig, frame):
 
 def main():
     clear_ready()
+    from core.providers import initialize_providers
+
+    initialize_providers()
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     initialize_status_led()

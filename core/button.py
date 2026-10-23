@@ -773,7 +773,7 @@ def start_loop(*, on_ready=None):
 
     if config.WAKE_WORD_ENABLED:
         try:
-            from .wakeword_listener import LocalWakeWordListener
+            from .wakeword.listener import LocalWakeWordListener
 
             wakeword_listener = LocalWakeWordListener(
                 backend=config.WAKE_WORD_BACKEND,

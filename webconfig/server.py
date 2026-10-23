@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 def normal_app():
     from app import create_app
 
+    from core.providers import initialize_providers
+
+    initialize_providers()
     from core.profile_manager import user_manager
 
     user_manager.load_default_user()

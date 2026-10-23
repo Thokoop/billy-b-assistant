@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 
 from ..logger import logger
-from ..wakeword_provider import WakeWordBackend
-from .porcupine_wakeword_provider import _resolve_keyword_path
+from .paths import resolve_keyword_path
+from .provider import WakeWordBackend
 
 
 @contextlib.contextmanager
@@ -91,7 +91,7 @@ class OpenWakeWordBackend(WakeWordBackend):
     def _resolve_optional_path(self, value: str) -> Path | None:
         if not value:
             return None
-        path = _resolve_keyword_path(self.root_dir, value)
+        path = resolve_keyword_path(self.root_dir, value)
         return path if path.exists() else None
 
     def _resolve_support_model_paths(
@@ -144,7 +144,7 @@ class OpenWakeWordBackend(WakeWordBackend):
             )
             return False
 
-        model_path = _resolve_keyword_path(self.root_dir, self.model_path_raw)
+        model_path = resolve_keyword_path(self.root_dir, self.model_path_raw)
         if not model_path.exists():
             logger.warning(f"openWakeWord model file does not exist: {model_path}", "⚠️")
             return False

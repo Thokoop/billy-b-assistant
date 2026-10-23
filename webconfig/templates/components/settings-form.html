@@ -1425,6 +1425,17 @@
                             <span class="material-icons" aria-hidden="true">science</span>
                             <span>Minimum stability</span>
                         </label>
+                    </div>
+                    <div class="settings-select-controls">
+                        <select id="UPDATE_CHANNEL" name="UPDATE_CHANNEL"
+                                class="hidden">
+                            <option value="beta">Beta</option>
+                            <option value="rc">Release Candidate</option>
+                            <option value="stable" selected>Stable (recommended)</option>
+                        </select>
+                        {{ step_slider('UPDATE_CHANNEL', 'Minimum stability', 'Stable (recommended)', 100) }}
+                    </div>
+                    <div class="update-channel-warning-slot">
                         <details id="update-channel-warning" class="settings-inline-help settings-warning-help" hidden
                                  onkeydown="if (event.key === 'Escape') { this.open = false; this.querySelector('summary').focus(); }">
                             <summary aria-label="About Release Candidate and Beta versions">
@@ -1435,15 +1446,6 @@
                                 They may contain bugs or unfinished features.
                             </p>
                         </details>
-                    </div>
-                    <div class="settings-select-controls">
-                        <select id="UPDATE_CHANNEL" name="UPDATE_CHANNEL"
-                                class="hidden">
-                            <option value="beta">Beta</option>
-                            <option value="rc">Release Candidate</option>
-                            <option value="stable" selected>Stable (recommended)</option>
-                        </select>
-                        {{ step_slider('UPDATE_CHANNEL', 'Minimum stability', 'Stable (recommended)', 100) }}
                     </div>
                 </div>
 

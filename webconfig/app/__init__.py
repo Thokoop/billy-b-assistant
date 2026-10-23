@@ -24,6 +24,9 @@ def create_app() -> Flask:
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
 
+    from core.providers import initialize_providers
+
+    initialize_providers()
     base_dir = os.path.dirname(__file__)
     app = Flask(
         __name__,

@@ -16,7 +16,7 @@ from conftest import definitions
 
 def collector(timeout=0.05, limit=1024):
     return definitions(
-        'core/realtime_ai_provider.py',
+        'core/providers/realtime.py',
         ['_collect_audio_response'],
         dict(
             asyncio=asyncio,
@@ -102,7 +102,7 @@ def test_completed_clip_keeps_exact_pcm(event_type):
 def test_provider_closes_clip_socket_on_every_exit(failure):
     ns = dict(asyncio=asyncio, wraps=wraps, CLIP_TIMEOUT_SECONDS=0.03)
     decorator = definitions(
-        'core/realtime_ai_provider.py', ['bounded_audio_generation'], ns
+        'core/providers/realtime.py', ['bounded_audio_generation'], ns
     ).bounded_audio_generation
     generate = definitions(
         'core/providers/openai_provider.py',

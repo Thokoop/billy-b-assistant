@@ -71,7 +71,7 @@ def test_manual_interruption_truncates_unheard_audio():
 
 def test_clip_generation_reports_provider_error():
     collect = definitions(
-        'core/realtime_ai_provider.py',
+        'core/providers/realtime.py',
         ['_collect_audio_response'],
         {
             'json': json,

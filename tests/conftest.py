@@ -1,6 +1,6 @@
 """Load real modules with hardware boundaries replaced before import.
 
-Never import core/__init__.py: it registers providers and loads device state.
+Load components in isolation without service startup or device state.
 Each test gets an isolated package, temporary working directory and fake GPIO,
 PortAudio, logger and config. No API keys, sound devices or Pi are needed.
 """

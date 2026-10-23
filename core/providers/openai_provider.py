@@ -1,7 +1,7 @@
 import json
 from typing import Any, Optional
 
-from ..realtime_ai_provider import RealtimeAIProvider, bounded_audio_generation
+from .realtime import RealtimeAIProvider, bounded_audio_generation
 
 
 class OpenAIProvider(RealtimeAIProvider):

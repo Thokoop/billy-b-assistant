@@ -55,7 +55,7 @@ from .mood import mood_manager
 from .movements import stop_all_motors
 from .persona_manager import persona_manager
 from .profile_manager import user_manager
-from .realtime_ai_provider import voice_provider_registry
+from .providers.realtime import voice_provider_registry
 from .status_led import show_status_led_interruption
 
 

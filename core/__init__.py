@@ -1,2 +1,1 @@
-# Import providers to register them
-from . import providers as providers
+"""Billy core components. Services initialize providers explicitly at startup."""

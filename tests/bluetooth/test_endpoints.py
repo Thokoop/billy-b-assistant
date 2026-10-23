@@ -1,8 +1,7 @@
 """ServiceEndpoints owns the hardware a Bluetooth session used to open itself.
 
-Extracted rather than imported: core/__init__.py pulls in the whole package
-(and its network dependencies) to reach one class, and the capture callback
-under test needs neither sounddevice nor a real device.
+Extracted rather than imported so capture callback tests need neither
+sounddevice nor real audio devices.
 """
 
 import ast

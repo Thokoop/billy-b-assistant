@@ -23,7 +23,7 @@ async def say(text: str, *, interactive: Optional[bool] = None):
     from .bluetooth import mode as bluetooth_mode
     from .config import CHUNK_MS, REALTIME_AI_PROVIDER, TEXT_ONLY_MODE
     from .persona_manager import persona_manager
-    from .realtime_ai_provider import voice_provider_registry
+    from .providers.realtime import voice_provider_registry
     from .session_manager import BillySession
 
     if bluetooth_mode.active():

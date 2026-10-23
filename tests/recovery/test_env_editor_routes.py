@@ -104,6 +104,11 @@ def test_normal_web_routes_repair_to_software_settings(editor, monkeypatch):
     monkeypatch.setitem(sys.modules, 'core', ModuleType('core'))
     monkeypatch.setitem(
         sys.modules,
+        'core.providers',
+        SimpleNamespace(initialize_providers=lambda: None),
+    )
+    monkeypatch.setitem(
+        sys.modules,
         'core.profile_manager',
         SimpleNamespace(user_manager=SimpleNamespace(load_default_user=lambda: None)),
     )

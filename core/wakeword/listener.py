@@ -8,9 +8,9 @@ import time
 import numpy as np
 import sounddevice as sd
 
-from .config import ROOT_DIR
-from .logger import logger
-from .wakeword_provider import WakeWordBackend, wakeword_provider_registry
+from ..config import ROOT_DIR
+from ..logger import logger
+from .provider import WakeWordBackend, wakeword_provider_registry
 
 
 class LocalWakeWordListener:
@@ -106,7 +106,7 @@ class LocalWakeWordListener:
             )
         except ValueError:
             logger.warning(
-                f'Unsupported wake-word backend "{self.backend}". Implement provider in core/providers/*.py and register it in core/providers/__init__.py.',
+                f'Unsupported wake-word backend "{self.backend}". Implement backend in core/wakeword/ and register it in core/providers/__init__.py.',
                 "⚠️",
             )
             return None
