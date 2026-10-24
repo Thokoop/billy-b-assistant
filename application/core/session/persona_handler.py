@@ -1,6 +1,6 @@
 """Persona management for Billy session."""
 
-from datetime import datetime
+import json
 
 from ..config import TEXT_ONLY_MODE
 from ..logger import logger
@@ -47,146 +47,100 @@ class PersonaHandler:
         except Exception as e:
             logger.warning(f"Failed to reload persona: {e}", "⚠️")
 
-    async def handle_switch_persona(self, args: dict):
-        """Handle persona switching mid-session."""
+    async def _finish_tool(self, result: dict, call_id: str | None):
+        """Report actual outcomes instead of inferring success from current state."""
+        if call_id:
+            item = {
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": json.dumps(result),
+            }
+        else:
+            item = {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": result["message"]}],
+            }
+        await self.session._ws_send_json({
+            "type": "conversation.item.create",
+            "item": item,
+        })
+        if call_id:
+            self.session.state._triggered_new_response = True
+            await self.session._ws_send_json({"type": "response.create"})
+
+    async def handle_switch_persona(self, args: dict, call_id: str | None = None):
+        """Switch the current persona, reporting failures to the calling model."""
         persona_name = args.get("persona", "")
-        reason = args.get("reason", "")
-
-        logger.verbose(
-            f"switch_persona: persona='{persona_name}', reason='{reason}'", "🔧"
-        )
-
-        if not persona_name:
-            return
-
         try:
-            available_personas = persona_manager.get_available_personas()
-            persona_names = [p["name"] for p in available_personas]
+            names = [p["name"] for p in persona_manager.get_available_personas()]
+            if persona_name not in names:
+                result = {
+                    "ok": False,
+                    "message": f"Persona unavailable: {persona_name}",
+                    "available_personas": names,
+                }
+            elif not persona_manager.switch_persona(persona_name):
+                result = {"ok": False, "message": "Could not switch persona."}
+            else:
+                await self._update_session_with_persona()
+                result = {
+                    "ok": True,
+                    "persona": persona_name,
+                    "message": f"Switched to persona: {persona_name}",
+                }
+                logger.info(result["message"], "🎭")
+        except Exception as exc:
+            logger.warning(f"Failed to switch persona: {exc}")
+            result = {
+                "ok": False,
+                "message": "Could not complete the persona switch. Check the current persona before retrying.",
+            }
+        await self._finish_tool(result, call_id)
 
-            if persona_name not in persona_names:
-                await self.session._ws_send_json({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": f"Sorry, I don't have a '{persona_name}' persona. "
-                                f"Available: {', '.join(persona_names)}",
-                            }
-                        ],
-                    },
-                })
-                return
+    async def handle_manage_profile(self, args: dict, call_id: str | None = None):
+        """Persist a preferred persona and report the actual save outcome."""
+        from ..profile_manager import user_manager
 
-            persona_manager.switch_persona(persona_name)
-            await self._update_session_with_persona()
-            await self._notify_persona_change(persona_name)
-
-            persona_data = persona_manager.get_current_persona_data()
-            persona_desc = (
-                persona_data.get("meta", {}).get("description", persona_name)
-                if persona_data
-                else persona_name
-            )
-
-            message = (
-                f"Right then! Switching to {persona_desc} mode. {reason}"
-                if reason
-                else f"Alright, switching to {persona_desc} mode now!"
-            )
-
-            await self.session._ws_send_json({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": message}],
-                },
-            })
-
-            logger.info(f"Switched to persona: {persona_name}", "🎭")
-
-        except Exception as e:
-            logger.warning(f"Failed to switch persona: {e}")
-            await self.session._ws_send_json({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "output_text",
-                            "text": "Sorry, couldn't switch personas right now!",
-                        }
-                    ],
-                },
-            })
-
-    async def handle_manage_profile(self, args: dict):
-        """Handle profile management (persona switching)."""
-        action = args.get("action", "")
-
-        if action == "switch_persona":
-            from ..profile_manager import user_manager
-
-            current_user = user_manager.get_current_user()
-            if not current_user:
-                return
-
-            new_persona = args.get("preferred_persona", "default")
-
-            available_personas = persona_manager.get_available_personas()
-            persona_names = [p["name"] for p in available_personas]
-            if new_persona not in persona_names:
-                await self.session._ws_send_json({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": f"Sorry, I don't have a '{new_persona}' persona. "
-                                f"Available: {', '.join(persona_names)}",
-                            }
-                        ],
-                    },
-                })
-                return
-
-            voice_changed = self._check_voice_change(new_persona)
-            current_user.set_preferred_persona(new_persona)
-            persona_manager.switch_persona(new_persona)
-            await self._update_session_with_persona()
-            await self._notify_persona_change(new_persona)
-            if voice_changed:
-                logger.info(
-                    f"Applied voice change for persona '{new_persona}' via session.update",
-                    "🎭",
-                )
-
-            persona_data = persona_manager.get_current_persona_data()
-            persona_desc = (
-                persona_data.get("meta", {}).get("description", new_persona)
-                if persona_data
-                else new_persona
-            )
-
-            await self.session._ws_send_json({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "output_text",
-                            "text": f"Switched to {persona_desc} mode for you!",
-                        }
-                    ],
-                },
-            })
+        current_user = user_manager.get_current_user()
+        new_persona = args.get("preferred_persona", "default")
+        try:
+            names = [p["name"] for p in persona_manager.get_available_personas()]
+            if args.get("action") != "switch_persona":
+                result = {"ok": False, "message": "Unsupported profile action."}
+            elif not current_user:
+                result = {
+                    "ok": False,
+                    "message": "No current user profile. Identify the user first.",
+                }
+            elif new_persona not in names:
+                result = {
+                    "ok": False,
+                    "message": f"Persona unavailable: {new_persona}",
+                    "available_personas": names,
+                }
+            else:
+                current_user.set_preferred_persona(new_persona)
+                if not persona_manager.switch_persona(new_persona):
+                    result = {
+                        "ok": False,
+                        "message": "Preference saved, but the current persona could not be switched.",
+                    }
+                else:
+                    await self._update_session_with_persona()
+                    result = {
+                        "ok": True,
+                        "persona": new_persona,
+                        "user": current_user.name,
+                        "message": f"Saved preferred persona and switched to {new_persona}.",
+                    }
+        except Exception as exc:
+            logger.warning(f"Failed to update profile persona: {exc}")
+            result = {
+                "ok": False,
+                "message": "Could not complete the profile change. Check the profile before retrying.",
+            }
+        await self._finish_tool(result, call_id)
 
     async def _update_session_with_persona(self):
         """Update session with new persona context."""
@@ -216,18 +170,6 @@ class PersonaHandler:
             logger.info("Updated session with persona context", "🎭")
         except Exception as e:
             logger.warning(f"Failed to update session: {e}")
-
-    async def _notify_persona_change(self, persona_name: str):
-        """Notify frontend of persona change."""
-        try:
-            await self.session._ws_send_json({
-                "type": "persona_changed",
-                "persona": persona_name,
-                "timestamp": datetime.now().isoformat(),
-            })
-            logger.info(f"Notified frontend: {persona_name}", "🎭")
-        except Exception as e:
-            logger.warning(f"Failed to notify frontend: {e}")
 
     def _check_voice_change(self, new_persona: str) -> bool:
         """Check if persona has different voice."""

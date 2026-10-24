@@ -444,7 +444,10 @@ class FunctionHandler:
         ha_response = await send_conversation_prompt(prompt)
         speech_text = None
 
-        if isinstance(ha_response, dict):
+        if (
+            isinstance(ha_response, dict)
+            and ha_response.get("response_type") != "error"
+        ):
             speech_text = ha_response.get("speech", {}).get("plain", {}).get("speech")
             if speech_text:
                 logger.verbose(f"HA debug: {ha_response.get('data')}", "🔍")
@@ -485,6 +488,7 @@ class FunctionHandler:
                 })
                 await asyncio.sleep(0.1)
 
+            self.session.state._triggered_new_response = True
             await self.session._ws_send_json(
                 turn_directive_response(
                     "Home Assistant didn't understand the request. Say so briefly "
@@ -492,8 +496,6 @@ class FunctionHandler:
                     allow_tools=True,
                 )
             )
-            self.session.state._triggered_new_response = True
-            await self.session._ws_send_json({"type": "response.create"})
 
     async def _handle_identify_user(
         self, raw_args: str | None, call_id: str | None = None
@@ -514,14 +516,14 @@ class FunctionHandler:
     ):
         """Handle profile management."""
         args = self._parse_json_args(raw_args, "manage_profile")
-        await self.session.persona_handler.handle_manage_profile(args)
+        await self.session.persona_handler.handle_manage_profile(args, call_id)
 
     async def _handle_switch_persona(
         self, raw_args: str | None, call_id: str | None = None
     ):
         """Handle persona switching mid-session."""
         args = self._parse_json_args(raw_args, "switch_persona")
-        await self.session.persona_handler.handle_switch_persona(args)
+        await self.session.persona_handler.handle_switch_persona(args, call_id)
 
     async def _handle_get_news_digest(
         self, raw_args: str | None, call_id: str | None = None
@@ -672,15 +674,14 @@ class FunctionHandler:
                 })
                 await asyncio.sleep(0.1)
 
+            self.session.state._triggered_new_response = True
             await self.session._ws_send_json(
                 turn_directive_response(
-                    "Camera vision is only available with OpenAI Realtime in this "
+                    "Camera vision is only available with OpenAI Realtime or GPT-Live in this "
                     "build. Apologize briefly and ask the user to switch provider.",
                     allow_tools=True,
                 )
             )
-            self.session.state._triggered_new_response = True
-            await self.session._ws_send_json({"type": "response.create"})
             return
 
         try:
@@ -691,6 +692,13 @@ class FunctionHandler:
                 "ok": False,
                 "summary": "Camera scene check failed.",
                 "error": str(e),
+            }
+
+        if result.get("ok") and not str(result.get("image_url") or "").strip():
+            result = {
+                "ok": False,
+                "summary": "Camera capture returned no image.",
+                "error": "Missing image bytes",
             }
 
         if call_id:
@@ -712,17 +720,6 @@ class FunctionHandler:
             user_prompt = str(result.get("prompt") or "").strip()
             max_words = int(result.get("max_words") or 80)
             image_url = str(result.get("image_url") or "").strip()
-            if not image_url:
-                prompt = (
-                    "Camera capture returned no image bytes. "
-                    "Apologize briefly and ask the user to retry."
-                )
-                self.session.state._triggered_new_response = True
-                await self.session._ws_send_json(
-                    turn_directive_response(prompt, allow_tools=True)
-                )
-                return
-
             await self.session._ws_send_json({
                 "type": "conversation.item.create",
                 "item": {

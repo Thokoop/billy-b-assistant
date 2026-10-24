@@ -182,7 +182,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "identify_user",
             "type": "function",
-            "description": "Call this ONLY when someone explicitly introduces themselves by stating their own name (e.g., 'I am Tom', 'My name is Sarah', 'Hey billy it is tom'). Do NOT call this when someone greets you by name (like 'Hello Billy' or 'Hey Billy'). Only call when they are telling you their own name to switch from guest mode to user mode. IMPORTANT: If you're uncertain about the spelling of a name (e.g., 'Thom' vs 'Tom', 'Sarah' vs 'Sara'), set confidence to 'low' to trigger spelling confirmation.",
+            "description": "Call this when someone explicitly introduces themselves by stating their own name (e.g., 'I am Tom', 'My name is Sarah', 'Hey billy it is tom'), or answers your pending identity/spelling clarification. Do NOT call this when someone greets you by name (like 'Hello Billy' or 'Hey Billy'). Use it to select the user's profile, including switching from one known user to another. IMPORTANT: If you're uncertain about the spelling of a name (e.g., 'Thom' vs 'Tom', 'Sarah' vs 'Sara'), set confidence to 'low' to trigger spelling confirmation. A clarification_required result means no profile was selected or created: ask its question and wait for the user's answer. Never assume a similar-sounding name is a new user. An exact transcription may still be ambiguous when similar profiles exist. For an existing candidate, use its exact profile name and existing_user_confirmed=true only after the user confirms that choice in a later turn.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -198,6 +198,14 @@ def get_base_tools() -> list[dict[str, Any]]:
                     "context": {
                         "type": "string",
                         "description": "Any additional context about how they introduced themselves",
+                    },
+                    "existing_user_confirmed": {
+                        "type": "boolean",
+                        "description": "Only true after this tool asked which similar existing profile is theirs and the user explicitly confirmed their choice in a later turn. Use the chosen candidate's exact profile name. Omit on the initial introduction; an exact transcription alone is not confirmation.",
+                    },
+                    "new_user_confirmed": {
+                        "type": "boolean",
+                        "description": "Only true after this tool asked about similar existing profiles and the user explicitly confirmed in a later turn that they are a different, new user with this name. Omit on the initial introduction; uncertainty is not confirmation.",
                     },
                 },
                 "required": ["name", "confidence"],

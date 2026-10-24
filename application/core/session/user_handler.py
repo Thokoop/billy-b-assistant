@@ -19,6 +19,8 @@ class UserHandler:
     def __init__(self, session):
         self.session = session
         self._waiting_for_name_after_denial = False
+        self._pending_new_user_name = None
+        self._pending_identity_choices = frozenset()
 
     async def handle_identify_user(self, args: dict, call_id: str | None = None):
         """Handle user identification via tool calling."""
@@ -34,17 +36,72 @@ class UserHandler:
         if not name:
             return
 
+        pending_name = self._pending_new_user_name
+        pending_choices = self._pending_identity_choices
+        self._pending_new_user_name = None
+        self._pending_identity_choices = frozenset()
+        existing = user_manager.find_user_by_name_or_display_name(name)
+        candidates = user_manager.find_similar_users(name)
+        confirmed_new = (
+            args.get("new_user_confirmed") is True
+            and pending_name == name.casefold()
+            and confidence != "low"
+        )
+        confirmed_existing = (
+            existing is not None
+            and args.get("existing_user_confirmed") is True
+            and existing.casefold() in pending_choices
+            and name.casefold() == existing.casefold()
+            and confidence != "low"
+        )
+        # An exact transcription is not proof of identity when, for example,
+        # both Hank and Henk exist. Ask before selecting either profile too.
+        ambiguous_existing = existing is not None and any(
+            candidate['name'].casefold() != existing.casefold()
+            for candidate in candidates
+        )
+        if (ambiguous_existing and not confirmed_existing) or (
+            not existing and candidates and not confirmed_new
+        ):
+            self._pending_new_user_name = name.casefold() if not existing else None
+            self._pending_identity_choices = frozenset(
+                candidate['name'].casefold() for candidate in candidates
+            )
+            choices = ', '.join(
+                candidate['display_name']
+                if candidate['display_name'].casefold() == candidate['name'].casefold()
+                else f"{candidate['display_name']} ({candidate['name']})"
+                for candidate in candidates
+            )
+            question = (
+                f"I have similar existing profiles: {choices}. Which one is yours? Please confirm or spell your name."
+                if existing
+                else f"Do you mean the existing profile {choices}, or are you a new user named {name}?"
+            )
+            logger.info(
+                "Asking for clarification before selecting or creating a user profile",
+                "👤",
+            )
+            await self._request_identity_clarification(
+                name,
+                question,
+                call_id,
+                candidates=candidates,
+            )
+            return
+
         if confidence == "low":
-            await self._ask_spelling_confirmation(name)
+            await self._ask_spelling_confirmation(name, call_id)
             return
 
         current_user = user_manager.get_current_user()
         if (
             current_user
             and context
-            and ("not" in context.lower() or "am not" in context.lower())
+            and name.casefold() == current_user.name.casefold()
+            and f"not {current_user.name.casefold()}" in context.casefold()
         ):
-            await self._handle_user_denial(current_user.name)
+            await self._handle_user_denial(current_user.name, call_id)
             return
 
         profile = user_manager.identify_user(name, confidence)
@@ -268,36 +325,61 @@ class UserHandler:
         except Exception as e:
             logger.warning(f"Failed to update session: {e}")
 
-    async def _ask_spelling_confirmation(self, name: str):
-        """Ask user to confirm name spelling."""
-        response = f"I think I heard '{name}' - is that spelled correctly? Please say 'yes' or spell it out for me."
-        await self.session._ws_send_json({
-            "type": "conversation.item.create",
-            "item": {
+    async def _request_identity_clarification(
+        self, name, question, call_id=None, *, candidates=None
+    ):
+        """Return a real tool outcome and ask before any profile side effects."""
+        result = {
+            "status": "clarification_required",
+            "proposed_name": name,
+            "candidates": candidates or [],
+            "question": question,
+            "instruction": (
+                "No profile has been created or selected. Ask the user this question "
+                "and wait for their answer in a later turn. For an existing user, "
+                "call identify_user with the chosen candidate's exact profile name "
+                "and existing_user_confirmed=true after they confirm that choice. Only "
+                "after they explicitly confirm they are a different, new user, "
+                "call identify_user with the proposed name and new_user_confirmed=true. "
+                "Do not infer confirmation from the original introduction."
+            ),
+        }
+        if call_id:
+            item = {
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": json.dumps(result),
+            }
+        else:
+            item = {
                 "type": "message",
                 "role": "assistant",
-                "content": [{"type": "output_text", "text": response}],
-            },
-        })
-
-    async def _handle_user_denial(self, current_name: str):
-        """Handle user saying they're not the current user."""
-        logger.info(f"User denies being {current_name}", "👤")
+                "content": [{"type": "output_text", "text": question}],
+            }
         await self.session._ws_send_json({
             "type": "conversation.item.create",
-            "item": {
-                "type": "message",
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": f"I understand you're not {current_name}. Who are you? "
-                        "Tell me your name or I'll switch to guest mode.",
-                    }
-                ],
-            },
+            "item": item,
         })
+        self.session.state._triggered_new_response = True
+        await self.session._ws_send_json({"type": "response.create"})
+
+    async def _ask_spelling_confirmation(self, name: str, call_id=None):
+        """Ask user to confirm name spelling and complete the pending tool call."""
+        await self._request_identity_clarification(
+            name,
+            f"I think I heard '{name}' - is that spelled correctly? Please confirm or spell it out for me.",
+            call_id,
+        )
+
+    async def _handle_user_denial(self, current_name: str, call_id=None):
+        """Handle user saying they're not the current user."""
+        logger.info(f"User denies being {current_name}", "👤")
         self._waiting_for_name_after_denial = True
+        await self._request_identity_clarification(
+            current_name,
+            f"I understand you're not {current_name}. What is your name?",
+            call_id,
+        )
 
     async def _fallback_to_guest(self):
         """Fall back to guest mode."""

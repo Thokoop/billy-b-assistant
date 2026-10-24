@@ -26,6 +26,14 @@ class PersonaManager:
     def get_available_personas(self) -> list[dict]:
         """Get list of available persona files with their metadata."""
         personas = []
+        loaded = []
+
+        def load_metadata(name):
+            cached = name in self._persona_cache
+            data = self.load_persona(name, log_load=False)
+            if data is not None and not cached:
+                loaded.append(name)
+            return data
 
         # Add default persona.ini if it exists
         default_persona_file = INSTALL_ROOT / "persona.ini"
@@ -45,7 +53,7 @@ class PersonaManager:
             # Check for old format: personas/*.ini
             for file_path in self.personas_dir.glob("*.ini"):
                 persona_name = file_path.stem
-                persona_data = self.load_persona(persona_name)
+                persona_data = load_metadata(persona_name)
                 if persona_data:
                     personas.append({
                         "name": persona_name,
@@ -60,7 +68,7 @@ class PersonaManager:
                     persona_file = folder_path / "persona.ini"
                     if persona_file.exists():
                         persona_name = folder_path.name
-                        persona_data = self.load_persona(persona_name)
+                        persona_data = load_metadata(persona_name)
                         if persona_data:
                             personas.append({
                                 "name": persona_name,
@@ -69,13 +77,20 @@ class PersonaManager:
                                 ),
                             })
 
+        if loaded:
+            logger.info(
+                f"Loaded {len(loaded)} personas: {', '.join(sorted(loaded))}", "🎭"
+            )
+
         return (
             sorted(personas, key=lambda x: x["name"])
             if personas
             else [{"name": "default", "description": "Default"}]
         )
 
-    def load_persona(self, persona_name: str) -> Optional[dict[str, Any]]:
+    def load_persona(
+        self, persona_name: str, *, log_load: bool = True
+    ) -> Optional[dict[str, Any]]:
         """Load a persona configuration from file."""
         if persona_name in self._persona_cache:
             return self._persona_cache[persona_name]
@@ -117,7 +132,8 @@ class PersonaManager:
             persona_data["personality"] = migrate_traits(persona_data["personality"])
 
             self._persona_cache[persona_name] = persona_data
-            logger.info(f"Loaded persona: {persona_name}", "🎭")
+            if log_load:
+                logger.info(f"Loaded persona: {persona_name}", "🎭")
             return persona_data
 
         except Exception as e:
@@ -213,10 +229,10 @@ class PersonaManager:
         """Clear the cache for a specific persona or all personas."""
         if persona_name:
             self._persona_cache.pop(persona_name, None)
-            logger.info(f"Cleared cache for persona: {persona_name}", "🎭")
+            logger.verbose(f"Cleared cache for persona: {persona_name}", "🎭")
         else:
             self._persona_cache.clear()
-            logger.info("Cleared all persona cache", "🎭")
+            logger.verbose("Cleared all persona cache", "🎭")
 
     def get_persona_presets(self) -> list[dict]:
         """Get list of available persona preset templates."""

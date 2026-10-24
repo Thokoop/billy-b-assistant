@@ -18,58 +18,37 @@ from .status_led import set_status_led_state
 
 mqtt_client: mqtt.Client | None = None
 mqtt_connected = False
+_last_state = "idle"
 _say_lock = threading.Lock()
-_reconnect_lock = threading.Lock()
-_last_reconnect_attempt = 0.0
-RECONNECT_MIN_INTERVAL_SECONDS = 15.0
+_lifecycle_lock = threading.Lock()
+_shutdown_requested = threading.Event()
+_mqtt_thread: threading.Thread | None = None
 
 
 def mqtt_available():
     return all([MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD])
 
 
-def _request_reconnect():
-    """Kick off a reconnect attempt in the background, rate-limited.
-
-    Reconnecting (DNS lookup + TCP connect) can block for seconds when the
-    network is genuinely unreachable. Callers of mqtt_publish (e.g. song
-    playback) must not stall on that, so this runs off-thread and skips if
-    an attempt already ran recently or is in flight.
-    """
-    global _last_reconnect_attempt
-
-    if not _reconnect_lock.acquire(blocking=False):
-        return
-    try:
-        now = time.time()
-        if now - _last_reconnect_attempt < RECONNECT_MIN_INTERVAL_SECONDS:
-            return
-        _last_reconnect_attempt = now
-    finally:
-        _reconnect_lock.release()
-
-    def _do_reconnect():
-        global mqtt_connected
-        try:
-            mqtt_client.reconnect()
-            mqtt_connected = True
-            logger.success("MQTT reconnected.", "🔌")
-        except Exception as e:
-            logger.warning(f"MQTT reconnect attempt failed: {e}")
-
-    threading.Thread(target=_do_reconnect, daemon=True).start()
-
-
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected
+    with _lifecycle_lock:
+        if _shutdown_requested.is_set() or client is not mqtt_client:
+            return
+        mqtt_connected = rc == 0
     if rc == 0:
-        mqtt_connected = True
         logger.success("MQTT connected successfully!", "🔌")
         mqtt_send_discovery()
+        mqtt_publish("billy/state", _last_state, retain=True, retry=False)
         with contextlib.suppress(Exception):
             from .mood import mood_manager
 
             mood_manager.publish()
+        with contextlib.suppress(Exception):
+            from .song_manager import song_manager
+
+            last_song = song_manager.get_last_song()
+            if last_song:
+                mqtt_publish("billy/song/last", last_song, retain=True, retry=False)
         client.subscribe("billy/command")
         client.subscribe("billy/say")  # single endpoint
         client.subscribe("billy/song")
@@ -78,70 +57,130 @@ def on_connect(client, userdata, flags, rc):
         logger.warning(f"MQTT connection failed with code {rc}")
 
 
+def on_disconnect(client, userdata, rc):
+    global mqtt_connected
+    with _lifecycle_lock:
+        if client is not mqtt_client:
+            return
+        mqtt_connected = False
+    if not _shutdown_requested.is_set() and rc:
+        logger.warning("MQTT disconnected unexpectedly; waiting for reconnect.", "🔌")
+
+
+def _mqtt_worker():
+    """Own Paho startup and cleanup so loop_stop cannot overtake loop_start."""
+    global mqtt_client, mqtt_connected, _mqtt_thread
+    client = None
+    loop_started = False
+    try:
+        client = mqtt.Client()
+        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+        client.on_connect = on_connect
+        client.on_disconnect = on_disconnect
+        client.on_message = on_message
+        # Paho's network loop handles initial connection retries and reconnects.
+        # Separate reconnect threads could reopen the socket during shutdown.
+        client.reconnect_delay_set(min_delay=5, max_delay=60)
+        with _lifecycle_lock:
+            if _shutdown_requested.is_set():
+                return
+            mqtt_client = client
+        client.connect_async(MQTT_HOST, MQTT_PORT, 60)
+        if _shutdown_requested.is_set():
+            return
+        result = client.loop_start()
+        if result != mqtt.MQTT_ERR_SUCCESS:
+            raise RuntimeError(f"MQTT network loop could not start: {result}")
+        loop_started = True
+        if _shutdown_requested.is_set():
+            return
+        _shutdown_requested.wait()
+    except Exception as exc:
+        if not _shutdown_requested.is_set():
+            logger.error(f"MQTT connection error: {exc}")
+    finally:
+        if client is not None:
+            try:
+                client.disconnect()
+            except Exception as exc:
+                logger.warning(f"MQTT disconnect failed: {exc}")
+            if loop_started:
+                try:
+                    client.loop_stop()
+                except Exception as exc:
+                    logger.warning(f"MQTT network loop cleanup failed: {exc}")
+        with _lifecycle_lock:
+            if mqtt_client is client:
+                mqtt_client = None
+                mqtt_connected = False
+            if _mqtt_thread is threading.current_thread():
+                _mqtt_thread = None
+        logger.info("MQTT stopped.", "🔌")
+
+
 def start_mqtt():
-    global mqtt_client
+    """Start at most one MQTT owner; shutdown is terminal for this process."""
+    global _mqtt_thread
     if not mqtt_available():
         logger.info("MQTT not configured, skipping.")
         return
-
-    mqtt_client = mqtt.Client()
-    mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-    mqtt_client.on_connect = on_connect
-    mqtt_client.on_message = on_message
-
-    def connect_with_retry():
-        while True:
-            try:
-                mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
-                mqtt_client.loop_start()
-                mqtt_publish("billy/state", "idle", retain=True)
-                with contextlib.suppress(Exception):
-                    from .mood import mood_manager
-
-                    mood_manager.publish()
-                with contextlib.suppress(Exception):
-                    # Song mode can pick/play songs while offline; republish the
-                    # locally persisted last-song state once MQTT is back.
-                    from .song_manager import song_manager
-
-                    last_song = song_manager.get_last_song()
-                    if last_song:
-                        mqtt_publish(
-                            "billy/song/last", last_song, retain=True, retry=False
-                        )
-                return
-            except Exception as e:
-                logger.error(f"MQTT connection error: {e}")
-                time.sleep(5)
-
-    threading.Thread(target=connect_with_retry, daemon=True).start()
+    with _lifecycle_lock:
+        if _shutdown_requested.is_set() or _mqtt_thread is not None:
+            return
+        _mqtt_thread = threading.Thread(
+            target=_mqtt_worker, name="billy-mqtt", daemon=True
+        )
+        try:
+            _mqtt_thread.start()
+        except Exception:
+            _mqtt_thread = None
+            raise
 
 
-def stop_mqtt():
-    global mqtt_client
-    if mqtt_client:
-        mqtt_client.loop_stop()
-        mqtt_client.disconnect()
-        logger.info("MQTT disconnected.", "🔌")
+def stop_mqtt(*, wait=True, timeout=2.0):
+    """Request cleanup without racing startup or delaying other hardware cleanup."""
+    global mqtt_connected
+    deadline = time.monotonic() + max(0, timeout)
+    _shutdown_requested.set()
+    mqtt_connected = False
+    if not wait:
+        # A Paho callback must return before the owner can join its network loop.
+        return
+    if not _lifecycle_lock.acquire(timeout=max(0, deadline - time.monotonic())):
+        logger.warning("MQTT startup is still finishing; cleanup deferred.")
+        return
+    try:
+        worker = _mqtt_thread
+        mqtt_connected = False
+    finally:
+        _lifecycle_lock.release()
+    if worker is not None and worker is not threading.current_thread():
+        worker.join(timeout=max(0, deadline - time.monotonic()))
+        if worker.is_alive():
+            logger.warning("MQTT cleanup is still finishing in the background.")
 
 
 def mqtt_publish(topic, payload, retain=True, retry=True):
-    global mqtt_client, mqtt_connected
+    global _last_state
+    if _shutdown_requested.is_set():
+        return
 
     if topic == "billy/state":
+        _last_state = payload
         set_status_led_state(str(payload))
 
     if mqtt_available():
-        if not mqtt_client or not mqtt_connected:
-            if retry:
-                _request_reconnect()
+        client = mqtt_client
+        if client is None or not mqtt_connected:
+            # Keep retry in the public signature for existing callers. Paho's
+            # running network loop retries regardless of individual publishes.
             logger.verbose(
                 f"MQTT not connected. Skipping publish {topic}={payload}", "🔌"
             )
             return
 
         try:
-            mqtt_client.publish(topic, payload, retain=retain)
+            client.publish(topic, payload, retain=retain)
             logger.verbose(f"MQTT publish: {topic} = {payload} (retain={retain})", "📡")
         except Exception as e:
             logger.error(f"MQTT publish failed: {e}")
@@ -500,6 +539,8 @@ def mqtt_stop_listening():
 
 
 def on_message(client, userdata, msg):
+    if _shutdown_requested.is_set() or client is not mqtt_client:
+        return
     logger.verbose(f"MQTT message received: {msg.topic} = {msg.payload.decode()}", "📩")
     if msg.topic == "billy/command":
         command = msg.payload.decode().strip().lower()
@@ -511,7 +552,7 @@ def on_message(client, userdata, msg):
                 stop_all_motors()
             except Exception as e:
                 logger.warning(f"Error stopping motors: {e}")
-            stop_mqtt()
+            stop_mqtt(wait=False)
             subprocess.Popen(["sudo", "shutdown", "now"])
 
         elif command == "restart-billy":
@@ -531,7 +572,7 @@ def on_message(client, userdata, msg):
                 stop_all_motors()
             except Exception as e:
                 logger.warning(f"Error stopping motors: {e}")
-            stop_mqtt()
+            stop_mqtt(wait=False)
             subprocess.Popen(["sudo", "shutdown", "-r", "now"])
         elif command == "listen":
             logger.warning(

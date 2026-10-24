@@ -503,22 +503,6 @@ class LiveSession:
                 if m.get('item', {}).get('type') == 'function_call_output'
                 and m['item'].get('call_id') == call_id
             ]
-            if not results and item['name'] in {'switch_persona', 'manage_profile'}:
-                from ..persona_manager import persona_manager
-
-                target = args.get('persona') or args.get('preferred_persona')
-                results = [
-                    {
-                        'type': 'function_call_output',
-                        'call_id': call_id,
-                        'output': json.dumps({
-                            'ok': bool(
-                                target and target == persona_manager.current_persona
-                            ),
-                            'persona': persona_manager.current_persona,
-                        }),
-                    }
-                ]
             result = (
                 results[-1]
                 if results
@@ -584,7 +568,7 @@ class LiveSession:
                     })
             await self.send({
                 'type': 'session.update',
-                'session': {'delegation': {'responses': backend}},
+                'session': {'delegation': {'type': 'responses', 'responses': backend}},
             })
             requested_voice = config.get('audio', {}).get('output', {}).get('voice')
             if requested_voice and requested_voice != self.voice:

@@ -5,7 +5,9 @@ Handles user identification, memory storage, and profile management.
 
 import configparser
 import json
+import unicodedata
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any
 
 from billy_runtime.configuration import ROOT
@@ -448,6 +450,55 @@ class UserProfileManager:
                 continue
 
         return None
+
+    def find_similar_users(self, name: str) -> list[dict[str, str]]:
+        """Suggest possible spelling/transcription matches without loading users.
+
+        Similarity is only a reason to ask, never evidence to select a profile.
+        Compare both the profile ID and display name, ignoring accents/punctuation
+        and the common ph/f spelling variation. No fuzzy match selects a user.
+        """
+
+        def normalized(value):
+            return ''.join(
+                char
+                for char in unicodedata.normalize('NFKD', value.casefold())
+                if char.isalnum()
+            ).replace('ph', 'f')
+
+        query = normalized(name)
+        if not query:
+            return []
+        matches = []
+        for path in sorted(self.profiles_dir.glob('*.ini')):
+            if path.stem.casefold() == 'guest':
+                continue
+            config = configparser.ConfigParser(interpolation=None)
+            try:
+                config.read(path, encoding='utf-8')
+                display_name = config.get('USER_INFO', 'display_name', fallback='')
+            except (OSError, UnicodeError, configparser.Error):
+                display_name = ''
+            score = 0.0
+            for candidate in (path.stem, display_name):
+                candidate = normalized(candidate)
+                if not candidate:
+                    continue
+                ratio = SequenceMatcher(None, query, candidate).ratio()
+                shortest = min(len(query), len(candidate))
+                threshold = 2 / 3 if shortest == 3 else 0.75
+                if query == candidate or (shortest >= 3 and ratio >= threshold):
+                    score = max(score, ratio)
+            if score:
+                matches.append((
+                    score,
+                    {
+                        'name': path.stem.title(),
+                        'display_name': display_name or path.stem.title(),
+                    },
+                ))
+        matches.sort(key=lambda entry: (-entry[0], entry[1]['name']))
+        return [entry for _, entry in matches]
 
     def identify_user(
         self, name: str, confidence: str = "medium"

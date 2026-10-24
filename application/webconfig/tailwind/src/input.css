@@ -417,6 +417,11 @@ label.bg-rose-600:active {
     transition: 250ms all;
 }
 
+/* Keep the two sticky actions apart even with no log lines between them. */
+#log-output {
+    min-height: 2rem;
+}
+
 #log-container.log-fullscreen {
     position: fixed !important;
     inset: 0 !important;
