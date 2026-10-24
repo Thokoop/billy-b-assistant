@@ -115,5 +115,5 @@ def format_timing(values, expected_per_s):
             )
             if key in values
         )
-        + " (timing maxima; delivery to phone unmeasured)"
+        + " (timing maxima; delivery to device unmeasured)"
     )

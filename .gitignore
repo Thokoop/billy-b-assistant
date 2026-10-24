@@ -123,6 +123,7 @@ test/
 !/tests/webconfig/test_logs.cjs
 !/tests/webconfig/test_live.cjs
 !/tests/webconfig/test_badges.cjs
+!/tests/webconfig/test_settings_navigation.cjs
 /.ci-results/
 
 !/tests/deployment/

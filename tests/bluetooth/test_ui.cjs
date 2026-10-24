@@ -216,10 +216,10 @@ test('failed disconnect remains an error and keeps Disconnect available',async()
  const live=state({devices:[{Address:'AA',Paired:true,Connected:true}]});
  const h=setup({live});h.run(btSource);h.c.window.BluetoothSettings.init();
  h.fetch=async(url,options)=>options?.method==='POST'
-  ? {ok:false,json:async()=>({error:'Phone is still connected'})}
+  ? {ok:false,json:async()=>({error:'Device is still connected'})}
   : {ok:true,json:async()=>live};
  h.root.get('bt-devices').children[0].children[0].dispatchEvent({type:'click'});await flush();
- assert.equal(h.root.get('bt-error').textContent,'Phone is still connected');
+ assert.equal(h.root.get('bt-error').textContent,'Device is still connected');
  assert.equal(h.root.get('bt-devices').children[0].dataset.selected,'true');
  assert.equal(h.root.get('bt-devices').children[0].children[0].disabled,false);
 });
@@ -412,7 +412,7 @@ test('pairing instructions follow the local adapter name without renaming paired
     const h = setup({live: state({adapter: {Powered: true, Alias: 'Billy-kitchen'}, pairing_seconds: 90})});
     h.run(btSource); h.c.window.BluetoothSettings.init();
     assert.equal(h.root.get('bt-pair-hint').textContent,
-        'Select Billy-kitchen in your device’s Bluetooth settings, then confirm pairing on your phone.');
+        'Select Billy-kitchen in your device’s Bluetooth settings, then confirm pairing on your device.');
     h.status(state({adapter: {Powered: true, Alias: 'Billy-office'}, pairing_seconds: 80}));
     assert.match(h.root.get('bt-pair-hint').textContent, /Select Billy-office /);
 });
@@ -447,7 +447,7 @@ test('an empty device list does not hide faults or Bluetooth setup guidance', ()
         [state({adapter: {Powered: false}}), 'Bluetooth is off.'],
         [state({audio: {state: 'error', error: 'Audio unavailable'}}), 'Bluetooth audio failed: Audio unavailable'],
         [state({error: 'Adapter unavailable'}), 'Bluetooth unavailable: Adapter unavailable'],
-        [state({setup: {state: 'installing'}}), 'After setup, you can pair your phone to play music and make calls.'],
+        [state({setup: {state: 'installing'}}), 'After setup, you can pair your device to play music and make calls.'],
     ]) {
         h.status(snapshot);
         assert.equal(audio.hidden, false);

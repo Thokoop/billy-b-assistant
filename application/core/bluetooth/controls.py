@@ -50,7 +50,7 @@ def _address(route):
         r"bluez_input\.([0-9a-fA-F]{2}(?:_[0-9a-fA-F]{2}){5})\..+", route[0]
     )
     if not match:
-        raise RuntimeError("Cannot identify the phone for this Bluetooth route")
+        raise RuntimeError("Cannot identify the device for this Bluetooth route")
     return match[1].replace("_", ":").upper()
 
 
@@ -155,7 +155,7 @@ def _exit_worker(snapshot, paused, epoch):
             )
         except Exception as exc:
             logger.warning(
-                f"Could not pause phone while leaving Bluetooth media: {exc}"
+                f"Could not pause device while leaving Bluetooth media: {exc}"
             )
         with _lock:
             if epoch != _epoch:
@@ -281,11 +281,11 @@ async def _toggle_media(bus, address, resume_player, guard, *, pause_only=False)
         and _value(interfaces["org.bluez.Device1"], "Connected", False)
     ]
     if len(devices) != 1:
-        raise RuntimeError("Media phone is disconnected or ambiguous")
+        raise RuntimeError("Media device is disconnected or ambiguous")
     device = devices[0]
     control = objects[device].get("org.bluez.MediaControl1", {})
     if not _value(control, "Connected", False):
-        raise RuntimeError("Phone does not expose Bluetooth media controls")
+        raise RuntimeError("Device does not expose Bluetooth media controls")
     players = [
         path
         for path, interfaces in objects.items()
@@ -310,7 +310,7 @@ async def _toggle_media(bus, address, resume_player, guard, *, pause_only=False)
     elif status in {"paused", "stopped"}:
         action = "play"
     else:
-        raise RuntimeError("Phone did not report a usable media playback state")
+        raise RuntimeError("Device did not report a usable media playback state")
     interface = await _interface(bus, BLUEZ, player, PLAYER)
     _check(guard)
     if action == "pause":
@@ -334,7 +334,9 @@ async def _hangup(bus, address, guard):
         if _value(interfaces.get(GATEWAY, {}), "Address", "").upper() == address
     ]
     if len(gateways) != 1:
-        raise RuntimeError("Cannot identify the call's phone in the Telephony service")
+        raise RuntimeError(
+            "Cannot identify the device for this call in the Telephony service"
+        )
     gateway = gateways[0]
     calls = await _objects(bus, TELEPHONY, gateway)
     candidates = [

@@ -55,4 +55,4 @@ def test_reports_current_stall_and_gap_across_report_boundaries():
     counts.update(captured=2, sent=2)
     result = timing.snapshot(3, counts, 0)
     assert result["send_gap_ms"] == pytest.approx(2000)
-    assert "delivery to phone unmeasured" in module.format_timing(result, 100)
+    assert "delivery to device unmeasured" in module.format_timing(result, 100)

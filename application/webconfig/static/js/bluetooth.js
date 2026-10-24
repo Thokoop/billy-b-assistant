@@ -115,7 +115,7 @@ window.BluetoothSettings = (() => {
                 return;
             }
             const setup = state.setup || {};
-            el('bt-pair-hint').textContent = `Select ${state.adapter?.Alias || 'Billy'} in your device’s Bluetooth settings, then confirm pairing on your phone.`;
+            el('bt-pair-hint').textContent = `Select ${state.adapter?.Alias || 'Billy'} in your device’s Bluetooth settings, then confirm pairing on your device.`;
             const connectedDevice = (state.devices || []).some((device) => device.Connected);
             el('bt-setup').textContent = setup.message || '';
             el('bt-setup').hidden = setup.state === 'ready';
@@ -129,7 +129,7 @@ window.BluetoothSettings = (() => {
             setDisabled(el('bt-pair'), setup.state !== 'ready');
             if (setup.state !== 'ready') {
                 el('bt-audio').hidden = false;
-                el('bt-audio').textContent = 'After setup, you can pair your phone to play music and make calls.';
+                el('bt-audio').textContent = 'After setup, you can pair your device to play music and make calls.';
                 el('bt-pending').hidden = true;
                 el('bt-pair-hint').hidden = true;
                 el('bt-pair-stop').hidden = true;
@@ -164,8 +164,8 @@ window.BluetoothSettings = (() => {
             if (pending) {
                 el('bt-request').textContent = pending.name;
                 el('bt-confirm-hint').textContent = pending.passkey
-                    ? 'Check the code and tap Pair on your phone.'
-                    : 'Complete pairing on your phone.';
+                    ? 'Check the code and select Pair on your device.'
+                    : 'Complete pairing on your device.';
             }
             const audioState = state.audio || {};
             const list = el('bt-devices');
@@ -281,7 +281,7 @@ window.BluetoothSettings = (() => {
                         // other destructive action in the UI confirms.
                         if (action === 'forget' && !window.confirm(
                             `Forget ${name.textContent}? You will need to pair it again, `
-                            + 'and remove Billy from the phone\u2019s Bluetooth settings first.',
+                            + 'and remove Billy from the device\u2019s Bluetooth settings first.',
                         )) return;
                         act(action, { address: device.Address });
                     });
@@ -351,7 +351,7 @@ window.BluetoothSettings = (() => {
                 ? 'No Bluetooth audio playing.' : 'No device connected.';
             const labels = {
                 idle: idleLabel,
-                waiting: 'Waiting for phone audio',
+                waiting: 'Waiting for device audio',
                 media_audio: `Playing media${audioDeviceName(state, audio) || ''}`,
                 call_audio: `On a call${audioDeviceName(state, audio) || ''} · echo cancellation ${audio.aec ? 'active' : 'off'}`,
                 error: 'Bluetooth audio failed',

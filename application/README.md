@@ -34,9 +34,21 @@ the `current-source` alias and the worker protocol remain unchanged.
 
 For local development, start the same service entry points from the repository
 root. Run Python tests from the root (`python -m pytest`); their configuration
-includes `application/` on the import path. Run frontend build commands from
-`application/webconfig/`, for example `npm run build:css`. For an ad-hoc Python
-command importing `core`, set `PYTHONPATH=application` from the repository root.
+includes `application/` on the import path. For an ad-hoc Python command
+importing `core`, set `PYTHONPATH=application` from the repository root.
+
+Install frontend build dependencies in their current location after cloning,
+moving the checkout or changing the lockfile:
+
+```sh
+cd application/webconfig
+npm ci --include=dev
+npm run build:css
+```
+
+The build uses the locally installed, locked Tailwind CLI and CSS package.
+An installation in the old root-level `webconfig/` directory is not used.
+Edit `tailwind/src/input.css`, then rebuild the tracked `static/css/styles.css`.
 
 On a development unit that already runs an unreleased 2.7.0 bootstrap, this
 change also needs the new root launchers and `billy_runtime/entrypoints.py`.

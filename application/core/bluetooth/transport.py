@@ -91,7 +91,7 @@ def select_route(nodes):
     """Fail closed for multiple phones; never send the mic to another device."""
     devices = {node["device"] for node in nodes}
     if len(devices) > 1:
-        raise RuntimeError("Disconnect other phones before starting the audio test")
+        raise RuntimeError("Disconnect other devices before starting the audio test")
     sources = [node for node in nodes if node["kind"] == "Audio/Source"]
     sinks = [node for node in nodes if node["kind"] == "Audio/Sink"]
     if len(sources) > 1 or len(sinks) > 1:

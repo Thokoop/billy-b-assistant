@@ -59,13 +59,19 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
+      - name: Install locked frontend build dependencies
+        working-directory: application/webconfig
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Build CSS
+        working-directory: application/webconfig
+        run: npm run build:css
       - name: Check JavaScript syntax
         run: |
           while IFS= read -r -d '' file; do
             node --check "$file"
           done < <(git ls-files -z 'application/webconfig/static/js/*.js')
       - name: Test Bluetooth, voice settings and restart/recovery UI
-        run: node --test tests/bluetooth/test_ui.cjs tests/webconfig/test_restart.cjs tests/webconfig/test_updates.cjs tests/webconfig/test_release_channels.cjs tests/webconfig/test_logs.cjs tests/webconfig/test_live.cjs tests/webconfig/test_badges.cjs
+        run: node --test tests/bluetooth/test_ui.cjs tests/webconfig/test_restart.cjs tests/webconfig/test_updates.cjs tests/webconfig/test_release_channels.cjs tests/webconfig/test_logs.cjs tests/webconfig/test_live.cjs tests/webconfig/test_badges.cjs tests/webconfig/test_settings_navigation.cjs
 
   regression-gate:
     # Use this stable name as the required status check in repository rules.

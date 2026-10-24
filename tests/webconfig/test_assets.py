@@ -26,9 +26,12 @@ def fixture():
 
 def test_individual_scripts_available_in_dependency_order():
     app, html, urls = fixture()
-    assert len(urls) == len(set(urls)) == 25
+    assert len(urls) == len(set(urls)) == 26
     assert urls.index('/static/js/live-captions.js') < urls.index(
         '/static/js/websocket.js'
+    )
+    assert urls.index('/static/js/settings-navigation.js') < urls.index(
+        '/static/js/page-router.js'
     )
     assert urls[-2:] == ['/static/js/page-router.js', '/static/js/init.js']
     assert urls.index('/static/js/ui-helpers.js') < urls.index(

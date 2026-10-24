@@ -80,22 +80,31 @@ const MainPageRouter = (() => {
         }
 
         if (pageName === "settings") {
+            const form = document.getElementById("config-form");
+            // Existing form nodes hold the draft, including file inputs. A
+            // reconnect/return visit must not refill them from saved config.
+            if (window.SettingsNavigation?.isInitialized(form)) {
+                window.SettingsNavigation.restore();
+                window.ServiceStatus?.fetchStatus?.();
+                window.BillyVersionUI?.refresh();
+                return;
+            }
             const cfg = await AppConfig.load();
             SettingsForm.handleSettingsSave();
             SettingsForm.saveDropdownSelections();
-            SettingsForm.populateDropdowns(cfg);
+            await SettingsForm.populateDropdowns(cfg);
             SettingsForm.initBooleanToggles();
             SettingsForm.initStepSliders();
             SettingsForm.initShowTooltipsToggle();
             await SettingsForm.initHostFields();
-            SettingsForm.initHomeAssistantAgents();
+            const agentsReady = SettingsForm.initHomeAssistantAgents();
             SettingsForm.initMouthArticulationSlider();
             SettingsForm.initStatusLedBrightnessSlider();
             SettingsForm.initMouthBoostSlider();
             SettingsForm.bindFactoryReset();
             SettingsForm.bindEnvEditorCard();
             SettingsForm.bindNewsSources();
-            SettingsForm.bindWakeWordKeywordUpload();
+            const wakeWordsReady = SettingsForm.bindWakeWordKeywordUpload();
             SettingsForm.bindCameraPreview();
             SettingsForm.bindWiFiSection();
             SettingsForm.bindApiProviderFields();
@@ -105,6 +114,8 @@ const MainPageRouter = (() => {
                 // Resolves the labels itself; see init.js.
                 await window.AudioPanel.loadAudioDeviceSelectors?.();
             }
+            await Promise.allSettled([agentsReady, wakeWordsReady]);
+            window.SettingsNavigation?.init();
             window.ServiceStatus?.fetchStatus?.();
             window.LogPanel?.bindUI?.(cfg);
             window.BillyVersionUI?.refresh();
@@ -116,14 +127,30 @@ const MainPageRouter = (() => {
         window.MobileSplitView?.bindAll();
     };
 
+    let settingsDraft = null;
+
     const swapMainContent = (nextMain) => {
         const currentMain = getMainContent();
         if (!currentMain || !nextMain) return null;
+        if (currentMain.dataset.page === "settings") {
+            settingsDraft = window.SettingsNavigation?.hasDraft(currentMain.querySelector("#config-form"))
+                ? {main: currentMain, title: document.title} : null;
+        }
         currentMain.replaceWith(nextMain);
         return nextMain;
     };
 
     const loadPage = async (url, { pushState = true } = {}) => {
+        if (getPageNameFromPath(new URL(url, window.location.origin).pathname) === "settings" && settingsDraft) {
+            const draft = settingsDraft;
+            swapMainContent(draft.main);
+            document.title = draft.title;
+            if (pushState) window.history.pushState({url}, "", url);
+            updateActiveNav("settings");
+            await initializePage("settings");
+            window.scrollTo({top: 0, behavior: "auto"});
+            return;
+        }
         const response = await fetch(url, {
             headers: {
                 "X-Requested-With": "XMLHttpRequest",
@@ -197,6 +224,10 @@ const MainPageRouter = (() => {
         window.addEventListener("popstate", async () => {
             const pageName = getPageNameFromPath(window.location.pathname);
             if (!pageName) return;
+            if (pageName === "settings" && getMainContent()?.dataset.page === "settings") {
+                window.SettingsNavigation?.restore();
+                return;
+            }
 
             try {
                 await loadPage(window.location.href, { pushState: false });

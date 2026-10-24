@@ -541,7 +541,8 @@ const MobileSplitView = (() => {
     };
 
     const animateStateChange = (root, nextState) => {
-        if (!root || !isMobileViewport() || !window.Element?.prototype?.animate) {
+        if (!root) return;
+        if (root.hasAttribute("data-mobile-split-instant") || !isMobileViewport() || !window.Element?.prototype?.animate) {
             root.dataset.mobileSplitState = nextState;
             applyStaticState(root);
             return;

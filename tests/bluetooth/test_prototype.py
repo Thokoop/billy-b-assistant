@@ -40,7 +40,7 @@ def test_never_route_microphone_to_different_phone():
         {'name': 'one', 'kind': 'Audio/Source', 'device': 'A'},
         {'name': 'two', 'kind': 'Audio/Sink', 'device': 'B'},
     ]
-    with pytest.raises(RuntimeError, match='other phones'):
+    with pytest.raises(RuntimeError, match='other devices'):
         select_route(nodes)
     nodes[1]['device'] = 'A'
     assert select_route(nodes) == ('one', 'two')

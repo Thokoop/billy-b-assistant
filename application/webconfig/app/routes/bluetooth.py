@@ -120,7 +120,7 @@ def action(action):
         elif action == 'pair-stop':
             result = manager.run(manager.stop_pairing())
         elif action == 'confirm':
-            raise ValueError('Confirm pairing on your phone; reload System Settings')
+            raise ValueError('Confirm pairing on your device; reload System Settings')
         elif action == 'auto-connect':
             result = manager.run(
                 manager.set_auto_connect(data.get('address'), data.get('enabled'))

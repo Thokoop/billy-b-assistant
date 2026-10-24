@@ -265,23 +265,94 @@
         0 10px 24px rgba(245, 158, 11, 0.16);
 }
 
-.settings-columns {
-    display: block;
+.settings-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
 }
-
-.settings-card {
-    display: block;
-    break-inside: avoid;
-    -webkit-column-break-inside: avoid;
-    page-break-inside: avoid;
+.settings-menu, .settings-detail { min-width: 0; }
+.settings-menu {
+    padding: 1rem;
+    border: 1px solid var(--color-zinc-700);
+    border-radius: .75rem;
+    background: rgb(24 24 27 / .4);
 }
-
+.settings-menu-title { font-size: 1.25rem; font-weight: 600; margin: .25rem .5rem 1.25rem; }
+.settings-menu-group + .settings-menu-group { margin-top: 1.25rem; }
+.settings-menu-group > h3 {
+    margin: 0 .5rem .5rem;
+    color: #b5c9d1;
+    font-size: .75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}
+.settings-menu-item {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    width: 100%;
+    min-height: 2.9rem;
+    padding: .65rem .75rem;
+    border: 1px solid transparent;
+    border-radius: .6rem;
+    background: transparent;
+    text-align: left;
+    color: #e2e8f0;
+    cursor: pointer;
+}
+.settings-menu-item:hover { background: rgb(255 255 255 / .07); }
+.settings-menu-item[aria-current="true"] {
+    color: #6ee7b7;
+    border-color: rgb(52 211 153 / .5);
+    background: rgb(52 211 153 / .12);
+}
+.settings-menu-item > .material-icons { font-size: 1.25rem; }
+.settings-menu-label { flex: 1; }
+.settings-dirty-dot { width: .45rem; height: .45rem; background: #fbbf24; border-radius: 50%; flex-shrink: 0; }
+.settings-update-dot { align-items: center; justify-content: center; width: 1rem; height: 1rem; border-radius: 50%; background: #fbbf24; color: #18181b; font-size: .75rem; font-weight: 700; }
+.settings-workspace [data-settings-panel][hidden], .settings-menu [hidden] { display: none !important; }
+.settings-card { min-width: 0; display: block; }
+.settings-panel-title { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-bottom: 1.5rem; font-size: 1.2rem; font-weight: 600; color: #e2e8f0; }
+.settings-panel-title > .material-icons { color: #34d399; }
+.settings-panel-title > [data-release-badge] { margin-left: auto; }
+.settings-back { margin-bottom: 1rem; }
+.settings-save-bar {
+    position: sticky;
+    bottom: 100px;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .75rem 1rem;
+    background: color-mix(in oklab, var(--color-zinc-900) 50%, transparent);
+    border: 1px solid var(--color-zinc-700);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: .75rem;
+    box-shadow: 0 6px 24px #0003;
+}
+#settings-save-status { flex: 1 1 10rem; font-size: .8rem; color: #b5c9d1; }
+#settings-save-status.has-changes { color: #fbbf24; }
 @media (min-width: 768px) {
-    .settings-columns {
-        column-count: 2;
-        column-gap: 1rem;
+    .settings-workspace { grid-template-columns: 240px minmax(0, 1fr); }
+    .settings-menu-item > .settings-menu-chevron { display: none; }
+    .settings-menu {
+        position: sticky;
+        top: calc(var(--settings-header-height, 5rem) + 1rem);
+        max-height: max(14rem, calc(100dvh - var(--settings-header-height, 5rem) - 9rem));
+        overflow-y: auto;
     }
+    .settings-save-bar { bottom: 120px; }
 }
+@media (min-width: 1100px) {
+    .settings-workspace { grid-template-columns: 280px minmax(0, 1fr); }
+    .settings-card { padding: 1.5rem; }
+}
+
 
 button.bg-emerald-600,
 a.bg-emerald-600,
@@ -1439,8 +1510,5 @@ button {
 .reduce-motion .status-badge-info { animation: none; }
 
 @media (max-width: 360px) {
-    #section-software-version > h3 { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; }
-    #section-software-version > h3 > span:nth-child(2) { text-align: center; }
-    #section-software-version > h3 > .material-icons:last-child { grid-column: 3; grid-row: 1; }
-    #software-update-badge { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+    .settings-panel-title > #software-update-badge { margin-left: 0; }
 }

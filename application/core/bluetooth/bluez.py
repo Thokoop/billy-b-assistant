@@ -313,7 +313,7 @@ class BluezController:
                 "id": secrets.token_hex(16),
                 "device": device,
                 "passkey": passkey,
-                "name": props.get("Alias", Variant("s", "Phone")).value,
+                "name": props.get("Alias", Variant("s", "Device")).value,
             }
             # Opening the short pairing window is Billy's local consent.
             # Return immediately; the phone still asks its user to pair.
@@ -369,7 +369,7 @@ class BluezController:
                 raise RuntimeError("Bluetooth device is no longer paired or available")
             connected = props.get("Connected", Variant("b", False)).value
             if saw_connected and not connected:
-                raise RuntimeError("Phone disconnected while connecting media audio")
+                raise RuntimeError("Device disconnected while connecting media audio")
             saw_connected = saw_connected or connected
             if connected and media_connected(current, path):
                 return
@@ -411,7 +411,7 @@ class BluezController:
                             exc.text,
                         )
                         raise RuntimeError(
-                            "Media audio could not connect. Check Bluetooth on your phone."
+                            "Media audio could not connect. Check Bluetooth on your device."
                         ) from exc
             # A successful D-Bus return alone does not mean audio is ready yet.
             await asyncio.sleep(0.25)
@@ -458,7 +458,7 @@ class BluezController:
             props = interfaces.get("org.bluez.Device1", {})
             if props.get("Address", Variant("s", "")).value == address:
                 if not props.get("Paired", Variant("b", False)).value:
-                    raise ValueError("Pair this device from your phone first")
+                    raise ValueError("Pair this device first")
                 await asyncio.to_thread(
                     bluetooth_preferences.set_enabled, address, enabled
                 )
@@ -498,7 +498,7 @@ class BluezController:
             .get("Paired", Variant("b", False))
             .value
         ):
-            raise ValueError("Pair this device from your phone first")
+            raise ValueError("Pair this device first")
 
         async def disconnect_others():
             for path, interfaces in objects.items():
@@ -517,14 +517,14 @@ class BluezController:
                 for path, interfaces in current.items()
             ):
                 raise RuntimeError(
-                    "Another phone is still connected. Try selecting your device again."
+                    "Another device is still connected. Try selecting your device again."
                 )
 
         try:
             await asyncio.wait_for(disconnect_others(), timeout=10)
         except TimeoutError as exc:
             raise RuntimeError(
-                "The current phone could not disconnect. The new connection was not started."
+                "The current device could not disconnect. The new connection was not started."
             ) from exc
         # Re-read pairing and availability after teardown, before connecting.
         return await self._device_action(address, "connect")
@@ -548,7 +548,7 @@ class BluezController:
                     action == "connect"
                     and not props.get("Paired", Variant("b", False)).value
                 ):
-                    raise ValueError("Pair this device from your phone first")
+                    raise ValueError("Pair this device first")
                 device = await self.interface(path, "org.bluez.Device1")
                 if action == "connect":
                     try:
@@ -559,7 +559,7 @@ class BluezController:
                     except TimeoutError as exc:
                         raise RuntimeError(
                             "Media audio could not connect in time. "
-                            f"Select {device_name()} on your phone or try again."
+                            f"Select {device_name()} on your device or try again."
                         ) from exc
                 elif action == "disconnect":
                     try:
@@ -568,7 +568,7 @@ class BluezController:
                         )
                     except TimeoutError as exc:
                         raise RuntimeError(
-                            f"Phone is still connected. Disconnect {device_name()} in your phone's Bluetooth settings."
+                            f"Device is still connected. Disconnect {device_name()} in your device's Bluetooth settings."
                         ) from exc
                 else:
                     raise ValueError("Unknown device action")

@@ -120,6 +120,7 @@ const SettingsForm = (() => {
     const populateCameraHardwareDropdown = async (cfg = null, preferredValue = null) => {
         const select = document.getElementById("CAMERA_HARDWARE");
         if (!select) return;
+        const selectionAtRequest = select.value;
 
         const fallbackOptions = [
             { value: "none", label: "None" },
@@ -149,6 +150,8 @@ const SettingsForm = (() => {
                 }
                 data = await response.json();
             }
+            // Discovery can finish after the user has chosen a camera.
+            if (select.value !== selectionAtRequest) return;
             renderOptions(data.options);
 
             const savedSelection = localStorage.getItem("dropdown_CAMERA_HARDWARE");
@@ -167,6 +170,7 @@ const SettingsForm = (() => {
             localStorage.setItem("dropdown_CAMERA_HARDWARE", select.value);
         } catch (error) {
             console.error("Failed to load detected camera devices:", error);
+            if (select.value !== selectionAtRequest) return;
             if (select.options.length === 0) {
                 renderOptions(fallbackOptions);
             }
@@ -177,6 +181,7 @@ const SettingsForm = (() => {
                 "none"
             );
         }
+        return select.value;
     };
 
     const bindCameraPreview = () => {
@@ -295,7 +300,8 @@ const SettingsForm = (() => {
         }
     };
 
-    const populateDropdowns = (cfg) => {
+    const populateDropdowns = async (cfg) => {
+        let cameraReady;
         populateUpdateChannel(cfg);
         // Populate dropdown values with saved configuration
         const dropdowns = [
@@ -326,7 +332,7 @@ const SettingsForm = (() => {
             const element = document.getElementById(id);
             if (element) {
                 if (id === 'CAMERA_HARDWARE') {
-                    populateCameraHardwareDropdown(cfg);
+                    cameraReady = populateCameraHardwareDropdown(cfg);
                     return;
                 }
                 // First try to get from localStorage (user's last selection)
@@ -381,6 +387,7 @@ const SettingsForm = (() => {
             cameraRotationIcon.style.transform = `rotate(${rotation}deg)`;
         }
         syncApiProviderFields();
+        await cameraReady;
     };
 
     // Binds each BOOLEAN_SELECT_IDS field's visible iOS toggle to its hidden
@@ -453,6 +460,8 @@ const SettingsForm = (() => {
             }
             if (saveDropdownButton) saveDropdownButton.disabled = true;
 
+            const saveSnapshot = window.SettingsNavigation?.snapshot(this);
+            this.dataset.saving = "true";
             try {
 
             const formData = new FormData(this);
@@ -540,11 +549,11 @@ const SettingsForm = (() => {
                 window.ReleaseNotes?.reload?.();
             }
 
-            // Re-read the saved .env through webconfig so controls stay aligned
-            // with normalized server values without restarting the web UI.
+            // Refresh the config cache after saving. A mounted settings draft
+            // keeps its inputs: edits made during this request are still unsaved.
             try {
                 const refreshedConfig = await ConfigService.fetchConfig(true);
-                if (refreshedConfig) {
+                if (refreshedConfig && !saveSnapshot) {
                     refreshFromConfig(refreshedConfig);
                 }
             } catch (refreshError) {
@@ -571,7 +580,7 @@ const SettingsForm = (() => {
                 } catch (error) {
                     // The rest of the settings did save; say what did not.
                     console.error("Failed to set timezone:", error);
-                    timezoneInput.value = oldTimezone;
+                    saveSnapshot?.delete(timezoneInput);
                     showNotification(`Settings saved, but the timezone could not be changed: ${error.message}`, "warning", 6000);
                 }
             }
@@ -584,10 +593,16 @@ const SettingsForm = (() => {
                 });
                 const hostResult = await hostResponse.json();
                 if (hostResult.hostname) {
+                    hostnameInput.setAttribute("data-original", hostResult.hostname);
                     hostnameChanged = true;
                     showNotification(`Hostname updated to ${hostResult.hostname}.local`, "success", 5000);
+                } else {
+                    saveSnapshot?.delete(hostnameInput);
+                    showNotification("Settings saved, but the hostname could not be changed", "warning", 6000);
                 }
             }
+
+            window.SettingsNavigation?.markSaved(this, saveSnapshot);
 
             if (portChanged || hostnameChanged) {
                 try {
@@ -619,6 +634,7 @@ const SettingsForm = (() => {
                 console.error("Failed to save settings:", error);
                 showNotification(`Settings were not saved: ${error.message}`, "error", 6000);
             } finally {
+                delete this.dataset.saving;
                 if (saveButton) {
                     saveButton.disabled = false;
                     saveButton.classList.remove("opacity-70", "cursor-not-allowed");
@@ -1124,6 +1140,8 @@ const SettingsForm = (() => {
     }
 
     const refreshFromConfig = (config) => {
+        const form = document.getElementById("config-form");
+        if (window.SettingsNavigation?.hasDraft(form)) return;
         populateUpdateChannel(config);
         // Update dropdowns with new configuration values
         const dropdowns = [
@@ -1151,7 +1169,7 @@ const SettingsForm = (() => {
         ) {
             followUpRetryInput.value = String(config.FOLLOW_UP_RETRY_LIMIT);
         }
-        populateCameraHardwareDropdown(config);
+        const cameraReady = populateCameraHardwareDropdown(config);
         const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
         const cameraRotationLabel = document.getElementById("camera-rotation-label");
         const cameraRotationIcon = document.getElementById("camera-rotation-icon");
@@ -1175,6 +1193,13 @@ const SettingsForm = (() => {
             mouthBoost.value = config.MOUTH_BOOST;
         }
         syncApiProviderFields();
+        if (form && window.SettingsNavigation?.isInitialized(form)) {
+            window.SettingsNavigation.markSaved(form, window.SettingsNavigation.snapshot(form));
+            const camera = form.querySelector('#CAMERA_HARDWARE');
+            cameraReady.then(value => {
+                if (camera && value !== undefined) window.SettingsNavigation.markSaved(form, new Map([[camera, value]]));
+            });
+        }
     };
 
     const bindWakeWordKeywordUpload = () => {
@@ -1239,11 +1264,11 @@ const SettingsForm = (() => {
             }
         };
 
-        loadWakeWordOptions();
+        const optionsReady = loadWakeWordOptions();
         syncWakeWordProviderFields();
         backendSelect.addEventListener("change", syncWakeWordProviderFields);
 
-        if (!uploadBtn || !fileInput) return;
+        if (!uploadBtn || !fileInput) return optionsReady;
         uploadBtn.addEventListener("click", async () => {
             const file = fileInput.files && fileInput.files[0];
             if (!file) {
@@ -1306,6 +1331,7 @@ const SettingsForm = (() => {
                 uploadBtn.classList.remove("opacity-50", "cursor-not-allowed");
             }
         });
+        return optionsReady;
     };
 
     const syncApiProviderFields = () => {
