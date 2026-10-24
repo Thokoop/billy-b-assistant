@@ -93,6 +93,7 @@ models/
 wakewords/*.ppn
 !wakewords/hey-billy.ppn
 knowledge/
+AGENTS.md
 # Local development tests and experiments
 test/
 .pytest_cache/

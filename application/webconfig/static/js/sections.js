@@ -45,15 +45,11 @@ const Sections = (() => {
                 }
             }
 
-            [...section.children].filter(child => !child.hasAttribute('data-disclosure-panel')).forEach(child => {
-                if (child !== header && !child.classList.contains('force-hidden')) {
-                    child.classList.toggle('hidden', collapsed);
-                }
-            });
+            // CSS hides section content through the parent state. Leave each
+            // child's own visibility to its provider/status controls.
 
             header.addEventListener('click', () => {
                 const collapsed = section.classList.toggle('collapsed');
-                [...section.children].filter(child => !child.hasAttribute('data-disclosure-panel')).forEach(child => { if (child !== header) child.classList.toggle('hidden', collapsed); });
                 icon.classList.toggle('rotate-180', !collapsed);
                 icon.classList.toggle('rotate-0', collapsed);
                 header.classList.toggle('mb-4', !collapsed);

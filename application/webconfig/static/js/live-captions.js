@@ -13,6 +13,7 @@
     const expandIcon = document.getElementById('captions-expand-icon');
     if (!button || !panel || !panelHost || !content || !dialog || !expandButton || !expandIcon
         || !transcriptContent || !transcriptTurns || !transcriptEmpty || !title) return;
+    const deviceName = panel.dataset.deviceName || 'Billy';
     const empty = document.getElementById('live-captions-empty');
     const rows = Object.fromEntries(['user', 'billy'].map(speaker => [speaker, {
         node: document.getElementById(`live-caption-${speaker}`),
@@ -103,7 +104,7 @@
                 transcriptRows.push(row);
             }
             row.node.dataset.speaker = turn.speaker;
-            row.speaker.textContent = turn.speaker === 'user' ? 'You' : 'Billy';
+            row.speaker.textContent = turn.speaker === 'user' ? 'You' : deviceName;
             const text = turn.text.trim();
             if (row.text.textContent !== text) row.text.textContent = text;
             row.node.hidden = !text;

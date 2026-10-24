@@ -199,7 +199,7 @@ test('disconnect refresh and late cached live snapshot retain latest device stat
  const row=h.root.get('bt-devices').children[0];
  assert.equal(row.children[0].children[1].children[1].textContent,'Disconnected');
  assert.deepEqual(row.children[1].children.filter(c=>c.type==='button').map(b=>b.children[1].textContent),['Forget']);
- assert.equal(h.root.get('bt-audio').textContent,'No phone connected.');
+ assert.equal(h.root.get('bt-audio').textContent,'No device connected.');
  h.status(state({sampled_at:13,devices:[phone],audio:{state:'media_audio',source:'bluez_input.AA.0'}}));
  assert.match(h.root.get('bt-audio').textContent,/Playing media/);
 });
@@ -209,7 +209,7 @@ test('newer HTTP measurement wins over cached status received while request was 
  h.run(btSource);h.c.window.BluetoothSettings.init();
  h.status(state({sampled_at:20,devices:[{Address:'AA',Paired:true,Connected:true}]}));
  finish({ok:true,json:async()=>state({sampled_at:21,devices:[{Address:'AA',Paired:true,Connected:false}]})});await flush();
- assert.equal(h.root.get('bt-audio').textContent,'No phone connected.');
+ assert.equal(h.root.get('bt-audio').textContent,'No device connected.');
 });
 
 test('failed disconnect remains an error and keeps Disconnect available',async()=>{
@@ -405,4 +405,54 @@ test('Forget only sends forget and auto-connect remains a separate sibling contr
  row.children[1].children[0].dispatchEvent({type:'click'});await flush();
  assert.deepEqual(h.requests.filter(r=>r.options?.method==='POST').map(r=>r.url),['/api/bluetooth/forget']);
  assert.equal(row.count('click'),0,'the card wrapper must not capture sibling control clicks');
+});
+
+
+test('pairing instructions follow the local adapter name without renaming paired devices', () => {
+    const h = setup({live: state({adapter: {Powered: true, Alias: 'Billy-kitchen'}, pairing_seconds: 90})});
+    h.run(btSource); h.c.window.BluetoothSettings.init();
+    assert.equal(h.root.get('bt-pair-hint').textContent,
+        'Select Billy-kitchen in your device’s Bluetooth settings, then confirm pairing on your phone.');
+    h.status(state({adapter: {Powered: true, Alias: 'Billy-office'}, pairing_seconds: 80}));
+    assert.match(h.root.get('bt-pair-hint').textContent, /Select Billy-office /);
+});
+
+
+test('empty Bluetooth list has one message and status returns when a device appears', () => {
+    const h = setup({live: state()}); h.run(btSource); h.c.window.BluetoothSettings.init();
+    const list = h.root.get('bt-devices'), audio = h.root.get('bt-audio');
+    assert.equal(audio.hidden, true);
+    assert.equal(list.children.length, 1);
+    assert.equal(list.children[0].textContent, 'No devices paired yet.');
+    assert.equal(h.root.get('bt-pair').hidden, false);
+    const device = {Address: 'AA', Alias: 'Laptop', Paired: true, Connected: false};
+    h.status(state({devices: [device]}));
+    assert.equal(audio.hidden, false);
+    assert.equal(audio.textContent, 'No device connected.');
+    assert.equal(list.children.length, 1);
+    h.status(state({devices: [{...device, Connected: true}]}));
+    assert.equal(audio.hidden, false);
+    assert.equal(audio.textContent, 'No Bluetooth audio playing.');
+    h.status(state());
+    assert.equal(audio.hidden, true);
+    assert.equal(list.children.length, 1);
+    assert.equal(list.children[0].textContent, 'No devices paired yet.');
+});
+
+test('an empty device list does not hide faults or Bluetooth setup guidance', () => {
+    const h = setup({live: state()}); h.run(btSource); h.c.window.BluetoothSettings.init();
+    const audio = h.root.get('bt-audio');
+    for (const [snapshot, message] of [
+        [state({adapter: null}), 'No Bluetooth adapter found.'],
+        [state({adapter: {Powered: false}}), 'Bluetooth is off.'],
+        [state({audio: {state: 'error', error: 'Audio unavailable'}}), 'Bluetooth audio failed: Audio unavailable'],
+        [state({error: 'Adapter unavailable'}), 'Bluetooth unavailable: Adapter unavailable'],
+        [state({setup: {state: 'installing'}}), 'After setup, you can pair your phone to play music and make calls.'],
+    ]) {
+        h.status(snapshot);
+        assert.equal(audio.hidden, false);
+        assert.equal(audio.textContent, message);
+        h.status(state());
+        assert.equal(audio.hidden, true);
+    }
 });

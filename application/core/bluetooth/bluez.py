@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import secrets
 import threading
 import time
@@ -25,6 +26,12 @@ MEDIA_RETRY_ERRORS = {
     "org.bluez.Error.NotAvailable",
     "org.bluez.Error.Failed",
 }
+
+
+def device_name():
+    """Match the header's hostname label without changing the remaining letters."""
+    hostname = os.uname().nodename or "billy"
+    return hostname[:1].upper() + hostname[1:]
 
 
 def media_connected(objects, device_path):
@@ -151,6 +158,25 @@ class BluezController:
                     for key, value in props.items()
                     if key in {"Alias", "Powered", "Discoverable"}
                 }
+                # Migrate an existing alias and follow hostname edits without
+                # opening pairing or interrupting any connected devices.
+                name = device_name()
+                if adapter.get("Alias") != name:
+                    try:
+                        await asyncio.wait_for(
+                            self.set_property(
+                                path, "org.bluez.Adapter1", "Alias", "s", name
+                            ),
+                            timeout=1,
+                        )
+                    except Exception:
+                        # Naming is optional; a failed write must not hide devices.
+                        # The next status sample retries and reports the actual alias.
+                        logging.getLogger(__name__).debug(
+                            "Could not update Bluetooth name", exc_info=True
+                        )
+                    else:
+                        adapter["Alias"] = name
             if "org.bluez.Device1" in interfaces:
                 props = interfaces["org.bluez.Device1"]
                 device = {
@@ -200,7 +226,7 @@ class BluezController:
         self.reject_pending()
         for name, sig, value in [
             ("Powered", "b", True),
-            ("Alias", "s", "Billy Bassistant"),
+            ("Alias", "s", device_name()),
             ("DiscoverableTimeout", "u", 120),
             ("PairableTimeout", "u", 120),
             ("Pairable", "b", True),
@@ -322,7 +348,7 @@ class BluezController:
                 if not media_fallback:
                     raise RuntimeError(
                         "Could not connect. Make sure Bluetooth is on and select "
-                        "Billy on your device, then try again."
+                        f"{device_name()} on your device, then try again."
                     ) from exc
             elif exc.type not in {
                 "org.bluez.Error.AlreadyConnected",
@@ -533,7 +559,7 @@ class BluezController:
                     except TimeoutError as exc:
                         raise RuntimeError(
                             "Media audio could not connect in time. "
-                            "Select Billy Bassistant on your phone or try again."
+                            f"Select {device_name()} on your phone or try again."
                         ) from exc
                 elif action == "disconnect":
                     try:
@@ -542,7 +568,7 @@ class BluezController:
                         )
                     except TimeoutError as exc:
                         raise RuntimeError(
-                            "Phone is still connected. Disconnect Billy in your phone's Bluetooth settings."
+                            f"Phone is still connected. Disconnect {device_name()} in your phone's Bluetooth settings."
                         ) from exc
                 else:
                     raise ValueError("Unknown device action")

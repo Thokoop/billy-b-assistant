@@ -97,6 +97,7 @@ window.BluetoothSettings = (() => {
         }
 
         function showError(error) {
+            el('bt-audio').hidden = false;
             el('bt-audio').textContent = `Bluetooth unavailable: ${error.message}`;
             el('bt-pending').hidden = true;
             pending = null;
@@ -114,6 +115,7 @@ window.BluetoothSettings = (() => {
                 return;
             }
             const setup = state.setup || {};
+            el('bt-pair-hint').textContent = `Select ${state.adapter?.Alias || 'Billy'} in your device’s Bluetooth settings, then confirm pairing on your phone.`;
             const connectedDevice = (state.devices || []).some((device) => device.Connected);
             el('bt-setup').textContent = setup.message || '';
             el('bt-setup').hidden = setup.state === 'ready';
@@ -126,13 +128,13 @@ window.BluetoothSettings = (() => {
             });
             setDisabled(el('bt-pair'), setup.state !== 'ready');
             if (setup.state !== 'ready') {
+                el('bt-audio').hidden = false;
                 el('bt-audio').textContent = 'After setup, you can pair your phone to play music and make calls.';
                 el('bt-pending').hidden = true;
                 el('bt-pair-hint').hidden = true;
                 el('bt-pair-stop').hidden = true;
                 el('bt-pair-status').hidden = true;
                 el('bt-pair').hidden = connectedDevice;
-                el('bt-devices-title').hidden = true;
                 pending = null;
                 return;
             }
@@ -316,11 +318,8 @@ window.BluetoothSettings = (() => {
             for (const address of deviceRows.keys()) {
                 if (!addresses.has(address)) deviceRows.delete(address);
             }
-            // With rows on screen the heading only repeats what they
-            // already show; with none it is what labels the empty state.
-            const empty_list = !rows.length;
-            el('bt-devices-title').hidden = !empty_list;
-            if (empty_list) {
+            const emptyList = !rows.length;
+            if (emptyList) {
                 if (!emptyDevicesRow) {
                     emptyDevicesRow = document.createElement('li');
                     emptyDevicesRow.className = 'text-slate-400';
@@ -349,7 +348,7 @@ window.BluetoothSettings = (() => {
             // Echo cancellation is named because it can be turned off, and
             // a call that sounds echoey is the first thing to check.
             const idleLabel = state.devices.some((device) => device.Connected)
-                ? 'No Bluetooth audio playing.' : 'No phone connected.';
+                ? 'No Bluetooth audio playing.' : 'No device connected.';
             const labels = {
                 idle: idleLabel,
                 waiting: 'Waiting for phone audio',
@@ -358,6 +357,9 @@ window.BluetoothSettings = (() => {
                 error: 'Bluetooth audio failed',
                 stopped: 'Stopped',
             };
+            // An empty device list already explains why nothing is connected.
+            // Keep faults and active audio visible even if devices disappear.
+            el('bt-audio').hidden = emptyList && !blocked && (!audio.state || audio.state === 'idle');
             el('bt-audio').textContent = blocked || labels[audio.state] || labels.idle;
             if (audio.state === 'error') el('bt-audio').textContent += `: ${audio.error}`;
         }

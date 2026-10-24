@@ -89,7 +89,7 @@ test('Mood label follows the provider without resetting the saved setting', () =
 });
 
 
-function captionsUI(stored = null) {
+function captionsUI(stored = null, deviceName = 'Billy') {
     const nodes = {};
     const document = {getElementById: id => nodes[id], activeElement: null, createElement: () => node()};
     function node() {
@@ -121,6 +121,7 @@ function captionsUI(stored = null) {
         nodes[id] = node(); nodes[id].hidden = true;
     }
     const panel = nodes['live-captions'];
+    panel.dataset.deviceName = deviceName;
     nodes['live-captions-panel'].append(panel);
     panel.append(nodes['live-captions-content'], nodes['live-transcript-content']);
     nodes['live-transcript-content'].append(nodes['live-transcript-turns'], nodes['live-transcript-empty']);
@@ -435,4 +436,20 @@ test('Full history is requested again after reconnect and clears across sessions
     assert.deepEqual(fullTurns(h),[['user','New conversation']]);
     h.sockets.at(-1).onmessage({data:'null'});
     assert.deepEqual(fullTurns(h),[]);
+});
+
+
+test('Fullscreen speaker labels use the rendered hostname, not the browser address or transcript role', () => {
+    for (const name of ['Billy-kitchen', 'BILLY', '<fish>']) {
+        const h = captionsUI('true', name); h.status(true);
+        h.nodes['expand-captions-btn'].click();
+        sessionTranscript(h, [{speaker: 'user', text: 'Hello'}, {speaker: 'billy', text: 'Hi'}]);
+        const rows = h.nodes['live-transcript-turns'].children;
+        assert.equal(rows[0].children[0].textContent, 'You');
+        assert.equal(rows[1].children[0].textContent, name);
+        assert.equal(rows[1].dataset.speaker, 'billy');
+        h.nodes['expand-captions-btn'].click();
+        h.nodes['expand-captions-btn'].click();
+        assert.equal(rows[1].children[0].textContent, name);
+    }
 });

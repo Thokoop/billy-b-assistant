@@ -12,8 +12,7 @@
         </button>
         <a id="bt-components-help" hidden href="/settings#section-software-version" class="text-sm text-cyan-400">Open System components</a>
         <p id="bt-audio" role="status" aria-live="polite" class="text-slate-400">Checking Bluetooth…</p>
-        <h2 id="bt-devices-title" class="text-lg font-semibold" hidden>Devices</h2>
-        <ul id="bt-devices" class="bt-devices"></ul>
+        <ul id="bt-devices" class="bt-devices" aria-label="Devices"></ul>
         <div class="bt-pairing-toolbar">
             <button type="button" data-action="pair" id="bt-pair" class="secondary-action secondary-action--hover--cyan">
                 <span class="material-icons text-base" aria-hidden="true">bluetooth_searching</span>
@@ -25,7 +24,7 @@
             </button>
             <span id="bt-pair-status" class="bt-pair-status" hidden></span>
         </div>
-        <p id="bt-pair-hint" class="bt-pair-hint" hidden>Select Billy Bassistant in your device’s Bluetooth settings, then confirm pairing on your phone.</p>
+        <p id="bt-pair-hint" class="bt-pair-hint" hidden>Select this device in your Bluetooth settings, then confirm pairing on your phone.</p>
         <div id="bt-pending" hidden class="bt-pending" role="group" aria-labelledby="bt-request">
             <div class="bt-request-heading"><span class="material-icons" aria-hidden="true">verified_user</span>Pairing request</div>
             <p id="bt-request"></p>

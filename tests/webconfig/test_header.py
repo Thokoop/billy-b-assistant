@@ -37,6 +37,8 @@ def test_header_name_capitalizes_first_letter_and_escapes(hostname, expected):
     html = env.get_template('components/header.html').render(device_hostname=hostname)
     assert f'title="{expected}">{expected}</span>' in html
     assert f'aria-label="{expected} home"' in html
+    assert f'data-device-name="{expected}"' in html
+    assert f'<span class="live-caption-speaker">{expected}</span>' in html
     assert (
         html.index('billy-brand-name')
         < html.index('id="header-bluetooth"')

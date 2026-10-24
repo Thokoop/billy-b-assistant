@@ -69,14 +69,14 @@
     </div>
 
     <div id="live-captions-panel" class="live-captions-panel" hidden>
-        <section id="live-captions" class="live-captions" aria-label="Live subtitles" hidden>
+        <section id="live-captions" class="live-captions" data-device-name="{{ header_name }}" aria-label="Live subtitles" hidden>
             <h2 id="live-captions-title" class="live-captions-title" hidden>Live subtitles</h2>
             <div id="live-captions-content" class="live-captions-content" tabindex="0" aria-label="Current subtitles">
                 <div class="live-caption-row" id="live-caption-user" hidden>
                     <span class="live-caption-speaker">You</span><span class="live-caption-text"></span>
                 </div>
                 <div class="live-caption-row" id="live-caption-billy" hidden>
-                    <span class="live-caption-speaker">Billy</span><span class="live-caption-text"></span>
+                    <span class="live-caption-speaker">{{ header_name }}</span><span class="live-caption-text"></span>
                 </div>
                 <span id="live-captions-empty">Waiting for speech…</span>
             </div>

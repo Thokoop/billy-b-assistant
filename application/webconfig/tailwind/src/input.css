@@ -3,6 +3,13 @@
 /* App-specific overrides formerly kept inline in base.html now live here so they
    are compiled into static/css/styles.css with the rest of Tailwind. */
 
+/* Collapse overrides content layouts (including Bluetooth's flex panel).
+   Keep provider/status visibility independent; header badges may still disclose
+   their own information while the rest of the section is closed. */
+.collapsible-section.collapsed > :not(h3):not([data-disclosure-panel]) {
+    display: none !important;
+}
+
 .icon-action-btn {
     display: inline-flex;
     align-items: center;
@@ -1351,9 +1358,9 @@ button {
     scrollbar-width: thin;
 }
 .live-captions-content:focus-visible { outline: 2px solid #67e8f9; outline-offset: 2px; border-radius: .25rem; }
-.live-caption-row { display: grid; grid-template-columns: 3.25rem minmax(0, 1fr); gap: .5rem; align-items: baseline; font-size: 1rem; line-height: 1.5; }
+.live-caption-row { display: grid; grid-template-columns: minmax(0, min(25%, 8rem)) minmax(0, 1fr); gap: .5rem; align-items: baseline; font-size: 1rem; line-height: 1.5; }
 .live-caption-row + .live-caption-row { margin-top: .5rem; }
-.live-caption-speaker { color: #a5b8c6; font-size: .8125rem; font-weight: 600; }
+.live-caption-speaker { min-width: 0; overflow-wrap: anywhere; color: #a5b8c6; font-size: .8125rem; font-weight: 600; }
 #live-caption-billy .live-caption-speaker, .live-caption-row[data-speaker="billy"] .live-caption-speaker { color: #6ee7b7; }
 .live-caption-text { overflow-wrap: anywhere; white-space: pre-wrap; }
 #live-captions-empty, #live-transcript-empty { display: grid; align-items: center; height: 100%; min-height: inherit; color: #a5b8c6; text-align: center; font-size: .875rem; line-height: 1.5; }
@@ -1375,7 +1382,7 @@ button {
     .live-captions-content { --caption-min-height: 9rem; }
     .live-captions { padding: .5rem .75rem; }
     .live-captions .live-captions-expand { top: .5rem; right: .75rem; }
-    .live-caption-row { grid-template-columns: 2.5rem minmax(0, 1fr); font-size: .9375rem; }
+    .live-caption-row { font-size: .9375rem; }
     .live-captions-dialog { width: calc(100% - 1rem); }
     .live-captions-dialog .live-captions { padding: .75rem; }
     .live-captions-dialog .live-captions-expand { top: .75rem; }

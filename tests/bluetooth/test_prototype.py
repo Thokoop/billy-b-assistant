@@ -646,3 +646,117 @@ def test_select_route_requires_token_and_allows_time_for_teardown_and_connect(
     )
     assert response.status_code == 200
     assert calls == [(('AA', 'select'), 30)]
+
+
+@pytest.mark.parametrize(
+    'hostname,expected',
+    [
+        ('billy', 'Billy'),
+        ('billy-kitchen', 'Billy-kitchen'),
+        ('bILLY', 'BILLY'),
+        ('', 'Billy'),
+    ],
+)
+def test_pairing_advertises_current_hostname(monkeypatch, hostname, expected):
+    monkeypatch.setattr(bluez.os, 'uname', lambda: SimpleNamespace(nodename=hostname))
+
+    async def scenario():
+        manager = make_controller()
+        manager.registered = True
+        manager.adapter = AsyncMock(return_value='/adapter')
+        await manager.start_pairing()
+        manager.set_property.assert_any_await(
+            '/adapter', 'org.bluez.Adapter1', 'Alias', 's', expected
+        )
+        manager.timer.cancel()
+        await asyncio.gather(manager.timer, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_status_updates_old_alias_and_hostname_changes_without_touching_phone(
+    monkeypatch,
+):
+    monkeypatch.setattr(bluez.bluetooth_preferences, 'selected', lambda: [])
+    hostname = ['billy-kitchen']
+    monkeypatch.setattr(
+        bluez.os, 'uname', lambda: SimpleNamespace(nodename=hostname[0])
+    )
+
+    async def scenario():
+        manager = make_controller()
+        props = {
+            'Alias': Variant('s', 'Billy Bassistant'),
+            'Powered': Variant('b', True),
+        }
+        manager.objects.return_value['/adapter'] = {'org.bluez.Adapter1': props}
+
+        async def applied(path, interface, key, signature, value):
+            assert (path, interface, key) == ('/adapter', 'org.bluez.Adapter1', 'Alias')
+            props[key] = Variant(signature, value)
+
+        manager.set_property.side_effect = applied
+        result = await manager.status()
+        assert result['adapter']['Alias'] == 'Billy-kitchen'
+        assert result['devices'][0]['Alias'] == 'Test phone'
+        await manager.status()
+        assert manager.set_property.await_count == 1
+        hostname[0] = 'billy-office'
+        result = await manager.status()
+        assert result['adapter']['Alias'] == 'Billy-office'
+        assert manager.set_property.await_count == 2
+
+    asyncio.run(scenario())
+
+
+def test_alias_write_failure_keeps_status_available_and_retries(monkeypatch):
+    monkeypatch.setattr(bluez.bluetooth_preferences, 'selected', lambda: [])
+    monkeypatch.setattr(
+        bluez.os, 'uname', lambda: SimpleNamespace(nodename='billy-office')
+    )
+
+    async def scenario():
+        manager = make_controller()
+        manager.objects.return_value['/adapter'] = {
+            'org.bluez.Adapter1': {'Alias': Variant('s', 'Old name')}
+        }
+        manager.set_property.side_effect = DBusError(
+            'org.bluez.Error.Failed', 'unavailable'
+        )
+        result = await manager.status()
+        assert result['adapter']['Alias'] == 'Old name'
+        assert result['devices'][0]['Alias'] == 'Test phone'
+        manager.set_property.side_effect = None
+        result = await manager.status()
+        assert result['adapter']['Alias'] == 'Billy-office'
+        assert manager.set_property.await_count == 2
+
+    asyncio.run(scenario())
+
+
+def test_stalled_alias_write_is_bounded_and_cancelled(monkeypatch):
+    monkeypatch.setattr(
+        bluez.os, 'uname', lambda: SimpleNamespace(nodename='billy-kitchen')
+    )
+    monkeypatch.setattr(bluez.bluetooth_preferences, 'selected', lambda: [])
+
+    async def scenario():
+        manager = make_controller()
+        manager.objects.return_value['/adapter'] = {
+            'org.bluez.Adapter1': {'Alias': Variant('s', 'Old name')}
+        }
+        cancelled = asyncio.Event()
+
+        async def stalled(*args):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        manager.set_property.side_effect = stalled
+        result = await asyncio.wait_for(manager.status(), timeout=2)
+        assert cancelled.is_set()
+        assert result['adapter']['Alias'] == 'Old name'
+        assert result['devices'][0]['Alias'] == 'Test phone'
+
+    asyncio.run(scenario())
