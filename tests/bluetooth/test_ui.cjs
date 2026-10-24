@@ -2,9 +2,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const {test} = require('node:test');
-const btSource=fs.readFileSync('webconfig/static/js/bluetooth.js','utf8');
-const wsSource=fs.readFileSync('webconfig/static/js/websocket.js','utf8');
-const audioSource=fs.readFileSync('webconfig/static/js/audio-panel.js','utf8');
+const btSource=fs.readFileSync('application/webconfig/static/js/bluetooth.js','utf8');
+const wsSource=fs.readFileSync('application/webconfig/static/js/websocket.js','utf8');
+const audioSource=fs.readFileSync('application/webconfig/static/js/audio-panel.js','utf8');
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
 function target(){const events=new Map();return {addEventListener(type,fn){if(!events.has(type))events.set(type,new Set());events.get(type).add(fn);},removeEventListener(type,fn){events.get(type)?.delete(fn);},dispatchEvent(event){for(const fn of events.get(event.type)||[])fn(event);},count(type){return events.get(type)?.size||0;}};}
 function element(id='') {return Object.assign(target(),{id,dataset:{},children:[],style:{},textContent:'',classList:{add(){},remove(){},toggle(){}},append(...items){this.children.push(...items);},replaceChildren(){this.children=[];},removeChild(child){this.children.splice(this.children.indexOf(child),1);},insertBefore(child,before){const old=this.children.indexOf(child);if(old>=0)this.children.splice(old,1);this.children.splice(before?this.children.indexOf(before):this.children.length,0,child);},attributes:{},setAttribute(name,value){this.attributes[name]=value;},parentElement:{classList:{add(){},toggle(){}}}});}
@@ -121,7 +121,7 @@ function notificationHarness(h) {
  bar.classList={add(...v){v.forEach(x=>classes.add(x));},remove(...v){v.forEach(x=>classes.delete(x));},contains(v){return classes.has(v);}};
  let text='';Object.defineProperty(bar,'textContent',{get(){return text;},set(v){text=v;bar.children=[];}});
  h.labels.set('notification',bar);
- const helpers=fs.readFileSync('webconfig/static/js/ui-helpers.js','utf8');
+ const helpers=fs.readFileSync('application/webconfig/static/js/ui-helpers.js','utf8');
  h.run(helpers.slice(0,helpers.indexOf('function toggleInputVisibility')));
  h.tick=()=>{const [id,fn]=h.timers.entries().next().value;h.timers.delete(id);fn();};
  return bar;
@@ -249,11 +249,11 @@ test('Open Debug opens an already visible panel without toggling it closed',asyn
  const classes=new Set(['hidden']);
  panel.classList={remove(name){classes.delete(name);}};
  let highlighted=false,scrolled=0;
- button.classList={add(name){highlighted=name==='secondary-action--active-cyan';}};
+ button.classList={add(name){highlighted=name==='secondary-action--active-amber';}};
  panel.scrollIntoView=()=>scrolled++;
  h.labels.set('log-panel',panel);h.labels.set('toggle-log-btn',button);
  h.fetch=async()=>({ok:true,json:async()=>({logs:'Startup traceback'})});
- h.run(fs.readFileSync('webconfig/static/js/log-panel.js','utf8'));
+ h.run(fs.readFileSync('application/webconfig/static/js/log-panel.js','utf8'));
  h.c.window.LogPanel.openLogPanel();await flush();
  h.c.window.LogPanel.openLogPanel();await flush();
  assert.equal(classes.has('hidden'),false);assert.equal(highlighted,true);assert.equal(scrolled,2);

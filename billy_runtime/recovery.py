@@ -7,7 +7,13 @@ import os
 import time
 from pathlib import Path
 
-from .configuration import ROOT, ConfigError, example_defaults, revision, validate
+from .configuration import (
+    ROOT,
+    ConfigError,
+    example_defaults,
+    revision,
+    validate_bootstrap,
+)
 from .storage import atomic_write, runtime_directory, transaction
 
 
@@ -59,7 +65,7 @@ class Recovery:
                 content = (self.directory / f'good-{digest}.env').read_bytes()
                 if revision(content) != digest:
                     continue
-                validate(content.decode('utf-8'), complete=True)
+                validate_bootstrap(content.decode('utf-8'), complete=True)
                 validated_at = float(meta['validated_at'])
                 if not math.isfinite(validated_at) or validated_at <= 0:
                     continue
@@ -89,7 +95,12 @@ class Recovery:
         # A worker failure is not evidence of invalid .env syntax. Configuration
         # recovery and probation use different actions in the normal interface.
         if runtime_error:
-            kind, message = 'runtime', runtime_error
+            kind = (
+                'configuration'
+                if runtime_error.startswith('Configuration needs attention: ')
+                else 'runtime'
+            )
+            message = runtime_error
         elif state.get('mode') in {'restored', 'setup'}:
             kind = 'configuration'
             message = state.get('reason') or 'Configuration needs attention.'
@@ -147,7 +158,7 @@ class Recovery:
         with transaction(self.env):
             try:
                 content = self.env.read_bytes()
-                validate(content.decode('utf-8'), complete=True)
+                validate_bootstrap(content.decode('utf-8'), complete=True)
             except (OSError, UnicodeError, ConfigError) as exc:
                 # A bad live file must be preserved before replacing it.
                 original = self.env.read_bytes() if self.env.exists() else b''
@@ -173,7 +184,11 @@ class Recovery:
                 atomic_write(self.env, content)
                 self.state(
                     mode=mode,
-                    reason=f'Invalid configuration ({type(exc).__name__}); original preserved',
+                    reason=(
+                        f'Invalid configuration: {exc}; original preserved'
+                        if isinstance(exc, ConfigError)
+                        else f'Invalid configuration ({type(exc).__name__}); original preserved'
+                    ),
                     original=name,
                     restored_at=time.time(),
                     needs_setup=(mode == 'setup'),
@@ -243,7 +258,7 @@ class Recovery:
                 'effective'
             ) != reports[1].get('effective'):
                 return  # Different inherited environment overrides are not one configuration.
-            validate(content.decode(), complete=True)
+            validate_bootstrap(content.decode(), complete=True)
         except (OSError, ValueError, KeyError, UnicodeError):
             return
         (self.directory / 'runtime-error').unlink(missing_ok=True)

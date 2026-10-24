@@ -47,7 +47,7 @@ def test_receiver_processes_speech_while_real_tool_runner_waits(
     monkeypatch.setitem(sys.modules, 'websockets', websockets)
     monkeypatch.setitem(sys.modules, 'websockets.exceptions', exceptions)
     package = ModuleType('isolated_core.session')
-    package.__path__ = [str(Path(__file__).parents[1] / 'core/session')]
+    package.__path__ = [str(Path(__file__).parents[1] / 'application/core/session')]
     monkeypatch.setitem(sys.modules, package.__name__, package)
     package.AudioHandler = isolated.load('session.audio_handler').AudioHandler
     package.SessionState = isolated.load('session.state_machine').SessionState

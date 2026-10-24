@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def load_mode():
-    path = Path(__file__).parents[2] / "core/bluetooth/mode.py"
+    path = Path(__file__).parents[2] / "application/core/bluetooth/mode.py"
     spec = importlib.util.spec_from_file_location("billy_bluetooth_mode", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

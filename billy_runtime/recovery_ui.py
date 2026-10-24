@@ -12,7 +12,13 @@ from urllib.parse import urlsplit
 from flask import Flask, jsonify, redirect, render_template_string, request, session
 
 from . import updates
-from .configuration import ConfigError, ConflictError, revision, save_env, validate
+from .configuration import (
+    ConfigError,
+    ConflictError,
+    revision,
+    save_bootstrap_env,
+    validate_bootstrap,
+)
 from .profiles import profile_lock
 from .storage import atomic_write, transaction
 
@@ -28,7 +34,7 @@ body{font:17px system-ui;background:#103747;color:#edf5f7;max-width:950px;margin
 <section><h2>System components</h2><p id="package-status" role="status">{{ software.get('packages', {}).get('message', 'Checking system components…') }}</p><p id="package-details"></p><form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button id="package-repair" name="action" value="packages" hidden disabled>Repair system components</button></form><small>Installs required components and repairs Billy’s Bluetooth setup. Billy may pause briefly. Keep the power connected.</small></section>
 <script>async function softwareProgress(){try{const r=await fetch('/software/status',{cache:'no-store',signal:AbortSignal.timeout(4000)});const s=await r.json();document.getElementById('software-progress').textContent=s.job?.message||'';const p=s.packages||{};document.getElementById('package-status').textContent=p.message||'Checking system components…';document.getElementById('package-details').textContent=[...(p.missing||[]),...(p.damaged||[]),...(p.updates||[])].join(', ');const busy=['queued','preparing','installing_packages','activating','validating','rolling_back'].includes(s.job?.state);document.getElementById('package-repair').hidden=!p.repairable;document.getElementById('package-repair').disabled=busy||!p.repairable;}catch(e){}setTimeout(softwareProgress,2000);}softwareProgress();</script>
 <form method="get"><label>Open file <select name="file">{% for name in files %}<option {% if name==selected %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label><button>Open</button></form>
-<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="file" value="{{ selected }}"><input type="hidden" name="revision" value="{{ digest }}"><textarea name="content" spellcheck="false" aria-label="Configuration">{{ content }}</textarea><p><small>Backups and damaged originals can be opened here. Saving an environment backup or original repairs the active .env. Other files are saved separately.</small></p><button name="action" value="save">Validate and save</button></form>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="file" value="{{ selected }}"><input type="hidden" name="revision" value="{{ digest }}"><textarea name="content" spellcheck="false" aria-label="Configuration">{{ content }}</textarea><p><small>Backups and damaged originals can be opened here. Saving an environment backup or original repairs the active .env. Other files are saved separately. File format is checked on save; Billy checks the settings when you retry or restart.</small></p><button name="action" value="save">Save configuration</button></form>
 <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="retry">Retry web interface</button><button name="action" value="core">Restart Billy</button></form>
 <p>After retrying, <a href="/settings">open the normal settings</a>. A restart is needed to activate repaired settings.</p>
 {% if auto_return %}<script>
@@ -171,7 +177,7 @@ def create_recovery_app(store):
                 if selected == '.env' or path.parent == store.directory:
                     # Editor revision always refers to the active target, even
                     # while viewing a backup. Prevent overwriting a concurrent save.
-                    save_env(store.env, content, expected=expected)
+                    save_bootstrap_env(store.env, content, expected=expected)
                     store.approve_setup()
                 else:
                     parser = configparser.ConfigParser(interpolation=None)
@@ -187,14 +193,15 @@ def create_recovery_app(store):
                         atomic_write(path, content)
                 saved = True
                 message = (
-                    'Saved. Retry the web interface and restart Billy to activate.'
+                    'Saved. Retry the web interface and restart Billy; '
+                    'the selected release will check its settings before starting.'
                 )
             elif action == 'retry':
-                validate(store.env.read_text(), complete=True)
+                validate_bootstrap(store.env.read_text(), complete=True)
                 store.state(retry=secrets.token_hex(16))
                 message = 'Startup requested. Open settings in a few seconds.'
             elif action == 'core':
-                validate(store.env.read_text(), complete=True)
+                validate_bootstrap(store.env.read_text(), complete=True)
                 store.approve_setup()
                 result = subprocess.run(
                     ['sudo', '-n', 'systemctl', 'restart', 'billy.service'],

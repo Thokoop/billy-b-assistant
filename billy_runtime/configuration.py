@@ -1,8 +1,13 @@
-"""Strict dotenv parsing and transactions without importing core or devices."""
+"""Stable dotenv parsing and transactions, without importing core or devices.
+
+Bootstrap and emergency recovery use validate_bootstrap: only file structure
+and the listen port belong to the fixed installation. Normal settings saves
+and workers use validate, which loads the selected release's application schema.
+The configuration file and recovery snapshots remain shared across releases.
+"""
 
 import hashlib
 import io
-import math
 import os
 import re
 from pathlib import Path
@@ -15,64 +20,7 @@ from .storage import atomic_write, transaction
 
 
 ROOT = INSTALL_ROOT
-INTEGERS = {
-    'FLASK_PORT': (1, 65535),
-    'MQTT_PORT': (1, 65535),
-    'MIC_TIMEOUT_SECONDS': (1, 3600),
-    'CHUNK_MS': (1, 1000),
-    'FOLLOW_UP_RETRY_LIMIT': (0, 100),
-    'MOUTH_ARTICULATION': (0, 100),
-    'STATUS_LED_PIN': (0, 53),
-    'STATUS_LED_COUNT': (1, 1024),
-    'STATUS_LED_DMA_CHANNEL': (0, 14),
-    'STATUS_LED_PWM_CHANNEL': (0, 1),
-    'CAMERA_DEVICE_INDEX': (0, 1024),
-    'CAMERA_ROTATION': (0, 359),
-    'CAMERA_CAPTURE_WIDTH': (1, 16384),
-    'CAMERA_CAPTURE_HEIGHT': (1, 16384),
-}
-FLOATS = {
-    'SILENCE_THRESHOLD': (0, 32768),
-    'AEC_BARGE_IN_SNR_DB': (3, 20),
-    'MOUTH_BOOST': (0, 10),
-    'HEAD_RETRACT_DELAY_SECONDS': (0, 3600),
-    'MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS': (0, 86400),
-    'WAKE_WORD_COOLDOWN_SECONDS': (0, 3600),
-    'WAKE_WORD_PORCUPINE_SENSITIVITY': (0, 1),
-    'WAKE_WORD_OPENWAKEWORD_THRESHOLD': (0, 1),
-    'STATUS_LED_BRIGHTNESS': (0, 1),
-    'NEWS_REQUEST_TIMEOUT_SECONDS': (0.01, 3600),
-    'WEB_SEARCH_TIMEOUT_SECONDS': (0.01, 3600),
-    'CAMERA_CAPTURE_TIMEOUT_SECONDS': (0.01, 3600),
-}
-BOOLEANS = set([
-    'TEXT_ONLY_MODE',
-    'MIC_TIMEOUT_TAIL_FLAP',
-    'AEC_ENABLED',
-    'BLUETOOTH_CALL_AEC',
-    'BLUETOOTH_AUTO_SWITCH',
-    'MOOD_INSTRUCTIONS_ENABLED',
-    'WAKE_WORD_ENABLED',
-    'STATUS_LED_ENABLED',
-    'ALLOW_UPDATE_PERSONALITY_INI',
-    'SHOW_SUPPORT',
-    'FORCE_PASS_CHANGE',
-    'SHOW_RC_VERSIONS',
-    'FLAP_ON_BOOT',
-    'SHOW_TOOLTIPS',
-    'MOCKFISH',
-    'WEB_SEARCH_ENABLED',
-])
-ENUMS = {
-    'UPDATE_CHANNEL': {'stable', 'rc', 'beta'},
-    'REALTIME_AI_PROVIDER': {'openai', 'xai'},
-    'BILLY_MODEL': {'modern', 'classic'},
-    'BILLY_PINS': {'new', 'legacy'},
-    'TURN_EAGERNESS': {'low', 'medium', 'high'},
-    'WAKE_WORD_BACKEND': {'porcupine', 'openwakeword'},
-    'CAMERA_HARDWARE': {'none', 'rpi_camera', 'usb_webcam'},
-    'WEB_SEARCH_CONTEXT_SIZE': {'low', 'medium', 'high'},
-}
+BOOTSTRAP_KEYS = {'FLASK_PORT'}
 
 
 class ConfigError(ValueError):
@@ -89,7 +37,7 @@ def revision(content):
     ).hexdigest()
 
 
-def validate(text, *, complete=False):
+def _parse(text, *, complete=False):
     if not isinstance(text, str) or '\x00' in text:
         raise ConfigError('Configuration must be UTF-8 text without NUL characters')
     bindings = list(parse_stream(io.StringIO(text)))
@@ -109,35 +57,37 @@ def validate(text, *, complete=False):
     if complete and not seen:
         raise ConfigError('Configuration is empty or contains no settings')
     values = dict(dotenv_values(stream=io.StringIO(text)))
-    for key, value in values.items():
-        label = f'{key} at line {seen[key]}'
+    return values, seen
+
+
+def _validate_bootstrap_values(values, lines):
+    # Only the stable listen socket needs a setting before a release is loaded.
+    # Providers, GPIO/audio choices and other application settings belong to it.
+    if 'FLASK_PORT' in values:
         try:
-            if key in INTEGERS or key in FLOATS:
-                # Preserve existing optional empty SILENCE_THRESHOLD semantics.
-                if key == 'SILENCE_THRESHOLD' and value == '':
-                    continue
-                number = int(value) if key in INTEGERS else float(value)
-                low, high = (INTEGERS | FLOATS)[key]
-                if not math.isfinite(number) or not low <= number <= high:
-                    raise ValueError
-            if key in BOOLEANS and value.lower() not in {'true', 'false'}:
-                raise ValueError
-            if key in ENUMS and value.lower() not in ENUMS[key]:
-                raise ValueError
-            if (
-                key == 'MIC_GAIN'
-                and value.lower() not in {'', 'max', 'maximum', 'default'}
-                and (not math.isfinite(float(value)) or float(value) < 0)
-            ):
-                raise ValueError
-            if (
-                key in {'CURRENT_USER', 'DEFAULT_USER'}
-                and value
-                and (not re.fullmatch(r'[\w -]+', value) or value in {'.', '..'})
-            ):
+            if not 1 <= int(values['FLASK_PORT']) <= 65535:
                 raise ValueError
         except (TypeError, ValueError, OverflowError):
-            raise ConfigError(f'Invalid value for {label}') from None
+            raise ConfigError(
+                f"Invalid value for FLASK_PORT at line {lines['FLASK_PORT']}"
+            ) from None
+
+
+def validate_bootstrap(text, *, complete=False):
+    """Check file structure and the listen port, independent of release features."""
+    values, lines = _parse(text, complete=complete)
+    _validate_bootstrap_values(values, lines)
+    return values
+
+
+def validate(text, *, complete=False):
+    """Full validation for normal workers and settings saves in this release."""
+    values, lines = _parse(text, complete=complete)
+    _validate_bootstrap_values(values, lines)
+    # Lazy on purpose: a missing/broken release schema must not break rescue.
+    from .configuration_schema import validate_values
+
+    validate_values(values, lines)
     return values
 
 
@@ -145,9 +95,9 @@ _original_environment = dict(os.environ)
 _loaded_keys = set()
 
 
-def apply_environment(text, *, override=True):
+def apply_environment(text, *, override=True, validator=None):
     global _loaded_keys
-    values = validate(text, complete=True)
+    values = (validator or validate)(text, complete=True)
     for key in _loaded_keys - values.keys():
         if key in _original_environment:
             os.environ[key] = _original_environment[key]
@@ -165,15 +115,20 @@ def load_environment(path, *, override=True):
     return apply_environment(Path(path).read_text(encoding='utf-8'), override=override)
 
 
-def save_env(path, content, *, expected=None):
+def save_env(path, content, *, expected=None, validator=None):
     path = Path(path).absolute()
     with transaction(path):
         old = path.read_bytes() if path.exists() else b''
         if expected is not None and revision(old) != expected:
             raise ConflictError('Configuration changed; reload before saving')
-        validate(content, complete=True)
+        (validator or validate)(content, complete=True)
         atomic_write(path, content)
     return revision(content)
+
+
+def save_bootstrap_env(path, content, *, expected=None):
+    """Emergency edits are fully checked by the selected worker on retry."""
+    return save_env(path, content, expected=expected, validator=validate_bootstrap)
 
 
 def patch_env(path, changes):
@@ -209,7 +164,7 @@ def patch_env(path, changes):
 def example_defaults(path):
     try:
         text = Path(path).read_text(encoding='utf-8')
-        values = validate(text)
+        values = validate_bootstrap(text)
         if values:
             return text
         return (

@@ -19,7 +19,9 @@ import numpy as np
 
 def load_endpoints():
     """Every class in the module, so subclasses find their base."""
-    source = (Path(__file__).parents[2] / "core/bluetooth/endpoints.py").read_text()
+    source = (
+        Path(__file__).parents[2] / "application/core/bluetooth/endpoints.py"
+    ).read_text()
     tree = ast.parse(source)
     classes = [item for item in tree.body if isinstance(item, ast.ClassDef)]
     namespace = {
@@ -36,7 +38,7 @@ def load_endpoints():
     exec(
         compile(
             ast.Module(body=classes, type_ignores=[]),
-            "core/bluetooth/endpoints.py",
+            "application/core/bluetooth/endpoints.py",
             "exec",
         ),
         namespace,

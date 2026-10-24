@@ -238,3 +238,60 @@ def test_failure_is_visible_before_finishing_the_last_item(audio_module, monkeyp
     a.playback_worker(40)
     assert rejected == [True]
     assert a.playback_queue.unfinished_tasks == 0
+
+
+@pytest.mark.parametrize('mode', ['raw', 'tts'])
+def test_process_shutdown_stops_inflight_audio_and_closes_stream_before_return(
+    audio_module, mode
+):
+    a = audio_module
+    entered, release = threading.Event(), threading.Event()
+
+    def write(_):
+        entered.set()
+        assert release.wait(2)
+
+    a.test_stream.write.side_effect = write
+    pcm = np.zeros(24000, dtype=np.int16).tobytes()  # Many output chunks.
+    item = pcm if mode == 'raw' else ('tts', pcm, None)
+    a.ensure_playback_worker_started(40)
+    a.playback_queue.put(item)
+    a.playback_queue.put(item)
+    assert entered.wait(1)
+    stopped = threading.Event()
+    shutdown = threading.Thread(
+        target=lambda: (a.shutdown_playback_worker(), stopped.set())
+    )
+    shutdown.start()
+    assert a._playback_shutdown.wait(1)
+    assert not stopped.is_set()  # Must wait for the current native write.
+    release.set()
+    shutdown.join(2)
+    assert stopped.is_set() and not a._playback_thread.is_alive()
+    a.test_stream.write.assert_called_once()
+    a.sd.OutputStream.return_value.__exit__.assert_called_once()
+    assert a.playback_queue.unfinished_tasks == 0
+    with pytest.raises(a.PlaybackError, match='shutting down'):
+        a.playback_queue.put(item)
+    a.ensure_playback_worker_started(40)
+    assert not a._playback_thread.is_alive()  # No late producer may reopen output.
+
+
+def test_idle_or_failed_output_shutdown_is_idempotent(audio_module):
+    a = audio_module
+    a.ensure_playback_worker_started(40)
+    assert a.shutdown_playback_worker()
+    assert a.shutdown_playback_worker()
+    assert a.playback_queue.unfinished_tasks == 0
+    a.sd.OutputStream.return_value.__exit__.assert_called_once()
+    with pytest.raises(a.PlaybackError, match='shutting down'):
+        a.playback_queue.recover()
+
+
+def test_failed_output_can_still_be_shut_down(audio_module):
+    a = audio_module
+    a.sd.OutputStream.side_effect = OSError('absent')
+    a.ensure_playback_worker_started(40)
+    a._playback_thread.join(1)
+    assert a.shutdown_playback_worker()
+    assert a.playback_queue.unfinished_tasks == 0

@@ -14,7 +14,7 @@ def test_context_uses_os_hostname():
         uname=Mock(return_value=SimpleNamespace(nodename='billy-kitchen'))
     )
     context = definitions(
-        'webconfig/app/__init__.py', ['header_context'], {'os': system}
+        'application/webconfig/app/__init__.py', ['header_context'], {'os': system}
     )
     assert context.header_context() == {'device_hostname': 'billy-kitchen'}
 
@@ -30,7 +30,7 @@ def test_context_uses_os_hostname():
     ],
 )
 def test_header_name_capitalizes_first_letter_and_escapes(hostname, expected):
-    templates = Path(__file__).parents[2] / 'webconfig/templates'
+    templates = Path(__file__).parents[2] / 'application/webconfig/templates'
     env = Environment(
         loader=FileSystemLoader(templates), autoescape=select_autoescape()
     )

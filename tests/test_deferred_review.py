@@ -19,7 +19,9 @@ def test_ai_does_not_advertise_failed_aec(isolated):
     aec = echo.EchoCanceller(True, lambda **kwargs: processor)
     aec.process_capture(np.zeros(480, dtype=np.int16), 48000)
     active = definitions(
-        'core/audio.py', ['echo_cancellation_active'], {'echo_canceller': aec}
+        'application/core/audio.py',
+        ['echo_cancellation_active'],
+        {'echo_canceller': aec},
     ).echo_cancellation_active
     assert not active()
 
@@ -35,11 +37,15 @@ def test_manual_interruption_truncates_unheard_audio():
         MANUAL_HANDOFF_ECHO_SETTLE_SECONDS=1.5,
     )
     interrupt = definitions(
-        'core/session_manager.py', ['interrupt_to_user_turn'], ns, cls='BillySession'
+        'application/core/session_manager.py',
+        ['interrupt_to_user_turn'],
+        ns,
+        cls='BillySession',
     ).interrupt_to_user_turn
 
     async def scenario():
         s = Mock()
+        s._live = None  # Realtime session; no continuous Live runtime.
         s.session_active.is_set.return_value = True
         s.state = SimpleNamespace(response_active=True)
         s.realtime_ai_provider.get_provider_name.return_value = 'openai'
@@ -71,7 +77,7 @@ def test_manual_interruption_truncates_unheard_audio():
 
 def test_clip_generation_reports_provider_error():
     collect = definitions(
-        'core/providers/realtime.py',
+        'application/core/providers/realtime.py',
         ['_collect_audio_response'],
         {
             'json': json,
@@ -120,5 +126,5 @@ def test_unusable_unselected_mic_does_not_hide_selected_device():
         CHUNK_MS=40,
         TEXT_ONLY_MODE=False,
     )
-    definitions('core/audio.py', ['detect_devices'], ns).detect_devices()
+    definitions('application/core/audio.py', ['detect_devices'], ns).detect_devices()
     assert ns['MIC_DEVICE_INDEX'] == 1 and ns['MIC_RATE'] == 24000

@@ -1,0 +1,1434 @@
+@import "tailwindcss";
+
+/* App-specific overrides formerly kept inline in base.html now live here so they
+   are compiled into static/css/styles.css with the rest of Tailwind. */
+
+.icon-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(39, 39, 42, 0.72);
+    color: rgb(161 161 170);
+    transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease, transform 150ms ease;
+}
+
+.icon-action-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.icon-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.icon-action-btn--delete:hover {
+    color: rgb(251 113 133);
+    border-color: rgba(251, 113, 133, 0.45);
+}
+
+.icon-action-btn--edit:hover {
+    color: rgb(251 191 36);
+    border-color: rgba(251, 191, 36, 0.45);
+}
+
+.icon-action-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: rgb(161 161 170);
+    transition: color 150ms ease, transform 150ms ease;
+    cursor: pointer;
+}
+
+.icon-action-link--add {
+    color: rgb(52 211 153);
+}
+
+.icon-action-link--add:hover {
+    color: rgb(110 231 183);
+}
+
+.icon-action-link--delete:hover {
+    color: rgb(251 113 133);
+}
+
+/* Shared action sizing. The compact variant changes spacing, never type size. */
+.secondary-action,
+.secondary-action-btn,
+#wakeword-keyword-file::file-selector-button,
+.primary-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    min-height: var(--action-height, 2.75rem);
+    padding: var(--action-padding, .625rem .75rem);
+    border-radius: .625rem;
+    font-size: .875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    cursor: pointer;
+}
+.secondary-action,
+.secondary-action-btn,
+#wakeword-keyword-file::file-selector-button {
+    border: 1px solid rgba(255, 255, 255, .12);
+    background: rgba(39, 39, 42, .72);
+    color: rgb(244 244 245);
+    box-shadow: none;
+    transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+}
+.button-small {
+    align-self: center;
+    --action-height: 2.25rem;
+    --action-padding: .375rem .625rem;
+}
+.button-icon {
+    --action-padding: 0;
+    min-width: var(--action-height, 2.75rem);
+    flex-shrink: 0;
+}
+.secondary-action .material-icons,
+.secondary-action-btn .material-icons,
+.primary-action .material-icons,
+.input-reveal-button .material-icons { font-size: 1.125rem; }
+.secondary-action:disabled,
+.secondary-action-btn:disabled,
+.primary-action:disabled { opacity: .45; cursor: not-allowed; }
+.secondary-action:focus-visible,
+.secondary-action-btn:focus-visible,
+.primary-action:focus-visible,
+.input-reveal-button:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
+.secondary-action.hidden, .secondary-action[hidden],
+.secondary-action-btn.hidden, .secondary-action-btn[hidden],
+.primary-action.hidden, .primary-action[hidden] { display: none; }
+.input-reveal-button { display: inline-flex; align-items: center; justify-content: center; min-width: 2.25rem; cursor: pointer; }
+.settings-save-actions { border-radius: .625rem; }
+.settings-save-actions .primary-action { border-radius: 0; }
+
+.secondary-action:hover:not(:disabled),
+.secondary-action-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.secondary-action--active,
+.secondary-action-btn--active {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgb(52 211 153);
+    border-color: rgba(52, 211, 153, 0.35);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 10px 24px rgba(16, 185, 129, 0.16);
+}
+
+.secondary-action--active-cyan,
+.secondary-action-btn--active-cyan {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgb(103 232 249);
+    border-color: rgba(103, 232, 249, 0.35);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 10px 24px rgba(6, 182, 212, 0.16);
+}
+
+.secondary-action:active,
+.secondary-action-btn:active {
+    transform: translateY(1px);
+}
+
+.secondary-action--hover--cyan:hover:not(:disabled),
+.secondary-action-btn--hover--cyan:hover:not(:disabled) {
+    color: rgb(103 232 249);
+    background: rgba(6, 182, 212, 0.12);
+    border-color: rgba(103, 232, 249, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 10px 24px rgba(6, 182, 212, 0.12);
+}
+
+.secondary-action--hover--emerald:hover:not(:disabled),
+.secondary-action-btn--hover--emerald:hover:not(:disabled) {
+    color: rgb(52 211 153);
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(52, 211, 153, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 10px 24px rgba(16, 185, 129, 0.12);
+}
+
+.secondary-action--hover--rose:hover:not(:disabled),
+.secondary-action-btn--hover--rose:hover:not(:disabled) {
+    color: rgb(251 113 133);
+    background: rgba(225, 29, 72, 0.12);
+    border-color: rgba(251, 113, 133, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 10px 24px rgba(225, 29, 72, 0.12);
+}
+
+.secondary-action--active-amber,
+.secondary-action-btn--active-amber,
+.secondary-action--hover--amber:hover:not(:disabled),
+.secondary-action-btn--hover--amber:hover:not(:disabled) {
+    color: rgb(251 191 36);
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(251, 191, 36, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 10px 24px rgba(245, 158, 11, 0.12);
+}
+
+.secondary-action--cyan,
+.secondary-action-btn--cyan {
+    color: rgb(103 232 249);
+    background: rgba(6, 182, 212, 0.12);
+    border-color: rgba(103, 232, 249, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 8px 22px rgba(6, 182, 212, 0.12);
+}
+
+.secondary-action--cyan:hover:not(:disabled),
+.secondary-action-btn--cyan:hover:not(:disabled) {
+    background: rgba(6, 182, 212, 0.16);
+    border-color: rgba(103, 232, 249, 0.35);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 10px 24px rgba(6, 182, 212, 0.16);
+}
+
+.secondary-action--emerald,
+.secondary-action-btn--emerald {
+    color: rgb(52 211 153);
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(52, 211, 153, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 8px 22px rgba(16, 185, 129, 0.12);
+}
+
+.secondary-action--emerald:hover:not(:disabled),
+.secondary-action-btn--emerald:hover:not(:disabled) {
+    background: rgba(16, 185, 129, 0.16);
+    border-color: rgba(52, 211, 153, 0.35);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 10px 24px rgba(16, 185, 129, 0.16);
+}
+
+.secondary-action--rose,
+.secondary-action-btn--rose {
+    color: rgb(251 113 133);
+    background: rgba(225, 29, 72, 0.12);
+    border-color: rgba(251, 113, 133, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 8px 22px rgba(225, 29, 72, 0.12);
+}
+
+.secondary-action--rose:hover:not(:disabled),
+.secondary-action-btn--rose:hover:not(:disabled) {
+    background: rgba(225, 29, 72, 0.16);
+    border-color: rgba(251, 113, 133, 0.35);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 10px 24px rgba(225, 29, 72, 0.16);
+}
+
+.secondary-action--amber,
+.secondary-action-btn--amber {
+    color: rgb(251 191 36);
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(251, 191, 36, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 8px 22px rgba(245, 158, 11, 0.12);
+}
+
+.secondary-action--amber:hover:not(:disabled),
+.secondary-action-btn--amber:hover:not(:disabled) {
+    background: rgba(245, 158, 11, 0.16);
+    border-color: rgba(251, 191, 36, 0.35);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 10px 24px rgba(245, 158, 11, 0.16);
+}
+
+.settings-columns {
+    display: block;
+}
+
+.settings-card {
+    display: block;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+@media (min-width: 768px) {
+    .settings-columns {
+        column-count: 2;
+        column-gap: 1rem;
+    }
+}
+
+button.bg-emerald-600,
+a.bg-emerald-600,
+label.bg-emerald-600 {
+    border: 1px solid rgba(167, 243, 208, 0.28);
+    background:
+        linear-gradient(180deg, rgba(52, 211, 153, 0.94), rgba(16, 185, 129, 0.84)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+        0 10px 24px rgba(16, 185, 129, 0.24);
+    backdrop-filter: blur(10px) saturate(145%);
+    -webkit-backdrop-filter: blur(10px) saturate(145%);
+    transition: 250ms all;
+}
+
+button.bg-emerald-600:hover,
+a.bg-emerald-600:hover,
+label.bg-emerald-600:hover {
+    border-color: rgba(209, 250, 229, 0.38);
+    background:
+        linear-gradient(180deg, rgba(74, 222, 173, 0.96), rgba(16, 185, 129, 0.88)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.26),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.05),
+        0 12px 28px rgba(16, 185, 129, 0.3);
+    transition: 250ms all;
+}
+
+button.bg-emerald-600:active,
+a.bg-emerald-600:active,
+label.bg-emerald-600:active {
+    transform: translateY(1px);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.16),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+        0 6px 14px rgba(16, 185, 129, 0.2);
+    transition: 250ms all;
+}
+
+button.bg-cyan-600,
+a.bg-cyan-600,
+label.bg-cyan-600 {
+    border: 1px solid rgba(165, 243, 252, 0.28);
+    background:
+        linear-gradient(180deg, rgba(34, 211, 238, 0.94), rgba(6, 182, 212, 0.84)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+        0 10px 24px rgba(6, 182, 212, 0.22);
+    backdrop-filter: blur(10px) saturate(145%);
+    -webkit-backdrop-filter: blur(10px) saturate(145%);
+    transition: 250ms all;
+}
+
+button.bg-cyan-600:hover,
+a.bg-cyan-600:hover,
+label.bg-cyan-600:hover {
+    border-color: rgba(207, 250, 254, 0.4);
+    background:
+        linear-gradient(180deg, rgba(103, 232, 249, 0.96), rgba(6, 182, 212, 0.88)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.26),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.05),
+        0 12px 28px rgba(6, 182, 212, 0.28);
+    transition: 250ms all;
+}
+
+button.bg-amber-600,
+a.bg-amber-600,
+label.bg-amber-600 {
+    border: 1px solid rgba(253, 230, 138, 0.28);
+    background:
+        linear-gradient(180deg, rgba(251, 191, 36, 0.94), rgba(245, 158, 11, 0.84)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+        0 10px 24px rgba(245, 158, 11, 0.24);
+    backdrop-filter: blur(10px) saturate(145%);
+    -webkit-backdrop-filter: blur(10px) saturate(145%);
+    transition: 250ms all;
+}
+
+button.bg-amber-600:hover,
+a.bg-amber-600:hover,
+label.bg-amber-600:hover {
+    border-color: rgba(254, 243, 199, 0.4);
+    background:
+        linear-gradient(180deg, rgba(252, 211, 77, 0.96), rgba(245, 158, 11, 0.88)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.26),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.05),
+        0 12px 28px rgba(245, 158, 11, 0.28);
+    transition: 250ms all;
+}
+
+button.bg-rose-600,
+a.bg-rose-600,
+label.bg-rose-600 {
+    border-top: 1px solid rgba(253, 164, 175, 0.28);
+    background:
+        linear-gradient(180deg, rgba(244, 63, 94, 0.94), rgba(225, 29, 72, 0.84)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+        0 10px 24px rgba(225, 29, 72, 0.24);
+    backdrop-filter: blur(10px) saturate(145%);
+    -webkit-backdrop-filter: blur(10px) saturate(145%);
+    transition: 250ms all;
+}
+
+button.bg-rose-600:hover,
+a.bg-rose-600:hover,
+label.bg-rose-600:hover {
+    border-color: rgba(254, 205, 211, 0.4);
+    background:
+        linear-gradient(180deg, rgba(251, 113, 133, 0.96), rgba(225, 29, 72, 0.88)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.24),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+        0 12px 28px rgba(225, 29, 72, 0.28);
+    transition: 250ms all;
+}
+
+button.bg-rose-600:active,
+a.bg-rose-600:active,
+label.bg-rose-600:active {
+    transform: translateY(1px);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+        0 6px 14px rgba(225, 29, 72, 0.22);
+    transition: 250ms all;
+}
+
+#log-container.log-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-height: none !important;
+    margin-top: 0 !important;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    z-index: 60;
+}
+
+@font-face {
+    font-family: 'Material Icons';
+    font-style: normal;
+    font-weight: 400;
+    src: url(../fonts/material-icons.woff2) format('woff2');
+}
+
+.material-icons {
+    font-family: 'Material Icons';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+}
+
+.prose p {
+    margin-bottom: 0.5rem;
+    color: #e4e4e7; /* zinc-200 */
+}
+
+.prose ul {
+    list-style-type: disc;
+    margin-left: 1.2rem;
+    color: #e4e4e7; /* zinc-200 */
+}
+
+.prose a {
+    text-decoration: underline;
+    color: #34d399; /* emerald-400 */
+}
+
+.prose strong {
+    color: #6ee7b7; /* emerald-300 */
+    font-weight: 600;
+}
+
+.prose em {
+    color: #a7f3d0; /* emerald-200 */
+    font-style: italic;
+}
+
+/* Scrollbar styling for WebKit browsers */
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #4b5563; /* Tailwind zinc-600 */
+    border-radius: 5px;
+    border: 2px solid #1a1a1a;
+}
+
+/* Stylize slider thumb and track */
+input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    height: 1rem;
+    width: 1rem;
+    border-radius: 9999px;
+    background-color: #22d3ee; /* cyan-400 */
+    cursor: pointer;
+    border: none;
+    margin-top: -0.25rem; /* align with track */
+}
+
+input[type="range"]::-moz-range-thumb {
+    height: 1rem;
+    width: 1rem;
+    border-radius: 9999px;
+    background-color: #22d3ee;
+    cursor: pointer;
+    border: none;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    background-color: #334155; /* zinc-700 */
+    height: 0.5rem;
+    border-radius: 0.25rem;
+}
+
+.log-fullscreen {
+    position: fixed !important;
+    inset: 0;
+    z-index: 50;
+    background-color: black;
+    padding-left: 1rem;
+    max-height: none !important;
+    height: 100vh;
+    overflow-y: auto !important;
+}
+
+body {
+    min-height: 100vh;
+    background: linear-gradient(-30deg,
+    #0e7490,  /* cyan-800: deep teal blue */
+    #0369a1,  /* sky-800: dark blue */
+    #164e63,  /* cyan-900: almost navy */
+    #0ea5e9,  /* sky-500: lighter blue pop */
+    #155e75,  /* cyan-700: blue-teal */
+    #1e293b   /* slate-800: deep slate for depth */
+    );
+    background-size: 800% 800%;
+    animation: gradient-ocean 60s ease-in-out infinite;
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+}
+.reduce-motion .backdrop-blur-xs,
+.reduce-motion .backdrop-blur-sm {
+    backdrop-filter: none !important;
+    @apply bg-zinc-900
+}
+
+button {
+    cursor: pointer;
+}
+
+
+@keyframes gradient-ocean {
+    0%   { background-position: 0% 50%; }
+    25%  { background-position: 50% 75%; }
+    50%  { background-position: 100% 50%; }
+    75%  { background-position: 50% 25%; }
+    100% { background-position: 0% 50%; }
+}
+
+[data-tooltip] {
+    @apply hidden absolute font-normal top-0 right-0 max-w-[350px] z-10 p-2 text-xs bg-cyan-400/70 backdrop-blur-[5px] rounded shadow-lg text-zinc-800;
+}
+[data-tooltip][data-visible="true"] {
+    @apply block;
+}
+
+.log-level-tooltip-inline[data-tooltip] {
+    @apply static top-auto right-auto left-auto max-w-none p-0.5;
+}
+
+/* Driven by the "Show tooltip icons" setting (Advanced Settings, applied via
+   applyShowTooltipsPreference() in ui-helpers.js) - hides every (?) trigger
+   icon app-wide, including ones added later by SPA page navigation, since
+   this is a plain declarative selector rather than a one-time DOM edit. */
+.tooltips-hidden [onclick*="toggleTooltip"] {
+    display: none !important;
+}
+
+.log-level-tooltip-inline[data-tooltip][data-visible="true"] {
+    @apply !flex;
+}
+
+/* All reveal actions share intrinsic width and the standard side padding. */
+.wakeup-action-button,
+.button-reveal {
+    --action-reveal-delay: 0s;
+    width: auto;
+    min-width: 2.75rem;
+    padding-inline: .75rem;
+    flex-shrink: 0;
+    gap: 0;
+    transition:
+        width 240ms cubic-bezier(0.22, 1, 0.36, 1) var(--action-reveal-delay),
+        padding 240ms cubic-bezier(0.22, 1, 0.36, 1) var(--action-reveal-delay),
+        gap 240ms cubic-bezier(0.22, 1, 0.36, 1) var(--action-reveal-delay),
+        color 150ms ease,
+        border-color 150ms ease,
+        background-color 150ms ease,
+        transform 150ms ease,
+        box-shadow 150ms ease;
+}
+
+.wakeup-action-label,
+.button-reveal-label {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .wakeup-action-label,
+    .button-reveal-label {
+        display: inline-block;
+        max-width: 0;
+        overflow: hidden;
+        opacity: 0;
+        white-space: nowrap;
+        font-size: 0.875rem;
+        transform: translateX(-0.35rem);
+        transition:
+            max-width 240ms cubic-bezier(0.22, 1, 0.36, 1) var(--action-reveal-delay),
+            opacity 160ms ease var(--action-reveal-delay),
+            transform 240ms cubic-bezier(0.22, 1, 0.36, 1) var(--action-reveal-delay);
+    }
+
+    /* Delay expansion only; hover colors and leaving the button stay immediate. */
+    .wakeup-action-button:hover,
+    .button-reveal:hover {
+        --action-reveal-delay: 1s;
+    }
+
+    .wakeup-action-button:focus-visible,
+    .button-reveal:focus-visible {
+        --action-reveal-delay: 0s;
+    }
+
+    .wakeup-action-button:hover,
+    .wakeup-action-button:focus-visible,
+    .button-reveal:hover,
+    .button-reveal:focus-visible {
+        padding-inline: 0.75rem;
+        gap: 0.5rem;
+    }
+
+    .wakeup-action-button:hover .wakeup-action-label,
+    .wakeup-action-button:focus-visible .wakeup-action-label,
+    .button-reveal:hover .button-reveal-label,
+    .button-reveal:focus-visible .button-reveal-label {
+        max-width: var(--action-reveal-label-width, 5rem);
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* ===================== Song waveform + pointer editor ===================== */
+/* Global, not scoped to .wf-editor - #song-led-color-field is a sibling of
+   it (not a descendant) and needs --wf-rose for its own clear badge, so
+   scoping these to .wf-editor left that var undefined there (transparent
+   badge) even though structurally everything else about it worked fine. */
+:root {
+    --wf-cyan: #22d3ee;
+    --wf-green: #4ade80;
+    --wf-yellow: #facc15;
+    --wf-amber: #fbbf24;
+    --wf-violet: #a78bfa;
+    --wf-rose: #f43f5e;
+}
+
+.wf-stem-tabs {
+    display: inline-flex;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    overflow: hidden;
+    font-size: 12px;
+}
+.wf-stem-tabs button {
+    background: transparent;
+    border: none;
+    color: rgb(161 161 170);
+    padding: 5px 12px;
+    cursor: pointer;
+}
+.wf-stem-tabs button.active {
+    background: rgba(255, 255, 255, 0.08);
+    font-weight: 500;
+}
+.wf-stem-tabs button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.wf-play-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 0.6rem;
+    background: rgba(24, 24, 27, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 7px 10px;
+}
+.wf-play-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(39, 39, 42, 0.5);
+    color: rgb(228 228 231);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.wf-play-btn:hover {
+    background: #3f3f46;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+.wf-play-btn .material-icons {
+    font-size: 18px;
+}
+
+.wf-zoom-ctl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgb(161 161 170);
+    font-size: 12px;
+    flex: 1;
+    min-width: 120px;
+}
+.wf-zoom-ctl .wf-zoom-label {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.wf-zoom-ctl button {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(39, 39, 42, 0.5);
+    color: rgb(228 228 231);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.wf-zoom-ctl button:hover {
+    background: #3f3f46;
+}
+.wf-zoom-ctl input[type="range"] {
+    flex: 1;
+    accent-color: #10b981; /* emerald-500, matches Gain/Mouth Articulation sliders */
+}
+
+.wf-editor-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: #10b981 #3f3f46;
+}
+/* Chrome/Safari - same track/fill colors as the Gain/Mouth Articulation
+   sliders (bg-zinc-700 track, bg-emerald-500 fill) for visual consistency. */
+.wf-editor-scroll::-webkit-scrollbar {
+    height: 10px;
+}
+.wf-editor-scroll::-webkit-scrollbar-track {
+    background: #3f3f46;
+    border-radius: 999px;
+}
+.wf-editor-scroll::-webkit-scrollbar-thumb {
+    background: #10b981;
+    border-radius: 999px;
+}
+.wf-editor-scroll::-webkit-scrollbar-thumb:hover {
+    background: #059669;
+}
+.wf-editor-inner {
+    min-width: 100%;
+}
+.wf-ruler {
+    position: relative;
+    height: 16px;
+    margin-bottom: 2px;
+}
+.wf-ruler span {
+    position: absolute;
+    top: 0;
+    font-size: 10px;
+    color: rgb(113 113 122);
+    font-variant-numeric: tabular-nums;
+    transform: translateX(-50%);
+}
+#wf-wave {
+    display: block;
+    height: 72px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.19);
+    cursor: pointer;
+}
+.wf-wave-wrap {
+    position: relative;
+}
+.wf-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #fff;
+    opacity: 0.9;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.wf-lanes {
+    margin-top: 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.wf-lane-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.wf-lane-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--wf-lane-c, rgb(161 161 170));
+}
+.wf-lane-label .wf-name {
+    position: sticky;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.wf-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--wf-lane-c, rgb(161 161 170));
+    flex-shrink: 0;
+}
+.wf-lane-track {
+    position: relative;
+    height: 30px;
+    border-radius: 6px;
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: copy;
+    overflow: hidden;
+}
+/* A native <input type="color"> normally shows as a small swatch with
+   padding around it (revealing whatever background sits behind it) - these
+   overrides make the swatch itself fill the whole element edge-to-edge, so
+   it reads as a solid color bar matching the lane tracks/markers above it,
+   not a separate control floating on its own background. */
+.wf-color-input {
+    height: 30px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    cursor: pointer;
+}
+.wf-color-input::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+.wf-color-input::-webkit-color-swatch {
+    border: none;
+    border-radius: 5px;
+}
+.wf-color-input::-moz-color-swatch {
+    border: none;
+    border-radius: 5px;
+}
+/* Sits directly over .wf-color-input in Rainbow mode, so the bar never
+   falsely previews a specific color for the "no color, use the default
+   animation" state. Mode switching is explicit via the Rainbow/Solid/Off
+   tabs now, not by clicking through to the swatch, so this stays
+   non-interactive. */
+.wf-color-rainbow {
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    overflow: hidden;
+    background: linear-gradient(
+        90deg,
+        #ff3b6f, #ff9500, #ffd60a, #34d399, #22d3ee, #5b8def, #b06aff, #ff3b6f
+    );
+    background-size: 200% 100%;
+    animation: wf-rainbow-shift 6s linear infinite;
+}
+@keyframes wf-rainbow-shift {
+    to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .wf-color-rainbow { animation: none; }
+}
+/* Off mode's bar - deliberately plain, no gradient/text, just the same dark
+   surface every other lane track uses when there's nothing to show. */
+.wf-off-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    pointer-events: none;
+}
+
+/* iOS-style on/off switch (song list: enable/disable without deleting).
+   A real checkbox drives it for free keyboard/focus/label semantics - only
+   its own box is hidden, the track+thumb next to it are what's drawn. */
+.wf-toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.wf-toggle input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+}
+.wf-toggle-track {
+    width: 42px;
+    height: 24px;
+    border-radius: 999px;
+    background: #52525b;
+    display: inline-block;
+    position: relative;
+    transition: background-color 0.2s ease;
+}
+.wf-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.wf-toggle input:checked + .wf-toggle-track {
+    background: #10b981;
+}
+.wf-toggle input:checked + .wf-toggle-track .wf-toggle-thumb {
+    transform: translateX(18px);
+}
+.wf-toggle input:active + .wf-toggle-track .wf-toggle-thumb {
+    width: 23px;
+}
+.wf-toggle input:checked:active + .wf-toggle-track .wf-toggle-thumb {
+    transform: translateX(15px);
+}
+.wf-toggle input:focus-visible + .wf-toggle-track {
+    outline: 2px solid #22d3ee;
+    outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+    .wf-toggle-track, .wf-toggle-thumb { transition: none; }
+}
+
+.wf-static-track {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.wf-lane-track[data-readonly="true"] {
+    cursor: default;
+}
+/* Tail Auto's read-only RMS envelope gets extra height (over the normal
+   30px lane) so the threshold line has room to sit at a legible fraction
+   of the bar instead of being squeezed flush against the drum peaks. */
+.wf-lane-track[data-lane="tail"][data-readonly="true"] {
+    height: 56px;
+}
+.wf-marker {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--wf-lane-c) 30%, transparent);
+    border: 1px solid var(--wf-lane-c);
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    touch-action: none;
+}
+.wf-marker:active {
+    cursor: grabbing;
+}
+.wf-marker .wf-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    /* Was 7px - too thin to reliably grab with a finger on a touchscreen. */
+    width: 16px;
+    cursor: ew-resize;
+}
+/* Markers are removed by double-clicking the marker itself now (see
+   wfRenderLane's dblclick listener) - a delete badge sharing space with the
+   resize handle was fiddly to hit precisely, especially on touch, where
+   there's no hover to reveal it in the first place. This class remains for
+   the LED color swatch's standalone clear button, shown/hidden via JS. */
+.wf-del {
+    position: absolute;
+    left: 50%;
+    top: -8px;
+    transform: translateX(-50%);
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    background: var(--wf-rose);
+    color: #fff;
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+}
+.wf-rms-bar {
+    position: absolute;
+    bottom: 0;
+    width: 2px;
+    background: var(--wf-amber);
+    opacity: 0.75;
+    border-radius: 1px 1px 0 0;
+}
+/* Marks where the Tail Threshold field crosses the drum RMS envelope, so
+   you can see which hits will trigger a flap without saving and testing
+   on hardware. */
+.wf-threshold-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--wf-rose);
+    opacity: 0.85;
+    pointer-events: none;
+}
+
+.wf-lane-mode {
+    position: sticky;
+    right: 0;
+    display: inline-flex;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    overflow: hidden;
+    font-size: 11px;
+    background: rgba(24, 24, 27, 0.8);
+}
+.wf-lane-mode button {
+    background: transparent;
+    border: none;
+    color: rgb(161 161 170);
+    padding: 3px 9px;
+    cursor: pointer;
+}
+.wf-lane-mode button.active {
+    background: var(--wf-amber);
+    color: #412402;
+    font-weight: 500;
+}
+
+/* Bluetooth controls: compact device rows and a readable pairing code. */
+/* Shared selection treatment for songs, personas, profiles and Bluetooth devices. */
+.selection-card {
+    position: relative;
+    isolation: isolate;
+    border: 1px solid #3f3f46;
+    border-radius: .5rem;
+    background: #27272a;
+    transition: border-color .15s, background-color .15s;
+    cursor: pointer;
+}
+.selection-card[data-selected="true"] {
+    border-color: #10b981;
+    background: #10b9811a;
+    box-shadow: inset 0 1px 0 #ffffff14;
+}
+.selection-card:hover:not(:has(.selection-card-trigger:disabled)) { border-color: #10b981; }
+.selection-card:has(.selection-card-trigger:disabled) { cursor: default; }
+.selection-card-trigger {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: inherit;
+    border-radius: inherit;
+}
+.selection-card-trigger::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.selection-card-trigger:focus-visible { outline: none; }
+.selection-card-trigger:focus-visible::after { outline: 2px solid #67e8f9; outline-offset: 3px; }
+.selection-card-actions { position: relative; z-index: 1; }
+
+#bluetooth-settings { display: flex; flex-direction: column; gap: 1rem; }
+#bluetooth-settings [hidden] { display: none !important; }
+#bluetooth-settings p { margin: 0; }
+#bluetooth-settings #bt-audio, #bluetooth-settings .bt-pair-hint { color: #a7bac9; font-size: .875rem; line-height: 1.6; }
+#bluetooth-settings .bt-devices { display: grid; gap: .625rem; margin: 0; padding: 0; list-style: none; }
+#bluetooth-settings .bt-device-identity { display: flex; align-items: center; gap: .75rem; flex: 1 1 10rem; min-width: 0; }
+#bluetooth-settings .bt-device-identity > [role="img"] { width: .5rem; height: .5rem; }
+#bluetooth-settings .bt-device-details { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+#bluetooth-settings .bt-device-name { font-size: .9375rem; font-weight: 600; overflow-wrap: anywhere; }
+#bluetooth-settings .bt-device-state { color: #a7bac9; font-size: .75rem; }
+#bluetooth-settings .bt-device-badge { color: #6ee7b7; }
+#bluetooth-settings .bt-device-actions, #bluetooth-settings .bt-pairing-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+#bluetooth-settings .bt-pair-status { color: #6ee7b7; padding: .3rem .625rem; border: 1px solid #34d39933; border-radius: 999px; background: #10b9810d; font-size: .75rem; font-variant-numeric: tabular-nums; }
+#bluetooth-settings .bt-pair-hint { margin-top: -.5rem; }
+#bluetooth-settings .bt-pending { padding: 1.25rem; border: 1px solid #34d39966; border-radius: 1rem; background: linear-gradient(135deg, #10b98112, #10b98103); }
+#bluetooth-settings .bt-request-heading { display: flex; align-items: center; gap: .5rem; color: #6ee7b7; font-size: .75rem; font-weight: 600; letter-spacing: .04em; }
+#bluetooth-settings .bt-request-heading .material-icons { font-size: 1.125rem; }
+#bluetooth-settings #bt-request { margin-top: .75rem; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+#bluetooth-settings .bt-code { margin: .875rem 0; color: #f1f5f9; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 2rem; font-weight: 600; letter-spacing: .2em; font-variant-numeric: tabular-nums; line-height: 1.2; }
+#bluetooth-settings .bt-confirm-hint { margin-top: .5rem; color: #a7bac9; font-size: .8125rem; line-height: 1.6; }
+#bluetooth-settings #bt-error:empty { display: none; }
+#bluetooth-settings #bt-error { font-size: .875rem; overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+    #bluetooth-settings .bt-device-actions { width: 100%; }
+    #bluetooth-settings .bt-pending { padding: 1rem; }
+}
+
+
+/* Keep Bluetooth actions and auto-connect together, separate from identity. */
+#bluetooth-settings .bt-device { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .625rem; padding: .625rem .75rem; border-radius: .5rem; }
+#bluetooth-settings .bt-device-identity { align-self: center; min-height: 2.75rem; }
+#bluetooth-settings .bt-device-details { gap: .125rem; }
+#bluetooth-settings .bt-device-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem .625rem; }
+#bluetooth-settings .bt-device-actions .wf-toggle { flex-direction: column; justify-content: flex-end; width: auto; margin-left: auto; white-space: nowrap; gap: 0; min-height: 2.75rem; color: #b8cbd6; font-size: .75rem; }
+#bluetooth-settings .bt-device-actions .wf-toggle-track { width: 34px; height: 20px; flex-shrink: 0; }
+#bluetooth-settings .bt-device-actions .wf-toggle-thumb { width: 16px; height: 16px; }
+#bluetooth-settings .bt-device-actions .wf-toggle input:checked + .wf-toggle-track .wf-toggle-thumb { transform: translateX(14px); }
+#bluetooth-settings .bt-device-actions .wf-toggle input:active + .wf-toggle-track .wf-toggle-thumb { width: 16px; }
+#bluetooth-settings .bt-device-actions .wf-toggle:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+#bluetooth-settings .bt-device-actions .wf-toggle input:disabled { cursor: not-allowed; }
+@media (max-width: 600px) {
+    #bluetooth-settings .bt-device { grid-template-columns: minmax(0, 1fr); gap: .375rem; }
+    #bluetooth-settings .bt-device-actions { width: 100%; }
+    #bluetooth-settings .bt-device-identity { padding-top: 0; }
+}
+
+
+.system-components-card { padding: 1rem; border: 1px solid #ffffff18; border-radius: .75rem; background: #08232d24; }
+.system-components-heading { display: flex; align-items: flex-start; gap: .75rem; }
+.system-components-heading > .material-icons { color: #fff; font-size: 1.25rem; margin-top: .125rem; }
+.system-components-heading-content { flex: 1; min-width: 0; }
+.system-components-title-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .5rem .75rem; }
+#system-packages-badge { white-space: nowrap; }
+.system-components-detail-panel { margin-top: .875rem; font-size: .75rem; color: #a4bac7; }
+.system-components-detail-panel summary { cursor: pointer; }
+.system-components-detail-panel summary:hover { color: #f4f4f5; }
+.system-components-detail-panel summary:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
+.system-components-heading h4 { color: #e2e8f0; font-size: .875rem; font-weight: 600; }
+.system-components-heading p, .system-components-details { font-size: .75rem; color: #a4bac7; margin-top: .25rem; overflow-wrap: anywhere; }
+.system-components-status { font-size: .8125rem; color: #cbd5e1; margin-top: .875rem; }
+.system-components-status:empty, .system-components-details:empty { display: none; }
+.system-components-repair { margin-top: 1rem; }
+@media (max-width: 600px) { .system-components-repair { width: 100%; } }
+
+
+#mic-check-btn { white-space: nowrap; }
+#mic-check-btn, #mic-record-play-btn { align-self: flex-start; }
+
+#wakeword-keyword-file { --action-height: 2.25rem; --action-padding: .375rem .625rem; }
+#wakeword-keyword-file::file-selector-button { margin-right: .75rem; }
+#wakeword-keyword-file::file-selector-button:hover { background: rgba(255, 255, 255, .08); }
+
+#wifi-edit-toggle-btn { --action-reveal-label-width: 8rem; }
+
+/* Keep power-menu icons and labels in consistent left-aligned columns. */
+#power-dropdown .secondary-action { justify-content: flex-start; text-align: left; white-space: nowrap; }
+#power-dropdown .material-icons { width: 1.125rem; flex-shrink: 0; }
+
+
+/* Compact settings controls shared by software stability and operating mode. */
+.settings-select-row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: .75rem 1.5rem; padding: .75rem; }
+.settings-select-label { display: flex; align-items: center; gap: .75rem; color: #fff; font-size: .875rem; }
+.settings-select-label > .material-icons { font-size: 1.25rem; flex-shrink: 0; }
+.settings-select-controls { display: flex; align-items: center; justify-content: flex-end; gap: .625rem; min-width: 0; }
+.settings-select { width: 16rem; max-width: 100%; min-width: 0; color: #fff; }
+.settings-select:focus-visible, .settings-inline-help > summary:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
+.settings-inline-help { flex-shrink: 0; }
+.settings-inline-help[hidden] { display: none; }
+.settings-inline-help > summary { display: flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 50%; cursor: pointer; color: #a4bac7; list-style: none; }
+.settings-inline-help > summary::-webkit-details-marker { display: none; }
+.settings-inline-help > summary:hover { background: #ffffff10; color: #fff; }
+.settings-warning-help > summary { color: #fcd34d; }
+.settings-warning-help > summary:hover { color: #fde68a; }
+.settings-help-panel { position: absolute; top: calc(100% - .25rem); right: .75rem; z-index: 30; width: min(22rem, calc(100% - 1.5rem)); padding: .875rem; border: 1px solid #ffffff30; border-radius: .5rem; background: #142e3b; color: #e2e8f0; font-size: .75rem; line-height: 1.6; box-shadow: 0 .5rem 1.5rem #0005; }
+.settings-warning-help .settings-help-panel { border-color: #fbbf2466; }
+.settings-warning-help strong { color: #fcd34d; }
+.settings-card:has(.settings-inline-help[open]:not([hidden])) { position: relative; z-index: 30; }
+.tooltips-hidden .settings-mode-help, .tooltips-hidden .api-provider-help { display: none; }
+.api-provider-help > summary { width: 1.5rem; height: 1.5rem; }
+.api-provider-help .settings-help-panel { top: calc(100% + .375rem); right: 0; width: min(22rem, 100%); }
+.software-version-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 0 .75rem; }
+.software-version-labels { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; font-size: .75rem; color: #a4bac7; }
+.software-version-labels span span { color: #e2e8f0; }
+#software-operation-status:empty { display: none; }
+@media (max-width: 600px) {
+    .settings-select-row { flex-direction: column; align-items: stretch; }
+    .settings-select-controls { width: 100%; }
+    .settings-select { flex: 1; width: 100%; }
+    .software-version-summary #update-btn { width: 100%; }
+}
+
+
+.recovery-reset-toggle { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: #fff; cursor: pointer; list-style: none; }
+.recovery-reset-toggle::-webkit-details-marker { display: none; }
+.recovery-reset-toggle:hover { color: #fb7185; }
+.recovery-reset-toggle:focus-visible { outline: 2px solid #fb7185; outline-offset: 4px; border-radius: .25rem; }
+#recovery-reset-section[open] > summary > .material-icons { transform: rotate(180deg); }
+
+
+.log-toolbar-actions { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .75rem; max-width: 100%; }
+.log-source-control { display: flex; align-items: center; gap: .75rem; min-width: 0; max-width: 100%; }
+.log-source-control label { flex-shrink: 0; }
+#log-source-select { min-width: 0; max-width: 100%; }
+
+
+/* Status stays left; navigation and service controls share one compact toolbar. */
+.billy-header { --header-gutter: 1rem; background: transparent; backdrop-filter: blur(8px); box-shadow: 0 4px 10px #00000040; }
+.billy-topbar { max-width: 72rem; margin-inline: auto; padding: 10px 1rem; display: flex; align-items: center; gap: 12px; }
+.billy-brand { display: flex; align-items: center; gap: 10px; min-width: 0; color: #f8fafc; text-decoration: none; flex: 0 1 auto; }
+.billy-brand:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; border-radius: 8px; }
+#status-logo { width: 48px; height: 48px; flex-shrink: 0; object-fit: contain; }
+.billy-brand-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.billy-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.billy-brand-name { font-size: 16px; font-weight: 650; line-height: 1.2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.billy-state-line { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 1.4; color: #bbced8; }
+#service-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.billy-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: #94a3b8; }
+.header-bluetooth { display: inline-flex; align-items: center; flex-shrink: 0; color: #34d399; }
+.header-bluetooth[hidden] { display: none; }
+.header-bluetooth .material-icons { font-size: 20px; }
+.billy-header-actions, .header-navigation, .header-settings-actions, .header-service-actions, #service-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.header-separated-actions { padding-left: 12px; margin-left: 4px; border-left: 1px solid #ffffff24; }
+.billy-topbar .secondary-action { height: 44px; min-width: 44px; padding: 0 12px; border-radius: 12px; font-size: 14px; line-height: 1; }
+.billy-topbar .material-icons { font-size: 20px; }
+.billy-topbar .button-reveal-label { font-size: 14px; }
+.billy-topbar .button-icon { width: 44px; }
+#power-dropdown { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; min-width: 168px; padding: 6px; border: 1px solid #ffffff24; border-radius: 14px; background: #142e3b; box-shadow: 0 10px 24px #0005; }
+#power-dropdown .secondary-action { width: 100%; border-color: transparent; background: transparent; box-shadow: none; }
+#power-dropdown .secondary-action + .secondary-action { margin-top: 4px; }
+.billy-header #log-panel { max-width: 72rem; margin-inline: auto; padding-inline: var(--header-gutter); }
+@media (max-width: 767px) {
+    .billy-header { --header-gutter: .5rem; }
+    .billy-topbar { padding: 8px; gap: 6px; }
+    #status-logo { width: 36px; height: 40px; }
+    .billy-brand { gap: 6px; }
+    .billy-header-actions, .header-navigation, .header-settings-actions, .header-service-actions { gap: 4px; }
+    .header-separated-actions { padding-left: 6px; margin-left: 2px; }
+    .header-service-label { display: none; }
+    .billy-topbar .secondary-action { padding: 0; }
+    .billy-brand-name { font-size: 14px; }
+    .billy-state-line { font-size: 11px; }
+    .header-bluetooth .material-icons { font-size: 14px; }
+    #power-dropdown .secondary-action { padding-inline: 10px; }
+}
+
+.billy-header-actions { margin-left: auto; }
+.billy-topbar .secondary-action { min-height: 44px; }
+@media (max-width: 480px) {
+    .billy-topbar { position: relative; padding-bottom: 28px; }
+    .billy-state-line { position: absolute; left: 12px; right: 12px; bottom: 6px; font-size: 12px; }
+}
+
+
+/* A hidden select retains form values; the same stepped control presents them. */
+.settings-step-control { width: 100%; min-width: 0; }
+.settings-step-bar { position: relative; height: 1rem; margin-top: .75rem; border-radius: 999px; background: #3f3f46; cursor: pointer; user-select: none; touch-action: pan-y; }
+.settings-step-bar:focus-visible { outline: 2px solid #67e8f9; outline-offset: 4px; }
+.settings-step-fill { position: absolute; inset: 0 auto 0 0; height: 100%; border-radius: inherit; background: #10b981; transition: width .1s; }
+.settings-step-dots { position: absolute; inset: 0; pointer-events: none; }
+.settings-step-dot { position: absolute; top: 50%; width: .5rem; height: .5rem; border-radius: 50%; background: #fff; pointer-events: none; }
+.settings-step-label { margin-top: .5rem; color: #e5e7eb; font-size: .875rem; }
+.update-channel-setting { flex-direction: row; align-items: flex-start; gap: .75rem; padding-bottom: 0; margin-block-end: .5rem; }
+.settings-step-heading { display: flex; align-items: center; min-height: 1.5rem; gap: .5rem; }
+.update-channel-setting .settings-step-heading { flex: 1; min-width: 0; }
+.update-channel-setting .settings-select-controls { flex: 0 0 auto; width: clamp(6rem, 42%, 16rem); }
+.update-channel-setting .settings-step-bar { margin-top: .25rem; }
+.update-channel-setting .settings-step-label { text-align: center; }
+.update-channel-warning-slot { flex: 0 0 2rem; min-height: 2rem; margin-top: -.25rem; }
+@media (max-width: 600px) {
+    .update-channel-setting { padding-inline: 0; }
+    .update-channel-setting .settings-select-label { gap: .375rem; font-size: .8125rem; }
+    .update-channel-setting .settings-step-label { font-size: .8125rem; }
+}
+
+/* Keep the maintenance footer clear of mobile home indicators. */
+#loading-overlay { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
+
+/* Keep voice models and conversation controls compact within each card. */
+.api-model-panel { margin-bottom: 1rem; padding: .875rem; border: 1px solid #ffffff18; border-radius: .75rem; background: #08232d24; }
+.api-model-grid, .api-settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: 1rem; }
+.api-model-grid > *, .api-settings-grid > * { min-width: 0; }
+.api-field-hint { margin-top: .375rem; color: #a4bac7; font-size: .75rem; }
+.api-model-note { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #ffffff18; color: #a4bac7; font-size: .75rem; line-height: 1.5; }
+.api-toggle-setting { position: relative; display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 2.75rem; }
+.api-toggle-setting > label { flex: 1; gap: .375rem; }
+.api-toggle-setting > label .material-icons { flex-shrink: 0; }
+.api-toggle-control { display: flex; align-items: center; flex-shrink: 0; }
+.api-toggle-setting [data-tooltip] { top: 100%; }
+
+
+/* Live subtitles open below the header, with an optional full-screen reading view. */
+#live-captions-title[hidden], #live-captions-content[hidden], #live-transcript-content[hidden], #live-transcript-empty[hidden], #toggle-captions-btn[hidden], .live-captions-panel[hidden], .live-captions[hidden], .live-caption-row[hidden], #live-captions-empty[hidden] { display: none; }
+#toggle-captions-btn[aria-expanded="true"] { color: #67e8f9; border-color: #67e8f980; background: #164e63; }
+.live-captions-panel { max-width: 72rem; margin-inline: auto; padding: 0 var(--header-gutter) 1rem; }
+.live-captions { position: relative; width: 100%; min-width: 0; padding: .75rem 1rem; border-radius: 1rem; background: #09151ee8; border: 1px solid #67e8f980; color: #f8fafc; }
+.live-captions-title { display: flex; align-items: center; min-height: 44px; margin-bottom: .75rem; padding-right: 3.5rem; font-size: .875rem; font-weight: 600; }
+/* Start with one sentence per speaker, then grow with wrapping text up to the viewport limit. */
+.live-captions-content {
+    --caption-min-height: 3.5rem;
+    --caption-max-height: min(35dvh, 18rem, calc(100dvh - 12rem));
+    min-width: 0;
+    height: auto;
+    min-height: min(var(--caption-min-height), var(--caption-max-height));
+    max-height: var(--caption-max-height);
+    overflow: auto;
+    scrollbar-width: thin;
+}
+.live-captions-content:focus-visible { outline: 2px solid #67e8f9; outline-offset: 2px; border-radius: .25rem; }
+.live-caption-row { display: grid; grid-template-columns: 3.25rem minmax(0, 1fr); gap: .5rem; align-items: baseline; font-size: 1rem; line-height: 1.5; }
+.live-caption-row + .live-caption-row { margin-top: .5rem; }
+.live-caption-speaker { color: #a5b8c6; font-size: .8125rem; font-weight: 600; }
+#live-caption-billy .live-caption-speaker, .live-caption-row[data-speaker="billy"] .live-caption-speaker { color: #6ee7b7; }
+.live-caption-text { overflow-wrap: anywhere; white-space: pre-wrap; }
+#live-captions-empty, #live-transcript-empty { display: grid; align-items: center; height: 100%; min-height: inherit; color: #a5b8c6; text-align: center; font-size: .875rem; line-height: 1.5; }
+.secondary-action.panel-icon-button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; flex-shrink: 0; }
+.secondary-action--hover--amber:focus-visible { outline-color: #fbbf24; }
+.live-captions .live-captions-expand { position: absolute; top: .75rem; right: 1rem; z-index: 1; }
+.live-captions-panel .live-caption-row { padding-right: 3.5rem; }
+.live-captions-expand[data-overflow="true"] { color: #67e8f9; }
+.live-captions-dialog { width: min(64rem, calc(100% - 2rem)); max-width: none; max-height: none; margin: auto; padding: 0; border: 0; background: transparent; color: #f8fafc; overflow: visible; }
+.live-captions-dialog::backdrop { background: #0008; backdrop-filter: blur(4px); }
+.live-captions-dialog .live-captions { padding: 1rem; background: #0c2430; box-shadow: 0 12px 48px #0008; }
+.live-captions-dialog .live-captions-title { font-size: 1rem; }
+.live-captions-dialog .live-captions-expand { top: 1rem; }
+.live-captions-dialog .live-captions-content { height: min(55dvh, 28rem); min-height: 0; max-height: calc(100dvh - 8rem); }
+@media (max-width: 767px) {
+    .live-captions-content { --caption-min-height: 6.5rem; }
+}
+@media (max-width: 480px) {
+    .live-captions-content { --caption-min-height: 9rem; }
+    .live-captions { padding: .5rem .75rem; }
+    .live-captions .live-captions-expand { top: .5rem; right: .75rem; }
+    .live-caption-row { grid-template-columns: 2.5rem minmax(0, 1fr); font-size: .9375rem; }
+    .live-captions-dialog { width: calc(100% - 1rem); }
+    .live-captions-dialog .live-captions { padding: .75rem; }
+    .live-captions-dialog .live-captions-expand { top: .75rem; }
+}
+@media (max-width: 360px) {
+    .billy-topbar { flex-wrap: wrap; padding-bottom: 8px; }
+    .billy-brand { flex-basis: 100%; }
+    .billy-state-line { position: static; }
+    .billy-header-actions { width: 100%; justify-content: flex-end; }
+}
+
+
+/* Shared action labels and inline status disclosures. */
+.button-reveal--wide { --action-reveal-label-width: 8rem; }
+.status-badge--beta { --badge-rgb: 196 181 253; }
+.status-badge--deprecated { --badge-rgb: 253 186 116; }
+.status-badge--update { --badge-rgb: 252 211 77; }
+.status-badge {
+    display: inline-flex; align-items: center; justify-content: center; gap: .25rem;
+    flex-shrink: 0; padding: .25rem .625rem; border-radius: 999px;
+    color: rgb(var(--badge-rgb)); background: rgb(var(--badge-rgb) / .1);
+    border: 1px solid rgb(var(--badge-rgb) / .4);
+    font-size: .75rem; font-weight: 600; line-height: 1.25; white-space: nowrap;
+    cursor: pointer; transition: background-color 150ms, border-color 150ms;
+}
+.status-badge.hidden, [data-disclosure-panel][hidden], #software-update-release-link[hidden] { display: none; }
+.status-badge:hover, .status-badge[aria-expanded="true"] { background: rgb(var(--badge-rgb) / .2); border-color: rgb(var(--badge-rgb) / .7); }
+.status-badge:focus-visible, .library-section-toggle:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
+.status-badge > .material-icons { font-size: 1rem; transition: transform 180ms; }
+.status-badge[aria-expanded="true"] > .material-icons, .library-section-toggle[aria-expanded="true"] .disclosure-chevron { transform: rotate(180deg); }
+.status-badge-info {
+    padding: .875rem 1rem; margin: .5rem 0 1rem; border-radius: .75rem;
+    border: 1px solid rgb(var(--badge-rgb) / .3); border-left: 3px solid rgb(var(--badge-rgb) / .7);
+    background: #0c2430b3; color: #e2e8f0; font-size: .875rem; line-height: 1.6;
+    overflow-wrap: anywhere; animation: badge-reveal 180ms ease-out;
+}
+.status-badge-info strong { color: rgb(var(--badge-rgb)); }
+.status-badge-info a { display: inline-flex; gap: .375rem; margin-top: .5rem; color: rgb(var(--badge-rgb)); text-decoration: underline; text-underline-offset: 3px; }
+.status-badge-info a:hover { color: #fff; }
+.library-section-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: 1rem; border-bottom: 1px solid #3f3f46; }
+.library-section-heading h2 { flex: 1 1 17rem; min-width: 0; }
+.library-section-toggle { display: flex; align-items: center; gap: .5rem; width: 100%; text-align: left; color: #fff; font-size: 1.125rem; cursor: pointer; border-radius: .25rem; }
+.library-section-toggle:hover { color: #6ee7b7; }
+.library-section-subtitle { color: #a5b8c6; font-size: .875rem; }
+.library-section-toggle .disclosure-chevron { margin-left: auto; transition: transform 180ms; }
+.library-section-heading + .status-badge-info { margin: 1rem; }
+@keyframes badge-reveal { from { opacity: 0; transform: translateY(-.25rem); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .status-badge-info { animation: none; } }
+.reduce-motion .status-badge-info { animation: none; }
+
+@media (max-width: 360px) {
+    #section-software-version > h3 { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; }
+    #section-software-version > h3 > span:nth-child(2) { text-align: center; }
+    #section-software-version > h3 > .material-icons:last-child { grid-column: 3; grid-row: 1; }
+    #software-update-badge { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+}

@@ -765,3 +765,14 @@ def test_invalid_configuration_has_configuration_action(store):
     store.env.write_text('FLASK_PORT=broken')
     store.prepare()
     assert store.notice()['kind'] == 'configuration'
+
+
+def test_recovery_names_invalid_key_and_line_without_exposing_value(store):
+    original = b"OPENAI_API_KEY=private-test-key\nFLASK_PORT='private-invalid-value'\n"
+    store.env.write_bytes(original)
+    store.prepare()
+    state = store.read_state()
+    assert 'FLASK_PORT at line 2' in state['reason']
+    assert 'private-invalid-value' not in state['reason']
+    assert 'private-test-key' not in state['reason']
+    assert (store.directory / state['original']).read_bytes() == original

@@ -17,11 +17,11 @@ ADDRESS = "AA:BB:CC:DD:EE:FF"
 OTHER = "11:22:33:44:55:66"
 ROOT = Path(__file__).parents[2]
 package = ModuleType("autoconnect_test_core")
-package.__path__ = [str(ROOT / "core")]
+package.__path__ = [str(ROOT / "application/core")]
 sys.modules[package.__name__] = package
 spec = importlib.util.spec_from_file_location(
     "autoconnect_test_core.bluetooth.autoconnect",
-    ROOT / "core/bluetooth/autoconnect.py",
+    ROOT / "application/core/bluetooth/autoconnect.py",
 )
 auto = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(auto)

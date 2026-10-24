@@ -176,7 +176,7 @@ def test_real_mic_wrapper_keeps_first_words_and_resets_pending_audio(
     a.echo_cancellation_active = Mock(return_value=False)
     module = isolated.load('mic_uplink')
     cls = definitions(
-        'core/session/mic_manager_wrapper.py',
+        'application/core/session/mic_manager_wrapper.py',
         ['MicManagerWrapper'],
         dict(
             asyncio=asyncio,
@@ -237,6 +237,7 @@ def test_real_mic_wrapper_keeps_first_words_and_resets_pending_audio(
         assert old.closed and old._task.done()
         assert old.snapshot()['queued'] == 0
         assert old.snapshot()['overflow'] == 1
+        assert old.snapshot()['overflow_without_playback'] == 1
         assert ws.send.await_count == 1  # the queued old block was discarded
         mic.callback(block, 960, None, SimpleNamespace(input_overflow=False))
         for _ in range(100):
@@ -244,10 +245,40 @@ def test_real_mic_wrapper_keeps_first_words_and_resets_pending_audio(
                 break
             await asyncio.sleep(0)
         assert ws.send.await_count == 2
+        a.playback_done_event.clear()
+        mic.callback(block, 960, None, SimpleNamespace(input_overflow=True))
+        assert mic._uplink.snapshot()['overflow_during_playback'] == 1
+        assert mic._uplink.snapshot()['overflow_without_playback'] == 0
+        a.playback_done_event.set()
         task = mic._uplink._task
         active.clear()
         mic.stop()
         await asyncio.gather(task, return_exceptions=True)
         s.stop_session.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+def test_overflow_diagnostics_distinguish_playback_without_changing_capture(isolated):
+    module = isolated.load('mic_uplink')
+
+    async def run():
+        sender = module.MicUplink(
+            asyncio.get_running_loop(), AsyncMock(), AsyncMock(), Mock()
+        )
+        for overflow, playing in [
+            (True, True),
+            (False, True),
+            (True, False),
+            (True, True),
+        ]:
+            sender.record_callback(time.monotonic(), overflow, playing=playing)
+        metrics = sender.snapshot()
+        assert metrics['captured'] == 4
+        assert metrics['overflow'] == 3
+        assert metrics['overflow_during_playback'] == 2
+        assert metrics['overflow_without_playback'] == 1
+        sender.close()
+        await asyncio.gather(sender._task, return_exceptions=True)
 
     asyncio.run(run())

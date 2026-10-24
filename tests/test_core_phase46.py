@@ -29,7 +29,7 @@ def test_button_snapshots_before_stop_and_rejects_late_audio(provider, generatin
         MANUAL_HANDOFF_ECHO_SETTLE_SECONDS=1.5,
     )
     methods = definitions(
-        'core/session_manager.py',
+        'application/core/session_manager.py',
         ['interrupt_to_user_turn', '_on_audio_out'],
         ns,
         cls='BillySession',
@@ -37,6 +37,7 @@ def test_button_snapshots_before_stop_and_rejects_late_audio(provider, generatin
 
     async def run():
         s = Mock()
+        s._live = None  # Realtime session; no continuous Live runtime.
         s.session_active.is_set.return_value = True
         s.state = SimpleNamespace(response_active=generating)
         s.realtime_ai_provider.get_provider_name.return_value = provider
@@ -87,7 +88,7 @@ def test_aec_failure_chunk_is_never_forwarded_during_playback():
     a.playback_done_event.is_set.return_value = False
     a.process_mic_with_aec.side_effect = lambda samples, **kw: samples
     method = definitions(
-        'core/session/mic_manager_wrapper.py',
+        'application/core/session/mic_manager_wrapper.py',
         ['_process_microphone'],
         dict(audio=a, mic_input_samples_for_meter=lambda x: x),
         cls='MicManagerWrapper',
@@ -245,7 +246,7 @@ def test_startup_does_not_start_consumers_or_mark_ready_before_audio(
         mark_ready=record('ready'),
         signal_handler=Mock(),
     )
-    main = definitions('main.py', ['main'], ns).main
+    main = definitions('application/core/application.py', ['main'], ns).main
     if fail_probe:
         with pytest.raises(RuntimeError):
             main()
@@ -338,3 +339,34 @@ def test_supported_mic_resampling_is_informational(audio_module):
     assert a.MIC_RATE == 48000
     a.logger.info.assert_any_call('Mic capture at 48000Hz; resampling to 24000Hz.')
     a.logger.warning.assert_not_called()
+
+
+@pytest.mark.parametrize('rate,channels', [(24000, 1), (48000, 1), (44100, 2)])
+def test_mic_capture_buffer_keeps_format_and_uses_negotiated_aec_delay(
+    audio_module, isolated, rate, channels
+):
+    a = audio_module
+    a.MIC_RATE = rate
+    a.MIC_DEVICE_INDEX = 3
+    a.MIC_CHANNELS = channels
+    a.CHUNK_SIZE = rate * 40 // 1000
+    a.sd.InputStream = Mock()
+    stream = a.sd.InputStream.return_value
+    # The driver can round the request; AEC must use the actual delay.
+    stream.latency = 0.24
+    a.set_aec_capture_latency = Mock()
+    mic = isolated.load('mic').MicManager()
+    callback = Mock()
+    mic.start(callback)
+    options = a.sd.InputStream.call_args.kwargs
+    assert options['latency'] >= 0.2
+    assert options['blocksize'] == rate * 40 // 1000
+    assert options['samplerate'] == rate and options['channels'] == channels
+    assert options['device'] == 3 and options['dtype'] == 'int16'
+    assert options['callback'] is callback
+    stream.start.assert_called_once()
+    a.set_aec_capture_latency.assert_called_once_with(0.24)
+    mic.stop()
+    stream.abort.assert_called_once()
+    stream.close.assert_called_once()
+    assert mic.stream is None

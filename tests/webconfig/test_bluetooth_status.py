@@ -12,7 +12,7 @@ import pytest
 
 @pytest.fixture
 def stream(monkeypatch):
-    base = Path(__file__).parents[2] / 'webconfig/app'
+    base = Path(__file__).parents[2] / 'application/webconfig/app'
     package = ModuleType('status_test_pkg')
     package.__path__ = [str(base)]
     monkeypatch.setitem(sys.modules, package.__name__, package)
@@ -199,7 +199,7 @@ def device_reader(devices, raises=False):
         return devices
 
     read = definitions(
-        'webconfig/app/routes/audio.py',
+        'application/webconfig/app/routes/audio.py',
         ['device_info_snapshot'],
         {
             'sd': SimpleNamespace(query_devices=query),
@@ -347,3 +347,100 @@ def test_slow_journal_is_shared_and_does_not_block_other_sources(stream, monkeyp
         release.set()
         assert finished.wait(1)
     assert sampler.get()['logs'] == 'pipewire log'
+
+
+@pytest.mark.parametrize('provider', ['gpt-live', 'openai', 'xai'])
+def test_captions_endpoint_only_reads_live_and_only_sends_changes(
+    stream, monkeypatch, provider
+):
+    module, _ = stream
+    monkeypatch.setenv('REALTIME_AI_PROVIDER', provider)
+    snapshots = iter([
+        {'session': 'a', 'lines': []},
+        {'session': 'a', 'lines': []},
+        None,
+    ])
+    reads = []
+
+    def read():
+        reads.append(True)
+        return next(snapshots)
+
+    monkeypatch.setitem(
+        sys.modules,
+        'core.providers.live_transcript',
+        SimpleNamespace(read_live_transcript=read),
+    )
+    monkeypatch.setattr(module, 'time', SimpleNamespace(sleep=lambda _: None))
+    ticks = iter(range(3))
+
+    def receive(**kwargs):
+        return next(ticks)
+
+    messages = []
+    module.live_captions_handler(
+        SimpleNamespace(receive=receive, send=lambda m: messages.append(json.loads(m)))
+    )
+    assert module.live_captions_enabled() == (provider == 'gpt-live')
+    if provider == 'gpt-live':
+        assert len(reads) == 3 and messages == [{'session': 'a', 'lines': []}, None]
+    else:
+        assert not reads and messages == [None]
+
+
+def test_full_transcript_is_only_requested_in_fullscreen_and_resent_after_reopening(
+    stream, monkeypatch
+):
+    module, _ = stream
+    monkeypatch.setenv('REALTIME_AI_PROVIDER', 'gpt-live')
+    step = {'value': -1}
+    reads = []
+    commands = [
+        None,
+        '{"view":"transcript"}',
+        None,
+        None,
+        '{"view":"captions"}',
+        '{"view":"transcript"}',
+        'bad json',
+        '{"view":"unknown"}',
+    ]
+
+    def receive(**kwargs):
+        step['value'] += 1
+        if step['value'] >= len(commands):
+            raise EOFError
+        return commands[step['value']]
+
+    def read(*, include_transcript=False):
+        tick = step['value']
+        revision = 1 if tick < 3 else 2
+        reads.append((tick, include_transcript))
+        snapshot = {
+            'session': 'a',
+            'published': tick,
+            'revision': revision,
+            'lines': [{'speaker': 'billy', 'text': 'latest', 'updated': 0}],
+        }
+        if include_transcript:
+            snapshot['transcript'] = [
+                {'speaker': 'user', 'text': 'First question'},
+                {'speaker': 'billy', 'text': f'Complete answer {revision}'},
+            ]
+        return snapshot
+
+    monkeypatch.setitem(
+        sys.modules,
+        'core.providers.live_transcript',
+        SimpleNamespace(read_live_transcript=read),
+    )
+    monkeypatch.setattr(module, 'time', SimpleNamespace(sleep=lambda _: None))
+    messages = []
+    module.live_captions_handler(
+        SimpleNamespace(receive=receive, send=lambda m: messages.append(json.loads(m)))
+    )
+    assert [tick for tick, full in reads if full] == [1, 3, 5]
+    full = [message['transcript'] for message in messages if 'transcript' in message]
+    assert len(full) == 3
+    assert full[0][-1]['text'] == 'Complete answer 1'
+    assert full[-1][-1]['text'] == 'Complete answer 2'

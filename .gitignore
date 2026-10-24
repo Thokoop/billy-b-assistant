@@ -82,6 +82,7 @@ persona.ini
 versions.ini
 venv
 webconfig/node_modules
+application/webconfig/node_modules
 personas/
 !persona_presets/*/persona.ini
 profiles/
@@ -119,6 +120,8 @@ test/
 !/tests/webconfig/test_updates.cjs
 !/tests/webconfig/test_release_channels.cjs
 !/tests/webconfig/test_logs.cjs
+!/tests/webconfig/test_live.cjs
+!/tests/webconfig/test_badges.cjs
 /.ci-results/
 
 !/tests/deployment/

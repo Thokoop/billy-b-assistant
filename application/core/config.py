@@ -1,0 +1,382 @@
+from __future__ import annotations
+
+import asyncio
+import configparser
+import os
+
+from dotenv import load_dotenv
+
+from billy_runtime.paths import INSTALL_ROOT
+from billy_runtime.release_policy import update_channel
+
+from .persona import (
+    PersonaProfile,
+    load_traits_from_ini,
+)
+
+
+# === Paths ===
+ROOT_DIR = str(INSTALL_ROOT)
+ENV_PATH = os.path.join(ROOT_DIR, ".env")
+PERSONA_PATH = os.path.join(ROOT_DIR, "persona.ini")
+
+# === Load .env ===
+if not os.environ.get("BILLY_CONFIG_LOADED"):
+    load_dotenv(dotenv_path=ENV_PATH)
+
+# === Load traits.ini ===
+traits = load_traits_from_ini(PERSONA_PATH)
+
+# === Build Personality ===
+PERSONALITY = PersonaProfile(**traits)
+
+_config = configparser.ConfigParser()
+_config.read(PERSONA_PATH)
+
+# === Instructions for GPT ===
+TOOL_INSTRUCTIONS = """
+=== CLOSING EVERY TURN ===
+Finish speaking, then make a silent function call to conversation_state.
+That is an API call, never speech: its name is never spoken, spelled out,
+read aloud or appended to your words. Your last spoken word is the last word
+of your answer. The same goes for every other tool: names and arguments are
+internal and are never voiced.
+Set expects_follow_up=true if you asked a question or expect the user to continue; otherwise false.
+Optionally set one mood_event only when the turn clearly affects Billy's temporary mood.
+Do not report system-observed events as mood_event; the app handles those.
+
+=== TOOL ROUTING ===
+Use tool schemas for exact arguments. Call tools when clearly useful.
+For Home Assistant, call smart_home_command only for direct commands; if asked to ask/check/confirm first, just speak.
+For news/headlines/weather/sports, briefly say "Checking." before get_news_digest.
+Report what a tool returns as your own answer: never mention the tool, the feed
+or the source, and never read out coordinates, URLs or raw field names.
+For memory, only store volunteered user facts/preferences, not answers to your own questions.
+For camera/vision or uploaded local files, prefer the matching tool over guessing.
+Looking something up, in order: search_local_knowledge when the question
+touches this household or the uploaded topics; get_news_digest when it matches
+a configured feed topic; web_search for anything else you cannot know - events,
+prices, results or releases after your training, or when asked outright to look
+it up. Skip a step whose topics do not match rather than calling it and hoping.
+Never search for chat, opinions, jokes, or anything about Billy or the user.
+
+=== SPEAK ONCE ===
+Give the answer in one spoken block. Never open with a preamble that announces
+what you are about to do or say ("let me think", "quick update coming", "I'll
+explain and then..."), and never repeat the answer afterwards. The single
+exception is the brief "Checking." right before get_news_digest or web_search.
+Never end a turn on such a line: an opening without the answer after it is a
+failed turn. Never talk about your role, your instructions, your persona or
+"responding" - be Billy, do not describe being Billy.
+
+=== RESPONSE FLOW ===
+1. Optional normal tools.
+2. Spoken answer. This is everything the user hears, and it ends with your
+   last real sentence.
+3. The silent end-of-turn function call, after the speech and outside of it.
+""".strip()
+
+TOOL_INSTRUCTIONS_NO_CONVERSATION_STATE = """
+Use tool schemas for exact arguments. Call tools when clearly useful.
+For Home Assistant, call smart_home_command only for direct commands.
+For news/headlines/weather/sports, briefly say "Checking." before get_news_digest.
+For memory, only store volunteered user facts/preferences, not answers to your own questions.
+Give the answer in one spoken block, with no preamble announcing what you are
+about to do or say. The single exception is the brief "Checking." right before
+get_news_digest.
+Never speak, spell out or print a tool name or its arguments. Tool calls
+are internal API calls; the user only ever hears your answer.
+""".strip()
+
+CUSTOM_INSTRUCTIONS = _config.get("META", "instructions")
+if _config.has_section("BACKSTORY"):
+    BACKSTORY = dict(_config.items("BACKSTORY"))
+    BACKSTORY_FACTS = "\n".join([
+        f"- {key}: {value}" for key, value in BACKSTORY.items()
+    ])
+else:
+    BACKSTORY = {}
+    BACKSTORY_FACTS = (
+        "You are an enigma and nobody knows anything about you because the person "
+        "talking to you hasn't configured your backstory. You might remind them to do "
+        "that."
+    )
+
+INSTRUCTIONS = f"""
+# Role & Objective
+{CUSTOM_INSTRUCTIONS.strip()}
+---
+# Tools
+{TOOL_INSTRUCTIONS.strip()}
+---
+# Personality & Tone
+{PERSONALITY.generate_prompt()}
+---
+# Context (backstory)
+Use your backstory to inspire jokes, metaphors, or occasional references in conversation, staying consistent with your personality.
+{BACKSTORY_FACTS}
+""".strip()
+
+# === OpenAI Config ===
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-realtime-2.1-mini")
+OPENAI_LIVE_MODEL = os.getenv("OPENAI_LIVE_MODEL", "gpt-live-1").strip()
+OPENAI_LIVE_BACKEND_MODEL = os.getenv("OPENAI_LIVE_BACKEND_MODEL", "gpt-6-luna").strip()
+CONVERSATION_STATE_ENABLED_MODELS = {
+    "gpt-realtime",
+    "gpt-realtime-mini",
+    "gpt-realtime-1.5",
+    "gpt-realtime-2",
+    "gpt-realtime-2.1",
+    "gpt-realtime-2.1-mini",
+}
+
+
+def _is_camera_vision_enabled() -> bool:
+    hardware = os.getenv("CAMERA_HARDWARE", "none").strip().lower()
+    return hardware in {"rpi_camera", "usb_webcam"}
+
+
+def _filter_vision_instruction_line(text: str) -> str:
+    if _is_camera_vision_enabled():
+        return text
+    lines = text.splitlines()
+    filtered = [line for line in lines if not line.strip().startswith("VISION:")]
+    return "\n".join(filtered)
+
+
+def is_conversation_state_enabled(model: str | None = None) -> bool:
+    """Whether conversation_state tool/instructions should be enabled."""
+    m = (model or os.getenv("OPENAI_MODEL", OPENAI_MODEL) or "").strip()
+    return m in CONVERSATION_STATE_ENABLED_MODELS or any(
+        m.startswith(f"{enabled}-") for enabled in CONVERSATION_STATE_ENABLED_MODELS
+    )
+
+
+def get_tool_instructions(model: str | None = None) -> str:
+    """Return tool instructions appropriate for the selected model."""
+    instructions = (
+        TOOL_INSTRUCTIONS
+        if is_conversation_state_enabled(model)
+        else TOOL_INSTRUCTIONS_NO_CONVERSATION_STATE
+    )
+    return _filter_vision_instruction_line(instructions)
+
+
+# === XAI Config ===
+XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+XAI_MODEL = os.getenv("XAI_MODEL", "grok-voice-latest").strip()
+
+# === Provider Config ===
+REALTIME_AI_PROVIDER = os.getenv("REALTIME_AI_PROVIDER", "openai").strip().lower()
+
+# === Modes ===
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+TEXT_ONLY_MODE = os.getenv("TEXT_ONLY_MODE", "false").lower() == "true"
+RUN_MODE = os.getenv("RUN_MODE", "normal").lower()
+
+# === Billy Hardware ===
+BILLY_MODEL = os.getenv("BILLY_MODEL", "modern").strip().lower()
+BILLY_PINS = os.getenv("BILLY_PINS", "new").strip().lower()
+
+# === Audio Config ===
+SPEAKER_PREFERENCE = os.getenv("SPEAKER_PREFERENCE")
+MIC_PREFERENCE = os.getenv("MIC_PREFERENCE")
+MIC_TIMEOUT_SECONDS = int(os.getenv("MIC_TIMEOUT_SECONDS", "5"))
+MIC_TIMEOUT_TAIL_FLAP = (
+    os.getenv("MIC_TIMEOUT_TAIL_FLAP", "true").strip().lower() == "true"
+)
+MIC_GAIN = os.getenv("MIC_GAIN", "max").strip()
+
+
+def _resolve_silence_threshold():
+    raw_value = os.getenv("SILENCE_THRESHOLD")
+    if raw_value in (None, ""):
+        return 2000.0
+
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return 2000.0
+
+
+SILENCE_THRESHOLD = _resolve_silence_threshold()
+CHUNK_MS = int(os.getenv("CHUNK_MS", "40"))
+AEC_ENABLED = os.getenv("AEC_ENABLED", "false").lower() == "true"
+# Separate from AEC_ENABLED, which governs the AI path and defaults off.
+# A Bluetooth call plays the far end through Billy's own speaker into his
+# own microphone, so cancellation is required there by default. Turn this
+# off only to test whether the AEC is responsible for an audio artefact.
+BLUETOOTH_CALL_AEC = os.getenv("BLUETOOTH_CALL_AEC", "true").lower() == "true"
+# The route watcher inside billy.service: a phone that starts streaming or
+# takes a call pre-empts whatever Billy was doing, and Billy returns to idle
+# when it stops. Off leaves Bluetooth to the manual audio test alone.
+BLUETOOTH_AUTO_SWITCH = os.getenv("BLUETOOTH_AUTO_SWITCH", "true").lower() == "true"
+try:
+    AEC_BARGE_IN_SNR_DB = max(
+        3.0, min(20.0, float(os.getenv("AEC_BARGE_IN_SNR_DB", "9")))
+    )
+except (TypeError, ValueError):
+    AEC_BARGE_IN_SNR_DB = 9.0
+FOLLOW_UP_RETRY_LIMIT = int(os.getenv("FOLLOW_UP_RETRY_LIMIT", "2"))
+# Injecting live mood into the realtime instructions costs real tokens: every
+# mood shift resends the full persona system prompt via session.update.
+# Enabled by default; cost-conscious users can turn it off entirely.
+MOOD_INSTRUCTIONS_ENABLED = (
+    os.getenv("MOOD_INSTRUCTIONS_ENABLED", "true").strip().lower() == "true"
+)
+# Minimum time between live mood-instruction pushes to the realtime API.
+# Mood state itself still updates immediately (MQTT, get_mood/set_mood); this
+# only throttles how often that state gets folded into a fresh, billable
+# session.update so a burst of barge-ins/mood events collapses into one push.
+MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS = float(
+    os.getenv("MOOD_INSTRUCTIONS_MIN_INTERVAL_SECONDS", "10")
+)
+PLAYBACK_VOLUME = 1
+MOUTH_ARTICULATION = int(os.getenv("MOUTH_ARTICULATION", "5"))
+MOUTH_BOOST = float(os.getenv("MOUTH_BOOST", "1.0"))
+TURN_EAGERNESS = os.getenv("TURN_EAGERNESS", "high").strip().lower()
+HEAD_RETRACT_DELAY_SECONDS = float(os.getenv("HEAD_RETRACT_DELAY_SECONDS", "1.5"))
+WAKE_WORD_ENABLED = os.getenv("WAKE_WORD_ENABLED", "false").lower() == "true"
+WAKE_WORD_BACKEND = os.getenv("WAKE_WORD_BACKEND", "porcupine").strip().lower()
+WAKE_WORD_COOLDOWN_SECONDS = float(os.getenv("WAKE_WORD_COOLDOWN_SECONDS", "4.0"))
+PORCUPINE_ACCESS_KEY = os.getenv("PORCUPINE_ACCESS_KEY", "").strip()
+WAKE_WORD_PORCUPINE_KEYWORD_PATH = os.getenv(
+    "WAKE_WORD_PORCUPINE_KEYWORD_PATH", "hey-billy.ppn"
+).strip()
+WAKE_WORD_PORCUPINE_SENSITIVITY = float(
+    os.getenv("WAKE_WORD_PORCUPINE_SENSITIVITY", "0.20")
+)
+WAKE_WORD_OPENWAKEWORD_MODEL_PATH = os.getenv(
+    "WAKE_WORD_OPENWAKEWORD_MODEL_PATH", "hey_billy.onnx"
+).strip()
+WAKE_WORD_OPENWAKEWORD_THRESHOLD = float(
+    os.getenv("WAKE_WORD_OPENWAKEWORD_THRESHOLD", "0.50")
+)
+WAKE_WORD_OPENWAKEWORD_MELSPEC_MODEL_PATH = os.getenv(
+    "WAKE_WORD_OPENWAKEWORD_MELSPEC_MODEL_PATH", ""
+).strip()
+WAKE_WORD_OPENWAKEWORD_EMBEDDING_MODEL_PATH = os.getenv(
+    "WAKE_WORD_OPENWAKEWORD_EMBEDDING_MODEL_PATH", ""
+).strip()
+if TURN_EAGERNESS not in {"low", "medium", "high"}:
+    TURN_EAGERNESS = "medium"
+
+# Server VAD parameters based on eagerness.
+# Eagerness should mainly control how long Billy waits before ending a turn.
+# Keep speech sensitivity consistent so "low" does not become "hard to hear".
+SERVER_VAD_PARAMS = {
+    "low": {
+        "threshold": 0.7,
+        "prefix_padding_ms": 300,
+        "silence_duration_ms": 1500,
+    },
+    "medium": {
+        "threshold": 0.7,
+        "prefix_padding_ms": 300,
+        "silence_duration_ms": 1000,
+    },
+    "high": {
+        "threshold": 0.7,
+        "prefix_padding_ms": 150,
+        "silence_duration_ms": 250,
+    },
+}
+
+# === GPIO Config ===
+BUTTON_PIN = 27 if BILLY_PINS == "legacy" else 24  # legacy=pin 13, new=pin 18
+STATUS_LED_BACKEND = os.getenv("STATUS_LED_BACKEND", "auto").strip().lower()
+STATUS_LED_PIN = int(os.getenv("STATUS_LED_PIN", "18"))
+STATUS_LED_COUNT = max(1, int(os.getenv("STATUS_LED_COUNT", "1")))
+STATUS_LED_BRIGHTNESS = float(os.getenv("STATUS_LED_BRIGHTNESS", "0.2"))
+# The webconfig UI no longer exposes a separate enable/disable control - 0%
+# brightness now means "off" (and the settings form writes STATUS_LED_ENABLED
+# to match on every save, see handleSettingsSave() in settings-form.js). The
+# explicit STATUS_LED_ENABLED flag is kept and still honored on its own so
+# existing .env files that set it (with a nonzero brightness) keep behaving
+# exactly as before.
+STATUS_LED_ENABLED = (
+    os.getenv("STATUS_LED_ENABLED", "false").lower() == "true"
+    and STATUS_LED_BRIGHTNESS > 0
+)
+STATUS_LED_DMA_CHANNEL = int(os.getenv("STATUS_LED_DMA_CHANNEL", "10"))
+STATUS_LED_PWM_CHANNEL = int(os.getenv("STATUS_LED_PWM_CHANNEL", "0"))
+
+# === MQTT Config ===
+MQTT_HOST = os.getenv("MQTT_HOST", "")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+
+# === Home Assistant Config ===
+HA_HOST = os.getenv("HA_HOST")
+HA_TOKEN = os.getenv("HA_TOKEN")
+HA_LANG = os.getenv("HA_LANG", "en")
+# Which Home Assistant conversation agent answers. Empty means Home Assistant's
+# own default, which is the built-in sentence matcher - not whichever assistant
+# is marked preferred in the UI.
+HA_AGENT_ID = os.getenv("HA_AGENT_ID", "").strip()
+
+# === Personality Config ===
+ALLOW_UPDATE_PERSONALITY_INI = (
+    os.getenv("ALLOW_UPDATE_PERSONALITY_INI", "true").lower() == "true"
+)
+
+# === Software Config ===
+FLASK_PORT = int(os.getenv("FLASK_PORT", "80"))
+SHOW_SUPPORT = os.getenv("SHOW_SUPPORT", True)
+FORCE_PASS_CHANGE = os.getenv("FORCE_PASS_CHANGE", "false").lower() == "true"
+SHOW_RC_VERSIONS = os.getenv("SHOW_RC_VERSIONS", "False")
+UPDATE_CHANNEL = update_channel()
+FLAP_ON_BOOT = os.getenv("FLAP_ON_BOOT", "false").lower() == "true"
+# webconfig-only preference: hides the (?) tooltip help icons across the UI
+# when off. Enabled by default.
+SHOW_TOOLTIPS = os.getenv("SHOW_TOOLTIPS", "true").lower() == "true"
+MOCKFISH = os.getenv("MOCKFISH", "false").lower() == "true"
+WIFI_COUNTRY = (os.getenv("WIFI_COUNTRY", "US") or "").strip().upper() or "US"
+WIFI_ONBOARDING_MODE = os.getenv("WIFI_ONBOARDING_MODE", "legacy").strip().lower()
+if WIFI_ONBOARDING_MODE not in {"legacy", "unified"}:
+    WIFI_ONBOARDING_MODE = "legacy"
+
+# === News Digest Config ===
+NEWS_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NEWS_REQUEST_TIMEOUT_SECONDS", "6"))
+
+# === Web Search Config ===
+# Off unless switched on: every search is a billed tool call, and a Billy that
+# quietly looks things up is a Billy that quietly costs money.
+WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "false").lower() == "true"
+WEB_SEARCH_MODEL = os.getenv("WEB_SEARCH_MODEL", "gpt-6-luna")
+WEB_SEARCH_CONTEXT_SIZE = os.getenv("WEB_SEARCH_CONTEXT_SIZE", "low").strip().lower()
+if WEB_SEARCH_CONTEXT_SIZE not in {"low", "medium", "high"}:
+    WEB_SEARCH_CONTEXT_SIZE = "low"
+WEB_SEARCH_TIMEOUT_SECONDS = float(os.getenv("WEB_SEARCH_TIMEOUT_SECONDS", "20"))
+
+# === Camera Vision Config ===
+CAMERA_HARDWARE = os.getenv("CAMERA_HARDWARE", "none").strip().lower()
+if CAMERA_HARDWARE not in {"none", "rpi_camera", "usb_webcam"}:
+    CAMERA_HARDWARE = "none"
+# Kept under its original setting name for compatibility. Runtime camera handling
+# falls back between the current rpicam-still and legacy libcamera-still commands.
+LIBCAMERA_STILL_BIN = os.getenv("LIBCAMERA_STILL_BIN", "rpicam-still").strip()
+FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg").strip()
+CAMERA_DEVICE_INDEX = int(os.getenv("CAMERA_DEVICE_INDEX", "0"))
+CAMERA_ROTATION = int(os.getenv("CAMERA_ROTATION", "0"))
+if CAMERA_ROTATION not in {0, 90, 180, 270}:
+    CAMERA_ROTATION = 0
+CAMERA_CAPTURE_WIDTH = int(os.getenv("CAMERA_CAPTURE_WIDTH", "1280"))
+CAMERA_CAPTURE_HEIGHT = int(os.getenv("CAMERA_CAPTURE_HEIGHT", "720"))
+CAMERA_CAPTURE_TIMEOUT_SECONDS = float(os.getenv("CAMERA_CAPTURE_TIMEOUT_SECONDS", "8"))
+
+# === User Profile Config ===
+DEFAULT_USER = os.getenv("DEFAULT_USER", "guest").strip()
+CURRENT_USER = os.getenv("CURRENT_USER", "").strip()
+
+
+def is_classic_billy():
+    return os.getenv("BILLY_MODEL", "modern").strip().lower() == "classic"
+
+
+try:
+    MAIN_LOOP = asyncio.get_event_loop()
+except RuntimeError:
+    MAIN_LOOP = None

@@ -1,0 +1,176 @@
+<!-- Billy status and controls -->
+{% set header_hostname = device_hostname|default('billy', true) %}
+{% set header_name = header_hostname[:1]|upper ~ header_hostname[1:] %}
+<header class="billy-header z-30 sticky top-0">
+    <div class="billy-topbar">
+        <a href="/" data-page-link class="billy-brand" aria-label="{{ header_name }} home">
+            <img id="status-logo" src="/static/images/status-inactive.png" alt="" draggable="false">
+            <span class="billy-brand-copy">
+                <span class="billy-name-line">
+                    <span class="billy-brand-name" title="{{ header_name }}">{{ header_name }}</span>
+                    <span id="header-bluetooth" class="header-bluetooth" role="img" hidden>
+                        <span class="material-icons" aria-hidden="true">bluetooth_connected</span>
+                    </span>
+                </span>
+                <span class="billy-state-line" role="status" aria-live="polite" aria-atomic="true">
+                    <span id="service-status-dot" class="billy-status-dot" aria-hidden="true"></span>
+                    <span id="service-status">Connecting…</span>
+                </span>
+            </span>
+        </a>
+        <nav class="billy-header-actions" aria-label="Billy controls">
+            <div class="header-navigation">
+                <button id="toggle-captions-btn" type="button" hidden
+                        class="secondary-action secondary-action--hover--cyan button-reveal"
+                        aria-label="Subtitles" aria-expanded="false" aria-controls="live-captions-panel"
+                        title="Show subtitles">
+                    <span class="material-icons" aria-hidden="true">closed_caption</span>
+                    <span class="button-reveal-label">Subtitles</span>
+                </button>
+                <button id="toggle-log-btn" type="button"
+                        class="secondary-action secondary-action--hover--amber button-reveal"
+                        aria-label="Debug" title="Show debug log">
+                    <span class="material-icons bug_report" aria-hidden="true">bug_report</span>
+                    <span class="button-reveal-label">Debug</span>
+                </button>
+            </div>
+            <div class="header-settings-actions header-separated-actions">
+                <a href="/settings" id="header-settings-btn" data-page-link data-page="settings"
+                   class="secondary-action secondary-action--hover--emerald button-reveal relative"
+                   aria-label="Settings" title="Settings">
+                    <span class="material-icons" aria-hidden="true">settings</span>
+                    <span class="button-reveal-label">Settings</span>
+                    <span data-release-badge class="hidden absolute -top-2 -right-2 items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-black text-xs font-extrabold shadow">!</span>
+                </a>
+            </div>
+            <div class="header-service-actions header-separated-actions">
+                <div id="service-controls"></div>
+                <div id="power-menu" class="relative">
+                    <button id="power-btn" type="button"
+                            class="secondary-action secondary-action--hover--rose button-reveal"
+                            aria-label="Power options" aria-expanded="false" aria-controls="power-dropdown" title="Power options">
+                        <span class="material-icons" aria-hidden="true">power_settings_new</span>
+                        <span class="button-reveal-label">Power</span>
+                    </button>
+                    <div id="power-dropdown" class="hidden">
+                        <button id="stop-billy-btn" type="button" class="hidden secondary-action secondary-action--hover--rose">
+                            <span class="material-icons text-rose-400" aria-hidden="true">stop</span>Stop
+                        </button>
+                        <button id="reboot-billy-btn" type="button" class="secondary-action secondary-action--hover--amber">
+                            <span class="material-icons text-amber-400" aria-hidden="true">restart_alt</span>Reboot
+                        </button>
+                        <button id="shutdown-billy-btn" type="button" class="secondary-action secondary-action--hover--rose">
+                            <span class="material-icons text-rose-400" aria-hidden="true">power_off</span>Shutdown
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </div>
+
+    <div id="live-captions-panel" class="live-captions-panel" hidden>
+        <section id="live-captions" class="live-captions" aria-label="Live subtitles" hidden>
+            <h2 id="live-captions-title" class="live-captions-title" hidden>Live subtitles</h2>
+            <div id="live-captions-content" class="live-captions-content" tabindex="0" aria-label="Current subtitles">
+                <div class="live-caption-row" id="live-caption-user" hidden>
+                    <span class="live-caption-speaker">You</span><span class="live-caption-text"></span>
+                </div>
+                <div class="live-caption-row" id="live-caption-billy" hidden>
+                    <span class="live-caption-speaker">Billy</span><span class="live-caption-text"></span>
+                </div>
+                <span id="live-captions-empty">Waiting for speech…</span>
+            </div>
+            <div id="live-transcript-content" class="live-captions-content" tabindex="0" aria-label="Session transcript" hidden>
+                <div id="live-transcript-turns"></div>
+                <span id="live-transcript-empty">Waiting for speech…</span>
+            </div>
+            <button id="expand-captions-btn" type="button"
+                    class="secondary-action secondary-action--hover--cyan panel-icon-button live-captions-expand"
+                    aria-label="Expand subtitles" aria-expanded="false" aria-controls="live-captions-dialog"
+                    title="Expand subtitles">
+                <span class="material-icons" id="captions-expand-icon" aria-hidden="true">fullscreen</span>
+            </button>
+        </section>
+    </div>
+
+    <section id="log-panel" class="hidden px-4 pb-4">
+        <div class="p-3 bg-zinc-900/88 backdrop-blur-sm border border-zinc-600 flex gap-3 justify-between items-center flex-wrap shadow-2xl">
+            <div class="flex items-center gap-3 flex-wrap">
+                <div class="flex flex-col items-start gap-2">
+                    <div class="flex items-center gap-2">
+                        <label for="log-level-select" class="text-sm text-gray-200">
+                            Billy log level:
+                        </label>
+                        <span class="material-icons text-zinc-300 cursor-pointer"
+                              onclick="toggleTooltip(this)"
+                              title="Log level help">help_outline</span>
+                        <div data-tooltip class="log-level-tooltip-inline gap-3">
+                            <div class="flex items-center gap-2">
+                                <span class="material-icons text-red-400 text-sm mt-0.5">error</span>
+                                <p><strong>Error:</strong> Operations that failed.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-icons text-yellow-400 text-sm mt-0.5">warning</span>
+                                <p><strong>Warning:</strong> Adds recoverable issues.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-icons text-blue-400 text-sm mt-0.5">info</span>
+                                <p><strong>Info:</strong> Adds normal operations.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-icons text-purple-400 text-sm mt-0.5">search</span>
+                                <p><strong>Verbose:</strong> Adds timing and debug details. Does not change BlueZ or PipeWire logging.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <select id="log-level-select"
+                        class="bg-zinc-700 text-white text-sm px-3 py-1 rounded border border-zinc-600 focus:border-cyan-500 focus:outline-none">
+                    <option value="ERROR">Error</option>
+                    <option value="WARNING">Warning</option>
+                    <option value="INFO" selected>Info</option>
+                    <option value="VERBOSE">Verbose</option>
+                </select>
+                <button id="apply-log-level-btn"
+                        class="secondary-action secondary-action--hover--cyan button-small">
+                    Apply
+                </button>
+            </div>
+            <div class="log-toolbar-actions">
+                <div class="log-source-control">
+                    <label for="log-source-select" class="text-sm text-gray-200">Source:</label>
+                    <select id="log-source-select"
+                            class="bg-zinc-700 text-white text-sm px-3 py-1 rounded border border-zinc-600 focus:border-cyan-500 focus:outline-none">
+                        <option value="billy">Billy</option>
+                        <option value="web">Web interface</option>
+                        <option value="bluetooth">Bluetooth</option>
+                        <option value="all">All services</option>
+                    </select>
+                </div>
+                <button id="clear-logs-btn"
+                        class="secondary-action secondary-action--hover--rose button-small">
+                    Clear view
+                </button>
+            </div>
+        </div>
+        <p id="log-error" class="text-sm text-amber-300 mt-2" role="status" hidden></p>
+        <div id="log-container"
+             class="relative mt-3 rounded-lg px-2 max-h-96 overflow-y-scroll text-sm transition-all duration-300 border border-[#fbbf24] bg-zinc-900/88 backdrop-blur-sm shadow-2xl">
+            <button id="toggle-fullscreen-btn"
+                    class="secondary-action secondary-action--hover--amber panel-icon-button sticky top-2 left-full mr-3 z-10"
+                    title="Toggle Fullscreen Log">
+                <span class="material-icons" id="fullscreen-icon">fullscreen</span>
+            </button>
+
+            <pre id="log-output"
+                 class="text-white whitespace-pre-wrap break-words overflow-x-hidden max-w-full"></pre>
+
+            <button id="scroll-bottom-btn"
+                    title="Auto-scroll"
+                    class="secondary-action secondary-action--hover--amber panel-icon-button sticky bottom-2 left-full mr-3 ml-auto">
+                <span class="material-icons">arrow_downward</span>
+            </button>
+        </div>
+    </section>
+
+</header>

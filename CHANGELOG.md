@@ -4,23 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.7.0] — 2026-10-??
+## [2.7.0] — 2026-10-25
 
 ### Added
-- **Bluetooth Audio**: Play music and take hands-free calls through Billy, with moving lips and echo cancellation. Pair your phone in Settings and optionally enable Auto-connect on startup.
-- **Bluetooth Controls**: Billy switches to phone audio automatically. Press his button to play/pause music or end a call; double-tap during Bluetooth media mode to return to the AI assistant.
-- **Bluetooth Status Lights**: Pulsing blue means music is playing; steady blue means a call.
-- **Software Recovery**: Reinstall the current version or restore a saved previous version from Settings, while keeping your settings, profiles and memories. A recovery screen is available if the normal interface cannot start.
-- **Configuration Backups & Repair**: Billy saves working configurations for recovery. Advanced Settings also lets you check and repair missing system components.
+
+- **GPT-Live**: An optional OpenAI provider for continuous voice conversations, with separate voice and reasoning/tool models, provider-specific settings and an expanded voice catalog including Ballad. Wake-up clips and MQTT `say` announcements can use the selected persona's Live voice. Clip generation is experimental; failed or oversized recordings are not played or saved over existing clips. OpenAI Realtime and xAI remain available.
+- **Live Subtitles & Transcripts**: The CC button opens a GPT-Live subtitle panel that grows with its content and retains each speaker's latest turn until their next turn. Fullscreen shows the complete current-session transcript and lets you scroll back while the conversation continues. At Info or Verbose, the complete transcript is logged once at session end.
+- **Bluetooth Audio**: Play music and take hands-free calls through Billy, with moving lips and call echo cancellation. Pair devices in Settings, select their cards to connect or disconnect, and optionally enable Auto-connect per device. Switching devices disconnects the current device first. Billy's physical button controls playback and calls; double-tap during media playback to return to the AI assistant. Pulsing blue indicates music, steady blue indicates a call, and the idle pulse is green. AI audio yields to Bluetooth while it uses the hardware.
+- **Recovery & Repair**: Reinstall the current version, restore a saved previous version, recover a working configuration, or repair required system components from the web interface. Repair, Edit Configuration and Reset have separate sections; reset options start collapsed. The `.env` editor validates changes and detects conflicting edits. An independent recovery screen remains available if the application cannot start. Software recovery preserves settings, profiles and memories; it does not roll back system packages or upgrade Raspberry Pi OS.
+- **Automated Quality Checks**: Added Python and UI regressions for audio, Bluetooth, providers, updates and recovery, plus ARM64 dependency-installation checks for Python 3.11 and 3.13.
 
 ### Changed
-- **Quality Checks**: Software changes now go through automated checks for audio, Bluetooth, updates and recovery to help catch problems before release.
-- **Safer Updates**: Updates check required components before switching versions and can fall back if the new version fails its startup checks.
-- **Clearer Settings**: More consistent buttons, compact hover labels, clearer recovery options and live status messages.
-- **Idle Status Light**: The idle pulse is now plain green, making it easier to distinguish from Bluetooth’s blue lights.
+
+- **Software Updates**: Choose Stable, Release Candidate or Beta with the minimum-stability slider. Releases use separate Python environments with locked dependencies and startup checks before activation, with fallback when checks fail. Application settings are validated by the selected release. Update offers follow the chosen stability level and remove deleted tags after a successful remote refresh. The previous Release Candidate preference is preserved.
+- **Web Interface**: The responsive header uses the device hostname, displays live activity and Bluetooth status, and groups subtitles, Debug, Settings and power controls. Delayed hover labels clarify profile, memory and song actions. Reusable Beta, Deprecated and Update available badges open further information, including the matching GitHub release when available. Software controls and release notes are more compact, camera controls share a row when space allows, and profile mood data refreshes independently of live activity updates.
+- **Debug & Diagnostics**: Choose Billy, Web interface, Bluetooth or All services; Bluetooth includes PipeWire and WirePlumber. Logs stream while Debug is open, with white text and yellow controls, and Clear view only clears the display. Successful health and log polling stays out of the journal; other successful HTTP requests require Verbose. Microphone diagnostics report capture loss separately from delivery timing and limit repeated warnings.
+- **Application Layout**: Assistant and web application code now live under `application/`, with explicit provider initialization and separate bootstrap/recovery code. Stable root launchers preserve the service-file paths used by 2.6.0 and earlier installations. Settings and user data keep their existing locations; `current-source` identifies the selected source tree for development.
+- **Library**: Internal Knowledge appears first. External Knowledge starts collapsed and has an independently expandable deprecation notice.
 
 ### Fixed
-- **Smoother Audio & Movement**: Reduced microphone glitches and improved the reliability of voice conversations and mouth movements.
+
+- **Microphone & Playback Reliability**: Reduced audio dropouts and stale-audio buildup with improved capture buffering, bounded queues and more reliable playback cleanup. Microphone startup reports a failure for the selected device instead of silently switching to a different one.
+- **Session Cleanup**: An older session finishing late can no longer stop audio or reset state owned by its successor. Shutdown waits are bounded so stopping or restarting Billy can finish when audio or transport cleanup stalls.
+
+### Deprecated
+
+- **External Knowledge**: Configured external feeds remain available, but are planned for removal in a future release. The Web search tool is now recommended for up-to-date information.
+
+### Removed
+
+- **Unused Replay Tool**: Removed the obsolete `test/replay.py` development script.
 
 ---
 

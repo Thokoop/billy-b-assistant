@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def load_transport():
-    path = Path(__file__).parents[2] / "core/bluetooth/transport.py"
+    path = Path(__file__).parents[2] / "application/core/bluetooth/transport.py"
     spec = importlib.util.spec_from_file_location("billy_bluetooth_transport", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

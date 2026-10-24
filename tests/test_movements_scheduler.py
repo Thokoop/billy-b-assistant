@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 def load_scheduler():
-    source = (Path(__file__).parents[1] / "core/movements.py").read_text()
+    source = (Path(__file__).parents[1] / "application/core/movements.py").read_text()
     tree = ast.parse(source)
     node = next(
         item
@@ -24,7 +24,11 @@ def load_scheduler():
     )
     namespace = {"threading": threading, "time": time}
     exec(
-        compile(ast.Module(body=[node], type_ignores=[]), "core/movements.py", "exec"),
+        compile(
+            ast.Module(body=[node], type_ignores=[]),
+            "application/core/movements.py",
+            "exec",
+        ),
         namespace,
     )
     return namespace["_StopScheduler"]

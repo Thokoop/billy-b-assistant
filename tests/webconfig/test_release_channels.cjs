@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const {test} = require('node:test');
-const source = fs.readFileSync('webconfig/static/js/settings-form.js', 'utf8');
+const source = fs.readFileSync('application/webconfig/static/js/settings-form.js', 'utf8');
 
 function setup() {
     const warning = {hidden: true, open: false};

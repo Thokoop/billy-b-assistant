@@ -15,7 +15,7 @@ from flask import Flask, jsonify, request
 
 @pytest.fixture
 def journal(monkeypatch):
-    base = Path(__file__).parents[2] / 'webconfig/app'
+    base = Path(__file__).parents[2] / 'application/webconfig/app'
     spec = importlib.util.spec_from_file_location(
         'journal_under_test', base / 'journal.py'
     )
@@ -107,7 +107,7 @@ def test_http_route_defaults_validates_and_disables_cache(journal, monkeypatch):
     monkeypatch.setitem(sys.modules, package.__name__ + '.journal', journal)
     app = Flask('journal-route')
     definitions(
-        'webconfig/app/routes/misc.py',
+        'application/webconfig/app/routes/misc.py',
         ['logs'],
         {
             '__package__': 'journal_route_test.routes',

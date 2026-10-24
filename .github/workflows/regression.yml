@@ -33,7 +33,7 @@ jobs:
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r tests/requirements.txt
       - name: Check Python syntax
-        run: python -m compileall -q core billy_runtime webconfig main.py
+        run: python -m compileall -q application billy_runtime webconfig main.py
       - name: Run hardware-free regressions and recovery process tests
         run: python -m pytest -q --junitxml=.ci-results/pytest.xml
       - name: Preserve test report
@@ -61,9 +61,9 @@ jobs:
         run: |
           while IFS= read -r -d '' file; do
             node --check "$file"
-          done < <(git ls-files -z 'webconfig/static/js/*.js')
-      - name: Test Bluetooth status and restart/recovery UI
-        run: node --test tests/bluetooth/test_ui.cjs tests/webconfig/test_restart.cjs tests/webconfig/test_updates.cjs tests/webconfig/test_release_channels.cjs tests/webconfig/test_logs.cjs
+          done < <(git ls-files -z 'application/webconfig/static/js/*.js')
+      - name: Test Bluetooth, voice settings and restart/recovery UI
+        run: node --test tests/bluetooth/test_ui.cjs tests/webconfig/test_restart.cjs tests/webconfig/test_updates.cjs tests/webconfig/test_release_channels.cjs tests/webconfig/test_logs.cjs tests/webconfig/test_live.cjs tests/webconfig/test_badges.cjs
 
   regression-gate:
     # Use this stable name as the required status check in repository rules.

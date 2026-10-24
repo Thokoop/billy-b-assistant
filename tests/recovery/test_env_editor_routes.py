@@ -17,7 +17,7 @@ def editor(tmp_path):
     original = store._quarantine(b'FLASK_PORT=8081\n')
     bp = Blueprint('env_editor_test', __name__)
     definitions(
-        'webconfig/app/routes/system.py',
+        'application/webconfig/app/routes/system.py',
         ['get_env', 'env_history', 'save_env'],
         {
             'bp': bp,
@@ -100,7 +100,9 @@ def test_normal_web_routes_repair_to_software_settings(editor, monkeypatch):
 
     _, store, _ = editor
     app = Flask('normal-recovery-test')
-    monkeypatch.setitem(sys.modules, 'app', SimpleNamespace(create_app=lambda: app))
+    monkeypatch.setitem(
+        sys.modules, 'webconfig.app', SimpleNamespace(create_app=lambda: app)
+    )
     monkeypatch.setitem(sys.modules, 'core', ModuleType('core'))
     monkeypatch.setitem(
         sys.modules,
@@ -113,7 +115,9 @@ def test_normal_web_routes_repair_to_software_settings(editor, monkeypatch):
         SimpleNamespace(user_manager=SimpleNamespace(load_default_user=lambda: None)),
     )
     normal = definitions(
-        'webconfig/server.py', ['normal_app'], {'ROOT': store.root, 'os': os}
+        'application/webconfig/startup.py',
+        ['normal_app'],
+        {'ROOT': store.root, 'os': os},
     ).normal_app()
     response = normal.test_client().get('/repair/')
     assert response.status_code == 302
@@ -123,3 +127,28 @@ def test_normal_web_routes_repair_to_software_settings(editor, monkeypatch):
         fn().get('recovery_notice') == store.notice()
         for fn in normal.template_context_processors[None]
     )
+
+
+def test_live_settings_with_quoted_values_and_blank_lines_survive_save(editor):
+    client, store, _ = editor
+    opened = client.get('/get-env')
+    content = (
+        "FLASK_PORT=8080\nREALTIME_AI_PROVIDER='gpt-live'\n"
+        "OPENAI_LIVE_MODEL='gpt-live-1'\n"
+        "OPENAI_LIVE_BACKEND_MODEL='gpt-6-luna'\n\n"
+        "WEB_SEARCH_ENABLED='true'\nHA_AGENT_ID=''\n\n"
+        "UPDATE_CHANNEL='beta'\n"
+    )
+    saved = client.post(
+        '/save-env',
+        json={
+            'content': content,
+            'revision': opened.headers['X-Config-Revision'],
+        },
+    )
+    assert saved.status_code == 200
+    loaded, allowed = store.prepare()
+    assert allowed
+    assert loaded.decode() == content
+    assert store.read_state()['mode'] == 'probation'
+    assert client.get('/get-env').text == content

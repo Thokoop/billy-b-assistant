@@ -13,8 +13,8 @@ ROOT = Path(__file__).parents[2]
 def fixture():
     app = Flask(
         __name__,
-        template_folder=str(ROOT / 'webconfig/templates'),
-        static_folder=str(ROOT / 'webconfig/static'),
+        template_folder=str(ROOT / 'application/webconfig/templates'),
+        static_folder=str(ROOT / 'application/webconfig/static'),
     )
     with app.test_request_context('/settings'):
         html = render_template(
@@ -26,7 +26,10 @@ def fixture():
 
 def test_individual_scripts_available_in_dependency_order():
     app, html, urls = fixture()
-    assert len(urls) == len(set(urls)) == 24
+    assert len(urls) == len(set(urls)) == 25
+    assert urls.index('/static/js/live-captions.js') < urls.index(
+        '/static/js/websocket.js'
+    )
     assert urls[-2:] == ['/static/js/page-router.js', '/static/js/init.js']
     assert urls.index('/static/js/ui-helpers.js') < urls.index(
         '/static/js/service-status.js'
@@ -51,7 +54,8 @@ if __name__ == '__main__':
         json.dumps({
             'html': html,
             'scripts': {
-                url: (ROOT / 'webconfig' / url.lstrip('/')).read_text() for url in urls
+                url: (ROOT / 'application/webconfig' / url.lstrip('/')).read_text()
+                for url in urls
             },
         })
     )

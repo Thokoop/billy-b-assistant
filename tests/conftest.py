@@ -46,7 +46,7 @@ def definitions(relative, names, namespace, *, cls=None):
 def isolated(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     package = ModuleType('isolated_core')
-    package.__path__ = [str(ROOT / 'core')]
+    package.__path__ = [str(ROOT / 'application/core')]
     monkeypatch.setitem(sys.modules, package.__name__, package)
     config = SimpleNamespace(
         AEC_ENABLED=False,
@@ -72,7 +72,7 @@ def isolated(monkeypatch, tmp_path):
     def load(name):
         qualified = f'isolated_core.{name}'
         spec = importlib.util.spec_from_file_location(
-            qualified, ROOT / 'core' / (name.replace('.', '/') + '.py')
+            qualified, ROOT / 'application/core' / (name.replace('.', '/') + '.py')
         )
         module = importlib.util.module_from_spec(spec)
         monkeypatch.setitem(sys.modules, qualified, module)

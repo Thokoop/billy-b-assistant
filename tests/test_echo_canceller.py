@@ -20,7 +20,7 @@ def echo_module(monkeypatch):
     )
     spec = importlib.util.spec_from_file_location(
         "echo_test_package.echo_canceller",
-        Path(__file__).parents[1] / "core/echo_canceller.py",
+        Path(__file__).parents[1] / "application/core/echo_canceller.py",
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

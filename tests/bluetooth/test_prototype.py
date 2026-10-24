@@ -19,8 +19,8 @@ def load_module(name, relative):
     return module
 
 
-bluez = load_module('bluez_test', 'core/bluetooth/bluez.py')
-transport = load_module('transport_test', 'core/bluetooth/transport.py')
+bluez = load_module('bluez_test', 'application/core/bluetooth/bluez.py')
+transport = load_module('transport_test', 'application/core/bluetooth/transport.py')
 BluezController, PairingAgent = bluez.BluezController, bluez.PairingAgent
 PCMFrames, bluetooth_nodes = transport.PCMFrames, transport.bluetooth_nodes
 node_kind = transport.node_kind
@@ -281,9 +281,11 @@ def web(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         'core.bluetooth.provisioning',
-        load_module('provisioning_routes_test', 'core/bluetooth/provisioning.py'),
+        load_module(
+            'provisioning_routes_test', 'application/core/bluetooth/provisioning.py'
+        ),
     )
-    path = Path(__file__).parents[2] / 'webconfig/app/routes/bluetooth.py'
+    path = Path(__file__).parents[2] / 'application/webconfig/app/routes/bluetooth.py'
     spec = importlib.util.spec_from_file_location('bluetooth_routes_test', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -300,7 +302,10 @@ def web(monkeypatch):
         lambda: SimpleNamespace(status=lambda: None, run=lambda _: {'devices': []}),
     )
     app = Flask(
-        __name__, template_folder=str(Path(__file__).parents[2] / 'webconfig/templates')
+        __name__,
+        template_folder=str(
+            Path(__file__).parents[2] / 'application/webconfig/templates'
+        ),
     )
     app.register_blueprint(module.bp)
     return app.test_client(), module
@@ -384,7 +389,9 @@ def test_aec_reference_matches_actual_speaker_pcm():
 
     import numpy as np
 
-    tree = ast.parse((Path(__file__).parents[2] / 'core/audio.py').read_text())
+    tree = ast.parse(
+        (Path(__file__).parents[2] / 'application/core/audio.py').read_text()
+    )
     function = next(
         node
         for node in tree.body
@@ -399,7 +406,11 @@ def test_aec_reference_matches_actual_speaker_pcm():
         'flap_from_pcm_chunk': Mock(),
     }
     exec(
-        compile(ast.Module(body=[function], type_ignores=[]), 'core/audio.py', 'exec'),
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            'application/core/audio.py',
+            'exec',
+        ),
         namespace,
     )
     speaker, aec = Mock(), Mock()
@@ -424,7 +435,9 @@ def test_voice_band_keeps_speech_and_drops_bass():
     import numpy as np
     from scipy.signal import butter, sosfilt
 
-    tree = ast.parse((Path(__file__).parents[2] / 'core/audio.py').read_text())
+    tree = ast.parse(
+        (Path(__file__).parents[2] / 'application/core/audio.py').read_text()
+    )
     function = next(
         node
         for node in tree.body
@@ -439,7 +452,11 @@ def test_voice_band_keeps_speech_and_drops_bass():
         '_voice_band_state': None,
     }
     exec(
-        compile(ast.Module(body=[function], type_ignores=[]), 'core/audio.py', 'exec'),
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            'application/core/audio.py',
+            'exec',
+        ),
         namespace,
     )
 

@@ -17,7 +17,7 @@ from conftest import definitions
 def handler(audio_module):
     a = audio_module
     cls = definitions(
-        'core/session/audio_handler.py',
+        'application/core/session/audio_handler.py',
         ['AudioHandler'],
         dict(
             asyncio=asyncio,
@@ -93,7 +93,7 @@ def test_interruption_position_still_tracks_each_provider_item(audio_module, han
 
 def finish_method(audio):
     return definitions(
-        'core/session_manager.py',
+        'application/core/session_manager.py',
         ['_wait_for_response_playback'],
         dict(
             asyncio=asyncio,
@@ -162,7 +162,7 @@ def test_failed_playback_ends_session_instead_of_opening_followup(
 @pytest.mark.parametrize('text_only', [False, True])
 def test_openai_session_configuration_stays_24k_and_preserves_turn_controls(text_only):
     method = definitions(
-        'core/providers/openai_provider.py',
+        'application/core/providers/openai_provider.py',
         ['_get_initial_session_config'],
         {},
         cls='OpenAIProvider',
@@ -269,3 +269,46 @@ def test_stopped_ai_drain_releases_without_discarding_bluetooth_audio(
     assert a.playback_queue.qsize() == 2
     assert a.playback_queue.unfinished_tasks == 2
     a.playback_queue.discard_pending()
+
+
+@pytest.mark.parametrize('mode', ['tts', 'clip'])
+@pytest.mark.parametrize('level', [0, 32, -32])
+def test_silent_live_playback_does_not_trigger_head_or_tail_interludes(
+    audio_module, monkeypatch, mode, level
+):
+    a = audio_module
+    monkeypatch.setattr(a.random, 'randint', lambda *_: 1920)
+    # Continuous silence must still be written for Live timing and AEC, but
+    # must not count as speaking time for head/tail gestures.
+    pcm = np.full(960 * 50, level, dtype=np.int16).tobytes()
+    a.playback_queue.put(('tts', pcm, 1) if mode == 'tts' else pcm)
+    a.playback_queue.put(None)
+    a.playback_worker(40)
+    assert a.test_stream.write.call_count == 50
+    assert a.echo_canceller.mark_render_written.call_count == 50
+    a.interlude.assert_not_called()
+    assert a.playback_queue.unfinished_tasks == 0
+
+
+@pytest.mark.parametrize('mode', ['tts', 'clip'])
+@pytest.mark.parametrize('level', [2000, -32768])
+def test_spoken_audio_keeps_interludes_but_silent_gaps_do_not_advance_them(
+    audio_module, monkeypatch, mode, level
+):
+    a = audio_module
+    monkeypatch.setattr(a.random, 'randint', lambda *_: 1920)
+    gestures_at = []
+    a.interlude.side_effect = lambda: gestures_at.append(a.test_stream.write.call_count)
+    for pcm in [
+        np.full(960, level, dtype=np.int16),
+        np.zeros(960 * 10, dtype=np.int16),
+        np.full(960, level, dtype=np.int16),
+    ]:
+        a.playback_queue.put(
+            ('tts', pcm.tobytes(), 1) if mode == 'tts' else pcm.tobytes()
+        )
+    a.playback_queue.put(None)
+    a.playback_worker(40)
+    assert a.test_stream.write.call_count == 12
+    assert gestures_at == [12]  # The second audible frame, never during the pause.
+    assert a.playback_queue.unfinished_tasks == 0

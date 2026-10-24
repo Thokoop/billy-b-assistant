@@ -439,6 +439,8 @@ http://billy.local
 
 This file is used to configure your environment, including the [OpenAI API key](https://platform.openai.com/api-keys) and (optional) mqtt settings. It can also be used to overwrite some of the default config settings (like the voice of billy) that you can find in `config.py`.
 
+**GPT-Live (optional):** Select **OpenAI GPT-Live** in API Settings to try continuous voice conversations with a separate model for reasoning and tools. It uses your existing OpenAI API key; your OpenAI project needs access to the selected models. Voice time and backend work are billed separately. Enable echo cancellation for speaking while Billy talks. Without it, Billy mutes microphone audio during his own speech to avoid hearing himself. Wake-up clips and MQTT `say` announcements use the selected GPT-Live voice. This is experimental: wording or endings may vary, so listen to generated wake-up clips before using them. Live recordings are limited to 30 seconds of output audio; longer recordings fail without playing a partial clip. Voice changes apply to the next conversation. OpenAI Realtime and xAI remain available.
+
 Note that you **must** establish billing for your API account with an available credit. In the [billing panel](https://platform.openai.com/account/billing/overview), add a payment method (under Payment Methods). After adding a payment method, add credits to your organization by clicking 'Buy credits'. You will see an API error: `The model gpt-4o-mini-realtime-preview does not exist or you do not have access to it.` otherwise.
 
 ```ini
@@ -874,6 +876,6 @@ Pull requests are welcome! If you have an idea for a new feature, bug fix, or im
 
 Enjoying the project? Feel free to leave a small tip, totally optional, but much appreciated!
 
-![Paypal](./webconfig/static/images/qrcode.png)
+![Paypal](./application/webconfig/static/images/qrcode.png)
 
 https://paypal.me/thomkoopman050

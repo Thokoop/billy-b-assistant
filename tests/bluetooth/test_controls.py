@@ -327,7 +327,7 @@ def test_physical_button_debounce_and_ai_dispatch(controls, handled):
         trigger_session_start=trigger,
         logger=Mock(),
     )
-    button = definitions("core/button.py", ["on_button"], ns)
+    button = definitions("application/core/button.py", ["on_button"], ns)
     button.on_button()
     button.on_button(source="poll")
     dispatch.assert_called_once_with(ai_active=False)
@@ -397,7 +397,11 @@ def test_nonphysical_triggers_do_not_control_bluetooth(controls, source):
         is_active=False,
         _handle_active_session_button_press=Mock(),
     )
-    button = definitions("core/button.py", ["trigger_session_start"], ns)
+    button = definitions(
+        "application/core/button.py",
+        ["trigger_session_start"],
+        {**ns, "_shutdown_requested": threading.Event()},
+    )
     with controls.mode.claim(PHONE_CALL):
         assert button.trigger_session_start(source) is False
     controls.clear_resume.assert_not_called()
@@ -420,7 +424,11 @@ def test_realtime_active_session_dispatch_is_unchanged(controls, source, kwargs)
         is_active=True,
         _handle_active_session_button_press=Mock(),
     )
-    button = definitions("core/button.py", ["trigger_session_start"], ns)
+    button = definitions(
+        "application/core/button.py",
+        ["trigger_session_start"],
+        {**ns, "_shutdown_requested": threading.Event()},
+    )
     assert button.trigger_session_start(source) is False
     if kwargs is None:
         ns["_handle_active_session_button_press"].assert_not_called()

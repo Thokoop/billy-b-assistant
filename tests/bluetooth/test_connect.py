@@ -12,7 +12,7 @@ from dbus_next.errors import DBusError
 
 
 spec = importlib.util.spec_from_file_location(
-    'connect_bluez', Path(__file__).parents[2] / 'core/bluetooth/bluez.py'
+    'connect_bluez', Path(__file__).parents[2] / 'application/core/bluetooth/bluez.py'
 )
 bluez = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bluez)

@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const {test} = require('node:test');
-const source = fs.readFileSync('webconfig/static/js/version-release.js','utf8');
+const source = fs.readFileSync('application/webconfig/static/js/version-release.js','utf8');
 const flush = async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
 function setup() {
     let now=1000,id=0,reloads=0;

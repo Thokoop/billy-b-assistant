@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location(
-        'provisioning_test', ROOT / 'core/bluetooth/provisioning.py'
+        'provisioning_test', ROOT / 'application/core/bluetooth/provisioning.py'
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

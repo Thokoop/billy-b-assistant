@@ -16,7 +16,7 @@ from conftest import definitions
 
 def stop_method(users):
     return definitions(
-        'core/session_manager.py',
+        'application/core/session_manager.py',
         ['stop_session'],
         dict(
             asyncio=asyncio,
@@ -111,7 +111,7 @@ def test_cancelled_stop_still_closes_websocket():
 def test_error_sound_failure_cannot_skip_session_cleanup(failure):
     play = AsyncMock(side_effect=failure)
     method = definitions(
-        'core/session/error_handler.py',
+        'application/core/session/error_handler.py',
         ['play_error_sound'],
         dict(play_standalone_error_sound=play, logger=Mock()),
         cls='ErrorHandler',
@@ -124,7 +124,7 @@ def test_error_sound_failure_cannot_skip_session_cleanup(failure):
 def test_error_sound_cancellation_still_cleans_up():
     play = AsyncMock(side_effect=asyncio.CancelledError())
     method = definitions(
-        'core/session/error_handler.py',
+        'application/core/session/error_handler.py',
         ['play_error_sound'],
         dict(play_standalone_error_sound=play, logger=Mock()),
         cls='ErrorHandler',
@@ -150,7 +150,7 @@ def make_mic_wrapper():
         SILENCE_THRESHOLD=500,
     )
     cls = definitions(
-        'core/session/mic_manager_wrapper.py', ['MicManagerWrapper'], ns
+        'application/core/session/mic_manager_wrapper.py', ['MicManagerWrapper'], ns
     ).MicManagerWrapper
     active = threading.Event()
     active.set()
@@ -211,7 +211,7 @@ def test_error_mood_write_failure_does_not_skip_motor_stop():
     mood.apply_event.side_effect = OSError('disk full')
     motors = Mock()
     play = definitions(
-        'core/session/error_handler.py',
+        'application/core/session/error_handler.py',
         ['play_standalone_error_sound'],
         dict(
             asyncio=asyncio,

@@ -16,7 +16,7 @@ from conftest import definitions
 
 def collector(timeout=0.05, limit=1024):
     return definitions(
-        'core/providers/realtime.py',
+        'application/core/providers/realtime.py',
         ['_collect_audio_response'],
         dict(
             asyncio=asyncio,
@@ -102,10 +102,10 @@ def test_completed_clip_keeps_exact_pcm(event_type):
 def test_provider_closes_clip_socket_on_every_exit(failure):
     ns = dict(asyncio=asyncio, wraps=wraps, CLIP_TIMEOUT_SECONDS=0.03)
     decorator = definitions(
-        'core/providers/realtime.py', ['bounded_audio_generation'], ns
+        'application/core/providers/realtime.py', ['bounded_audio_generation'], ns
     ).bounded_audio_generation
     generate = definitions(
-        'core/providers/openai_provider.py',
+        'application/core/providers/openai_provider.py',
         ['generate_audio_clip'],
         dict(json=json, bounded_audio_generation=decorator),
         cls='OpenAIProvider',
@@ -190,7 +190,10 @@ def tool_session(module):
         '_cancel_runaway_response',
     ]:
         method = getattr(
-            definitions('core/session_manager.py', [name], ns, cls='BillySession'), name
+            definitions(
+                'application/core/session_manager.py', [name], ns, cls='BillySession'
+            ),
+            name,
         )
         setattr(s, name, MethodType(method, s))
     return s
@@ -225,7 +228,7 @@ def test_slow_tool_does_not_block_receiver_and_stop_cancels_it(isolated):
         # Real dispatch remains free to process speech events during execution.
         s._on_input_speech_started = Mock(return_value=False)
         handle = definitions(
-            'core/session_manager.py',
+            'application/core/session_manager.py',
             ['handle_message'],
             dict(asyncio=asyncio),
             cls='BillySession',
@@ -375,7 +378,7 @@ def test_pending_tool_does_not_end_session_on_response_done(isolated):
         s.function_handler.handle = slow
         s.tool_calls.start('search', '{}', 'c1', 'r1')
         done = definitions(
-            'core/session_manager.py',
+            'application/core/session_manager.py',
             ['_on_response_done'],
             dict(logger=Mock()),
             cls='BillySession',
@@ -461,7 +464,7 @@ def test_tool_without_continuation_finishes_its_original_response():
         )
         s.session_active.set()
         finished = definitions(
-            'core/session_manager.py',
+            'application/core/session_manager.py',
             ['_on_tool_calls_finished'],
             dict(asyncio=asyncio),
             cls='BillySession',
@@ -489,7 +492,10 @@ def test_unvalidated_audio_commit_does_not_cancel_pending_tool(isolated):
         s.function_handler.handle = slow
         s.tool_calls.start('search', '{}', 'c1', 'r1')
         handle = definitions(
-            'core/session_manager.py', ['handle_message'], dict(), cls='BillySession'
+            'application/core/session_manager.py',
+            ['handle_message'],
+            dict(),
+            cls='BillySession',
         ).handle_message
         await handle(s, {'type': 'input_audio_buffer.committed'})
         assert s.tool_calls.pending('r1') and s._tool_answer_awaiting_speech

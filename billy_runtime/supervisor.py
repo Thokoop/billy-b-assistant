@@ -18,7 +18,13 @@ import urllib.request
 import uuid
 
 from . import updates
-from .configuration import BOOLEANS, ENUMS, FLOATS, INTEGERS, ROOT, revision, validate
+from .configuration import (
+    BOOTSTRAP_KEYS,
+    ROOT,
+    ConfigError,
+    revision,
+    validate_bootstrap,
+)
 from .recovery import SAFE_DEFAULTS, Recovery
 from .storage import atomic_write
 
@@ -113,23 +119,28 @@ def worker_environment():
     with os.fdopen(fd, 'rb') as stream:
         content = stream.read()
     from .configuration import apply_environment
+    from .worker import notify
 
-    values = apply_environment(
-        content.decode(), override=os.environ['BILLY_WORKER_MODE'] != 'core'
-    )
+    recovery = os.environ['BILLY_WORKER_MODE'] == 'recovery'
+    try:
+        values = apply_environment(
+            content.decode(),
+            override=os.environ['BILLY_WORKER_MODE'] != 'core',
+            validator=validate_bootstrap if recovery else None,
+        )
+    except ConfigError as exc:
+        # Only key/line diagnostics, never configuration values or credentials.
+        notify(f'config-error:{exc}')
+        raise
+
     # Preserve legacy precedence: core honors inherited environment; web uses .env.
     os.environ['BILLY_CONFIG_LOADED'] = '1'
     os.environ['BILLY_APPLIED_REVISION'] = revision(content)
-    from .worker import notify
+    keys = set(values) | BOOTSTRAP_KEYS
+    if not recovery:
+        from .configuration_schema import ENVIRONMENT_KEYS
 
-    keys = (
-        set(values)
-        | set(INTEGERS)
-        | set(FLOATS)
-        | BOOLEANS
-        | set(ENUMS)
-        | {'OPENAI_API_KEY', 'XAI_API_KEY', 'MIC_PREFERENCE', 'SPEAKER_PREFERENCE'}
-    )
+        keys |= ENVIRONMENT_KEYS
     effective = {key: os.environ.get(key) for key in keys}
     notify('environment:' + revision(json.dumps(effective, sort_keys=True)))
     return content
@@ -184,7 +195,7 @@ def monitor(entry, role, root=ROOT):
         print(f'Bootstrap failed ({type(exc).__name__}); recovery only', flush=True)
         content, allowed = SAFE_DEFAULTS.encode(), False
     if role == 'web':
-        values = validate(content.decode())
+        values = validate_bootstrap(content.decode())
         port = int(values.get('FLASK_PORT', '80'))
         listener = socket.socket()
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -274,6 +285,7 @@ def monitor(entry, role, root=ROOT):
             active_loops = {}
             probe_failures = 0
             reason = 'Worker exited before becoming healthy'
+            configuration_error = None
             operator_retry = False
             with selectors.DefaultSelector() as selector:
                 selector.register(fd, selectors.EVENT_READ)
@@ -286,6 +298,8 @@ def monitor(entry, role, root=ROOT):
                             for message in chunk.decode().splitlines():
                                 if message.startswith('environment:'):
                                     effective = message.partition(':')[2]
+                                elif message.startswith('config-error:'):
+                                    configuration_error = message.partition(':')[2]
                                 elif message == 'ready':
                                     ready = True
                                     reason = 'Worker exited unexpectedly'
@@ -371,6 +385,10 @@ def monitor(entry, role, root=ROOT):
                                 retries = 0
                 finally:
                     stop(child)
+                    with contextlib.suppress(BlockingIOError):
+                        for message in os.read(fd, 8192).decode().splitlines():
+                            if message.startswith('config-error:'):
+                                configuration_error = message.partition(':')[2]
                     os.close(fd)
                     os.close(gate)
                     _current.remove(child)
@@ -381,7 +399,12 @@ def monitor(entry, role, root=ROOT):
                 continue
             retries += 1
             try:
-                atomic_write(store.directory / 'runtime-error', f'{role}: {reason}')
+                failure = (
+                    f'Configuration needs attention: {configuration_error}'
+                    if configuration_error
+                    else f'{role}: {reason}'
+                )
+                atomic_write(store.directory / 'runtime-error', failure)
                 rolled_back = (
                     False
                     if managed and updates.state(root).get("trial")

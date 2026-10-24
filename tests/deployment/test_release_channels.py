@@ -86,7 +86,7 @@ def metadata(tmp_path, monkeypatch):
     monkeypatch.delenv('UPDATE_CHANNEL', raising=False)
     monkeypatch.delenv('SHOW_RC_VERSIONS', raising=False)
     namespace = {
-        'KNOWN_RELEASE_TAGS': (),
+        'KNOWN_RELEASE_TAGS': None,
         'VERSION_STATE_LOCK': threading.RLock(),
         'newest_release': policy.newest_release,
         'release_version': policy.release_version,
@@ -101,7 +101,7 @@ def metadata(tmp_path, monkeypatch):
         'time': time,
     }
     functions = definitions(
-        'webconfig/app/state.py',
+        'application/webconfig/app/state.py',
         [
             'fetch_latest_tag',
             'available_version',
@@ -184,7 +184,7 @@ def settings_api(tmp_path, monkeypatch):
     bp = Blueprint('settings-test', __name__)
     thread = Mock()
     definitions(
-        'webconfig/app/routes/system.py',
+        'application/webconfig/app/routes/system.py',
         ['save'],
         {
             'bp': bp,
@@ -241,3 +241,70 @@ def test_old_settings_payload_does_not_overwrite_explicit_beta(settings_api):
     assert client.post('/save', json={'UPDATE_CHANNEL': 'beta'}).status_code == 200
     assert client.post('/save', json={'SHOW_RC_VERSIONS': 'False'}).status_code == 200
     assert policy.update_channel(dotenv_values(path)) == 'beta'
+
+
+@pytest.mark.parametrize(
+    'tags,expected',
+    [
+        ([], 'v2.6.0'),
+        (['v2.6.0'], 'v2.6.0'),
+        (['v2.7.1-beta.2'], 'v2.7.1-beta.2'),
+    ],
+)
+def test_successful_refresh_drops_deleted_latest_tag(
+    metadata, monkeypatch, tags, expected
+):
+    functions, ns = metadata
+    monkeypatch.setenv('UPDATE_CHANNEL', 'beta')
+    ns['load_versions'] = lambda: {'version': {'latest': 'v2.7.1-beta.3'}}
+    ns['_fetch_github_json'].return_value = [{'name': tag} for tag in tags]
+    functions.bootstrap_versions_and_release_note()
+    ns['save_versions'].assert_called_once_with('v2.6.0', expected)
+    # /version, release notes and /update may still read a stale disk snapshot.
+    assert functions.available_version('v2.6.0', 'v2.7.1-beta.3') == expected
+
+
+def test_deleted_installed_version_remains_installed(metadata, monkeypatch):
+    functions, ns = metadata
+    monkeypatch.setenv('UPDATE_CHANNEL', 'beta')
+    ns['get_current_version'] = lambda: 'v2.7.1-beta.3'
+    functions.bootstrap_versions_and_release_note()
+    ns['save_versions'].assert_called_once_with('v2.7.1-beta.3', 'v2.7.1-beta.3')
+
+
+def test_offline_start_can_use_persisted_metadata_until_first_success(
+    metadata, monkeypatch
+):
+    functions, ns = metadata
+    monkeypatch.setenv('UPDATE_CHANNEL', 'beta')
+    ns['_fetch_github_json'].side_effect = OSError('offline')
+    functions.bootstrap_versions_and_release_note()
+    ns['save_versions'].assert_called_once_with('v2.6.0', 'v2.7.0-beta.1')
+    assert ns['KNOWN_RELEASE_TAGS'] is None
+
+
+def test_offline_refresh_does_not_resurrect_deleted_tag(metadata, monkeypatch):
+    functions, ns = metadata
+    monkeypatch.setenv('UPDATE_CHANNEL', 'beta')
+    assert functions.fetch_latest_tag() is None  # Successful empty list.
+    assert ns['KNOWN_RELEASE_TAGS'] == ()
+    ns['_fetch_github_json'].side_effect = OSError('offline')
+    functions.bootstrap_versions_and_release_note()
+    ns['save_versions'].assert_called_once_with('v2.6.0', 'v2.6.0')
+
+
+@pytest.mark.parametrize('failure', ['invalid', 'second-page', 'page-limit'])
+def test_incomplete_tag_lookup_preserves_last_complete_snapshot(metadata, failure):
+    functions, ns = metadata
+    previous = ('v2.6.1',)
+    ns['KNOWN_RELEASE_TAGS'] = previous
+    page = [{'name': f'v2.8.0-beta.{i}'} for i in range(100)]
+    if failure == 'invalid':
+        ns['_fetch_github_json'].return_value = {'message': 'rate limited'}
+    elif failure == 'second-page':
+        ns['_fetch_github_json'].side_effect = [page, OSError('offline')]
+    else:
+        ns['_fetch_github_json'].return_value = page
+    assert functions.fetch_latest_tag() is None
+    assert ns['KNOWN_RELEASE_TAGS'] == previous
+    assert ns['_fetch_github_json'].call_count <= 10

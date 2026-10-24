@@ -20,11 +20,11 @@ PIPE_READERS = {}
 @pytest.fixture
 def runtime(monkeypatch):
     parent = ModuleType("bt_runtime_test_core")
-    parent.__path__ = [str(Path(__file__).parents[2] / "core")]
+    parent.__path__ = [str(Path(__file__).parents[2] / "application/core")]
     monkeypatch.setitem(sys.modules, parent.__name__, parent)
     name = "bt_runtime_test_core.bluetooth"
     package = ModuleType(name)
-    package.__path__ = [str(Path(__file__).parents[2] / "core/bluetooth")]
+    package.__path__ = [str(Path(__file__).parents[2] / "application/core/bluetooth")]
     monkeypatch.setitem(sys.modules, name, package)
     for child in ("diagnostics", "endpoints", "transport", "runtime"):
         spec = importlib.util.spec_from_file_location(
@@ -612,7 +612,9 @@ def test_watcher_start_continues_without_runtime_directory(
     monkeypatch.setattr(
         runtime, 'STATUS_PATH', tmp_path / 'not-created' / 'billy-bluetooth.json'
     )
-    source = (Path(__file__).parents[2] / 'core/bluetooth/watcher.py').read_text()
+    source = (
+        Path(__file__).parents[2] / 'application/core/bluetooth/watcher.py'
+    ).read_text()
     tree = ast.parse(source)
     start = next(
         node

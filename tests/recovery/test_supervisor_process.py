@@ -141,9 +141,20 @@ def test_real_web_entrypoint_survives_broken_app_import(tmp_path):
         tmp_path / 'billy_runtime',
         ignore=shutil.ignore_patterns('__pycache__'),
     )
-    (tmp_path / 'webconfig' / 'app').mkdir(parents=True)
+    (tmp_path / 'webconfig').mkdir()
+    (tmp_path / 'application/webconfig/app').mkdir(parents=True)
     shutil.copy2(ROOT / 'webconfig' / 'server.py', tmp_path / 'webconfig' / 'server.py')
-    (tmp_path / 'webconfig' / 'app' / '__init__.py').write_text(
+    shutil.copy2(
+        ROOT / 'application/webconfig/startup.py',
+        tmp_path / 'application/webconfig/startup.py',
+    )
+    (tmp_path / 'application/webconfig/__init__.py').write_text('')
+    (tmp_path / 'application/core').mkdir()
+    (tmp_path / 'application/core/__init__.py').write_text('')
+    (tmp_path / 'application/core/providers.py').write_text(
+        'def initialize_providers(): pass\n'
+    )
+    (tmp_path / 'application/webconfig/app/__init__.py').write_text(
         'raise RuntimeError("Broken profile import fixture")\n'
     )
     # A legacy root/app directory must not shadow the intended web package.

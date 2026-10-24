@@ -6,7 +6,7 @@ import pytest
 
 spec = importlib.util.spec_from_file_location(
     "bt_diagnostics_test",
-    Path(__file__).parents[2] / "core/bluetooth/diagnostics.py",
+    Path(__file__).parents[2] / "application/core/bluetooth/diagnostics.py",
 )
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)

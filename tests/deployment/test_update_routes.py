@@ -13,7 +13,7 @@ def normal_app(root):
     app = Flask('test-update-routes')
     bp = Blueprint('software', __name__)
     functions = definitions(
-        'webconfig/app/routes/system.py',
+        'application/webconfig/app/routes/system.py',
         [
             '_software_action',
             'software_status',
@@ -88,7 +88,7 @@ def test_fresh_browser_can_use_rescue_after_ui_update_without_access_cookie(
 def test_legacy_git_reset_is_rejected_before_data_changes():
     app = Flask('reset')
     functions = definitions(
-        'webconfig/app/routes/system.py',
+        'application/webconfig/app/routes/system.py',
         ['factory_reset'],
         {'bp': Blueprint('unused', __name__), 'request': request, 'jsonify': jsonify},
     )
@@ -108,7 +108,7 @@ def test_profile_settings_keep_using_shared_data_after_release_switch(
 
     monkeypatch.setattr(paths, 'INSTALL_ROOT', tmp_path)
     functions = definitions(
-        'webconfig/app/routes/profiles.py',
+        'application/webconfig/app/routes/profiles.py',
         ['get_profiles_dir', '_get_env_path'],
         {'Path': Path},
     )
@@ -142,11 +142,11 @@ def test_update_endpoint_refilters_stale_metadata_and_never_queues_downgrade(
     import threading
 
     policy = definitions(
-        'webconfig/app/state.py',
+        'application/webconfig/app/state.py',
         ['available_version'],
         {
             'VERSION_STATE_LOCK': threading.RLock(),
-            'KNOWN_RELEASE_TAGS': (),
+            'KNOWN_RELEASE_TAGS': None,
             'newest_release': newest_release,
             'release_version': release_version,
         },
@@ -165,7 +165,7 @@ def test_update_endpoint_refilters_stale_metadata_and_never_queues_downgrade(
         'available_version': policy.available_version,
     }
     definitions(
-        'webconfig/app/routes/system.py',
+        'application/webconfig/app/routes/system.py',
         ['_software_action', 'perform_update'],
         namespace,
     )
@@ -182,6 +182,14 @@ def test_update_endpoint_refilters_stale_metadata_and_never_queues_downgrade(
     assert client.post('/update', headers={'X-Billy-Update': '1'}).status_code == 202
     queue.assert_called_once_with('update', 'v2.8.0-beta.1', root=tmp_path)
     queue.reset_mock()
+    # A deleted tag still present in versions.ini cannot be queued after a
+    # complete GitHub refresh, even with Beta still selected.
+    policy.available_version.__globals__['KNOWN_RELEASE_TAGS'] = ('v2.6.0',)
+    assert (
+        client.post('/update', headers={'X-Billy-Update': '1'}).json['status']
+        == 'up-to-date'
+    )
+    queue.assert_not_called()
     monkeypatch.setenv('UPDATE_CHANNEL', 'stable')
     namespace['load_versions'] = lambda: {'version': {'latest': 'v2.6.0'}}
     assert (

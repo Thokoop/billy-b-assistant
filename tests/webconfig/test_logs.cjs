@@ -2,8 +2,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const {test} = require('node:test');
-const source = fs.readFileSync('webconfig/static/js/log-panel.js', 'utf8');
-const socketSource = fs.readFileSync('webconfig/static/js/websocket.js', 'utf8');
+const source = fs.readFileSync('application/webconfig/static/js/log-panel.js', 'utf8');
+const socketSource = fs.readFileSync('application/webconfig/static/js/websocket.js', 'utf8');
 const flush = async () => { for (let i=0; i<20; i++) await Promise.resolve(); };
 function setup() {
     const nodes = new Map(), events = new Map(), intervals = new Map(), subscriptions = [], requests = [];

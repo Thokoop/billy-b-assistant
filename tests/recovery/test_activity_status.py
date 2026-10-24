@@ -86,7 +86,7 @@ def test_logical_led_state_reports_once_and_preserves_existing_state():
 
     publish = Mock()
     method = definitions(
-        'core/status_led.py',
+        'application/core/status_led.py',
         ['set_state'],
         {'logger': Mock(), 'set_activity': publish},
         cls='StatusLed',

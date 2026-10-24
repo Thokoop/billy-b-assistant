@@ -2,9 +2,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const {test} = require('node:test');
-const helper = fs.readFileSync('webconfig/static/js/ui-helpers.js', 'utf8');
-const service = fs.readFileSync('webconfig/static/js/service-status.js', 'utf8');
-const recovery = fs.readFileSync('webconfig/templates/components/script-recovery.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1];
+const helper = fs.readFileSync('application/webconfig/static/js/ui-helpers.js', 'utf8');
+const service = fs.readFileSync('application/webconfig/static/js/service-status.js', 'utf8');
+const recovery = fs.readFileSync('application/webconfig/templates/components/script-recovery.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1];
 const flush = async () => { for(let i=0;i<20;i++) await Promise.resolve(); };
 function setup(storage = new Map()) {
     let now = 100000, next = 1, reloads = 0, stops = 0;
@@ -215,4 +215,60 @@ test('late HTTP and offline fallback do not restore stale header activity',async
     h.context.fetch=async()=>{throw new Error('offline');};
     await h.context.ServiceStatus.fetchStatus();
     assert.equal(h.elements.get('service-status').textContent,'Reconnecting…');
+});
+
+
+test('live status cannot keep full profile and mood data out of the cache', async () => {
+    const h = setup(); h.run(service);
+    let requests = 0;
+    h.context.fetch = async () => {
+        requests++;
+        return {ok: true, json: async () => ({status: 'active', current_user: 'tom',
+            mood: {label: requests === 1 ? 'curious' : 'calm'}})};
+    };
+    h.context.updateServiceStatus('active', {billy_state: 'listening'});
+    assert.equal((await h.context.ServiceStatus.fetchStatus()).mood?.label, 'curious');
+    assert.equal(requests, 1);
+    await h.advance(1000);
+    h.context.updateServiceStatus('active', {billy_state: 'speaking'});
+    assert.equal((await h.context.ServiceStatus.fetchStatus()).mood.label, 'curious');
+    assert.equal(requests, 1, 'full snapshots still have a short cache');
+    await h.advance(1100);
+    h.context.updateServiceStatus('active', {billy_state: 'listening'});
+    assert.equal((await h.context.ServiceStatus.fetchStatus()).mood.label, 'calm');
+    assert.equal(requests, 2, 'partial updates must not renew the full-data cache');
+});
+
+test('full profile response supplies mood without reverting newer live updates', async () => {
+    const h = setup(); h.run(service);
+    let finish;
+    h.context.fetch = () => new Promise(resolve => { finish = resolve; });
+    const pending = h.context.ServiceStatus.fetchStatus();
+    await flush();
+    // Same clock tick: freshness must not depend on Date.now() granularity.
+    h.context.updateServiceStatus('active', {billy_state: 'listening',
+        current_persona: 'new-persona'});
+    h.context.updateServiceStatus('active', {billy_state: 'speaking'});
+    finish({ok: true, json: async () => ({status: 'active', billy_state: 'idle',
+        current_persona: 'old-persona', current_user: 'tom', mood: {label: 'curious'}})});
+    const status = await pending;
+    assert.equal(status.mood?.label, 'curious');
+    assert.equal(status.current_user, 'tom');
+    assert.equal(status.current_persona, 'new-persona');
+    assert.equal(status.billy_state, 'speaking');
+    assert.equal(h.elements.get('service-status').textContent, 'Speaking');
+});
+
+test('older full response cannot replace more recent mood data', async () => {
+    const h = setup(); h.run(service);
+    const replies = [];
+    h.context.fetch = () => new Promise(resolve => replies.push(resolve));
+    const first = h.context.ServiceStatus.fetchStatus(true);
+    await flush(); await h.advance(1);
+    const second = h.context.ServiceStatus.fetchStatus(true);
+    await flush();
+    replies[1]({ok: true, json: async () => ({status: 'active', mood: {label: 'calm'}})});
+    await second;
+    replies[0]({ok: true, json: async () => ({status: 'active', mood: {label: 'grumpy'}})});
+    assert.equal((await first).mood.label, 'calm');
 });

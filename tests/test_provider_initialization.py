@@ -25,11 +25,13 @@ def providers(monkeypatch, tmp_path):
     prefix = '_provider_startup_test'
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, 'path', list(sys.path))
-    package = load_module(prefix, ROOT / 'core/__init__.py')
+    package = load_module(prefix, ROOT / 'application/core/__init__.py')
     config = SimpleNamespace(
         ENV_PATH=str(tmp_path / '.env'),
         OPENAI_API_KEY='test-openai',
         OPENAI_MODEL='configured-openai-model',
+        OPENAI_LIVE_MODEL='configured-gpt-live-model',
+        OPENAI_LIVE_BACKEND_MODEL='configured-live-backend',
         XAI_API_KEY='test-xai',
         XAI_MODEL='configured-xai-model',
         REALTIME_AI_PROVIDER='xai',
@@ -67,7 +69,7 @@ def test_imports_do_not_initialize_providers_or_load_configuration(tmp_path):
             '-S',
             '-c',
             (
-                f'import sys; sys.path.insert(0, {str(ROOT)!r}); '
+                f'import sys; sys.path.insert(0, {str(ROOT / "application")!r}); '
                 'import core; assert "core.providers" not in sys.modules; '
                 'import core.providers; import core.wakeword; '
                 'assert {n for n in sys.modules if n.startswith("core.")} '
@@ -87,7 +89,7 @@ def test_imports_do_not_initialize_providers_or_load_configuration(tmp_path):
 @pytest.mark.parametrize(
     'openai,xai', [(False, False), (True, False), (False, True), (True, True)]
 )
-@pytest.mark.parametrize('requested', ['', 'openai', 'xai', 'unavailable'])
+@pytest.mark.parametrize('requested', ['', 'openai', 'xai', 'gpt-live', 'unavailable'])
 def test_registration_preserves_provider_selection_and_wakewords(
     providers, openai, xai, requested
 ):
@@ -95,14 +97,16 @@ def test_registration_preserves_provider_selection_and_wakewords(
     providers.config.XAI_API_KEY = 'test-xai' if xai else ''
     providers.config.REALTIME_AI_PROVIDER = requested
     providers.module.initialize_providers()
-    available = (['openai'] if openai else []) + (['xai'] if xai else [])
+    available = (['openai', 'gpt-live'] if openai else []) + (['xai'] if xai else [])
     assert providers.voice.get_available_providers() == available
     if available:
         expected = requested if requested in available else available[0]
         assert providers.voice.get_provider().get_provider_name() == expected
         for name in available:
             instance = providers.voice.get_provider(name)
-            assert instance.api_key == f'test-{name}'
+            assert (
+                instance.api_key == f"test-{'openai' if name == 'gpt-live' else name}"
+            )
             assert instance.model == f'configured-{name}-model'
     else:
         assert providers.voice.default_provider is None
@@ -154,7 +158,7 @@ def test_core_initializes_before_profile_audio_bluetooth_and_realtime_loop(
             'openwakeword',
         ]
         assert providers.voice.get_available_providers() == (
-            ['openai', 'xai'] if with_keys else []
+            ['openai', 'gpt-live', 'xai'] if with_keys else []
         )
         events.append(name)
 
@@ -165,7 +169,7 @@ def test_core_initializes_before_profile_audio_bluetooth_and_realtime_loop(
     modules = {
         'core.button': button,
         'core.audio': SimpleNamespace(
-            initialize_devices=lambda: started('audio'), playback_queue=Mock()
+            initialize_devices=lambda: started('audio'), shutdown_playback_worker=Mock()
         ),
         'core.bluetooth': SimpleNamespace(
             watcher=SimpleNamespace(start=lambda: started('bluetooth'))
@@ -196,7 +200,7 @@ def test_core_initializes_before_profile_audio_bluetooth_and_realtime_loop(
         monkeypatch.setitem(sys.modules, name, module)
     module_name = '_provider_test_main'
     try:
-        main = load_module(module_name, ROOT / 'main.py')
+        main = load_module(module_name, ROOT / 'application/core/application.py')
         assert providers.voice.get_available_providers() == []
         assert providers.wakeword.get_available_providers() == []
         monkeypatch.setattr(main.signal, 'signal', Mock())
@@ -240,7 +244,7 @@ def test_web_factory_and_server_initialize_before_profiles_routes_and_background
         instance.append(providers.voice.get_provider())
 
     try:
-        web = load_module(prefix, ROOT / 'webconfig/app/__init__.py')
+        web = load_module(prefix, ROOT / 'application/webconfig/app/__init__.py')
         for name, attribute in [
             ('audio', 'bp'),
             ('bluetooth', 'bp'),
@@ -288,8 +292,10 @@ def test_web_factory_and_server_initialize_before_profiles_routes_and_background
             assert len(app.blueprints) == 8
             assert events == ['background', 'background', 'bluetooth-setup']
             events.clear()
-        monkeypatch.setitem(sys.modules, 'app', web)
-        server = load_module('_provider_test_server', ROOT / 'webconfig/server.py')
+        monkeypatch.setitem(sys.modules, 'webconfig.app', web)
+        server = load_module(
+            '_provider_test_server', ROOT / 'application/webconfig/startup.py'
+        )
         app = server.normal_app()
         assert events == ['profile', 'background', 'background', 'bluetooth-setup']
         assert all(value is instance[0] for value in instance)

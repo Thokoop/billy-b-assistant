@@ -16,7 +16,9 @@ from types import SimpleNamespace
 
 def load_watcher():
     """The module's functions, with its imports replaced by doubles."""
-    source = (Path(__file__).parents[2] / "core/bluetooth/watcher.py").read_text()
+    source = (
+        Path(__file__).parents[2] / "application/core/bluetooth/watcher.py"
+    ).read_text()
     tree = ast.parse(source)
     body = [
         item for item in tree.body if not isinstance(item, (ast.Import, ast.ImportFrom))
