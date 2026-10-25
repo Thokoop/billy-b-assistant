@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.7.0] — 2026-10-25
+## [2.7.0] — 2026-10-26
 
 ### Added
 
@@ -21,11 +21,16 @@ All notable changes to this project will be documented in this file.
 - **Debug & Diagnostics**: Choose Billy, Web interface, Bluetooth or All services; Bluetooth includes PipeWire and WirePlumber. Logs stream while Debug is open, with white text and yellow controls, and Clear view only clears the display. Successful health and log polling stays out of the journal; other successful HTTP requests require Verbose. Microphone diagnostics report capture loss separately from delivery timing and limit repeated warnings.
 - **Application Layout**: Assistant and web application code now live under `application/`, with explicit provider initialization and separate bootstrap/recovery code. Stable root launchers preserve the service-file paths used by 2.6.0 and earlier installations. Settings and user data keep their existing locations; `current-source` identifies the selected source tree for development.
 - **Library**: Internal Knowledge appears first. External Knowledge starts collapsed and has an independently expandable deprecation notice.
+- **Settings**: Settings are grouped into categories, each with its own address (for example `/settings/network`), so a category can be bookmarked and the browser's back button returns to the previous one. Software lists the status of each required system component.
+- **Wi-Fi Setup**: The setup dialog guides you in three steps (choose a network, enter the password, connect) and works better on a phone; the keyboard only opens when there is something to type. The setup hotspot opens Network settings directly, with Edit connection shown prominently until Wi-Fi is set up. Switching to another network, or saving a network after holding the button for 10 seconds, restarts Billy to join it, because the Raspberry Pi's Wi-Fi chip cannot join a new network until it restarts; other saved networks remain available as a fallback.
 
 ### Fixed
 
 - **Microphone & Playback Reliability**: Reduced audio dropouts and stale-audio buildup with improved capture buffering, bounded queues and more reliable playback cleanup. Microphone startup reports a failure for the selected device instead of silently switching to a different one.
 - **Session Cleanup**: An older session finishing late can no longer stop audio or reset state owned by its successor. Shutdown waits are bounded so stopping or restarting Billy can finish when audio or transport cleanup stalls.
+- **Wi-Fi Setup Hotspot**: After a Wi-Fi reset, Billy joins the saved network straight away instead of reopening the setup hotspot when joining takes longer than usual.
+- **Changing the Hostname**: The new name is added to `/etc/hosts`, so system commands no longer warn that they are unable to resolve the host. Installations already affected are repaired when the web interface starts.
+- **Active Profile in the Web Interface**: When Billy switches profiles by voice, the web interface shows the new profile without reloading the page.
 
 ### Deprecated
 
