@@ -8,12 +8,23 @@ function setup() {
     let now=1000,id=0,reloads=0;
     const timers=new Map(),elements=new Map(),calls=[],notices=[];
     const overlay={visible:false,message:"",showSoftware(message){this.visible=true;this.message=message;},hideSoftware(){this.visible=false;}};
-    const element=()=>{const classes=new Set(['animate-spin']);const icon={classList:{remove(name){classes.delete(name);},contains:name=>classes.has(name)}};return {dataset:{},disabled:false,textContent:'',classList:{toggle(){}},querySelector(){return icon;},addEventListener(type,fn){this[type]=fn;}};};
+    const element=()=>{
+        const classes=new Set(['animate-spin']);let text='',children=[];
+        const icon={classList:{remove(name){classes.delete(name);},contains:name=>classes.has(name)}};
+        return {dataset:{},attributes:{},disabled:false,
+            get children(){return children;},
+            get textContent(){return text+children.map(child=>child.textContent).join('');},
+            set textContent(value){text=value;children=[];},
+            append(...nodes){children.push(...nodes);},replaceChildren(...nodes){text='';children=nodes;},
+            classList:{toggle(name,on){if(on)classes.add(name);else classes.delete(name);},contains:name=>classes.has(name)},
+            setAttribute(name,value){this.attributes[name]=value;},querySelector(){return icon;},
+            addEventListener(type,fn){this[type]=fn;}};
+    };
     let status={rollback_available:true,job:{}},post=async()=>({job:{id:'new',state:'queued'}});
     const ctx={console,AbortController,TypeError,Date:{now:()=>now},CustomEvent:class{},confirm:()=>true,
         location:{reload(){reloads++;}},sessionStorage:{removeItem(){}},showNotification:(...args)=>notices.push(args),
         setTimeout(fn,ms){timers.set(++id,{fn,at:now+ms});return id;},clearTimeout(id){timers.delete(id);},
-        document:{getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},dispatchEvent(){}},
+        document:{createElement:()=>element(),getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},dispatchEvent(){}},
         addEventListener(){},BootstrapData:{take:()=>({current:'v1',latest:'v2',update_available:true})},
         fetch:async(url,options)=>{calls.push([url,options]);const value=options?.method==='POST'?await post(options):status;return {ok:value.ok!==false,json:async()=>value};}};
     ctx.LoadingOverlay=overlay;
@@ -89,31 +100,55 @@ test('no saved version is explained and progress is shown inside the recovery di
 
 
 test('central component status uses shared polling and repair submits one protected job',async()=>{
- const h=setup();h.status={packages:{state:'attention',repairable:true,message:'Components missing',missing:['libportaudio2']},job:{}};
- await flush();h.ctx.BillyVersionUI.refresh();await flush();
+ const h=setup();h.status={packages:{state:'attention',repairable:true,message:'Components missing',missing:['libportaudio2'],
+  components:[{name:'libportaudio2',state:'missing'},{name:'ffmpeg',state:'installed'}]},job:{}};
+ await flush();h.ctx.BillyVersionInfo={current:'v1',latest:'v1',update_available:false};h.ctx.BillyVersionUI.refresh();await flush();
+ const category=h.elements.get('settings-software-badge');
+ assert.equal(category.classList.contains('hidden'),false);
+ assert.equal(category.classList.contains('inline-flex'),true);
+ assert.equal(category.title,'System components: Install components');
+ assert.equal(category.attributes['aria-label'],category.title);
  assert.equal(h.elements.get('system-packages-summary').textContent,'Install the missing components Billy needs to run.');
  assert.equal(h.elements.get('system-packages-action-label').textContent,'Install components');
  assert.equal(h.elements.get('system-packages-badge').textContent,'Installation needed');
  assert.equal(h.elements.get('system-packages-badge').hidden,false);
  assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
  assert.equal(h.elements.get('system-packages-status').textContent,'Components missing');
- assert.equal(h.elements.get('system-packages-details').textContent,'libportaudio2');
+ const details=h.elements.get('system-packages-details');
+ const rows=()=>details.children.map(row=>[row.children[0].textContent,row.children[1].children[1].textContent]);
+ assert.deepEqual(rows(),[['libportaudio2','Not installed'],['ffmpeg','Installed']]);
+ assert.equal(details.children[1].children[1].children[0].attributes['aria-hidden'],'true');
+ h.elements.get('system-packages-detail-panel').open=true;
  const button=h.elements.get('repair-packages-btn');assert.equal(button.disabled,false);assert.equal(button.hidden,false);
+ // Version refreshes and mounting the settings page again retain component attention.
+ h.elements.delete('settings-software-badge');h.ctx.BillyVersionUI.refresh();
+ const remounted=h.elements.get('settings-software-badge');
+ assert.equal(remounted.classList.contains('hidden'),false);
+ await flush();
  h.status={packages:{state:'attention',repairable:true},job:{id:'new',state:'installing_packages',message:'Installing'}};
  await button.click();assert.equal(button.disabled,true);
+ assert.equal(remounted.classList.contains('hidden'),false);
  const requests=h.calls.filter(([,o])=>o.method==='POST');assert.equal(requests.length,1);
  assert.equal(requests[0][0],'/software/packages');assert.equal(requests[0][1].headers['X-Billy-Update'],'1');
- h.status={packages:{state:'ready',repairable:false,message:'All system components are installed.'},job:{id:'new',state:'complete'}};
+ h.status={packages:{state:'ready',repairable:false,message:'All system components are installed.',
+  components:[{name:'libportaudio2',state:'installed'},{name:'ffmpeg',state:'installed'}]},job:{id:'new',state:'complete'}};
  await h.advance(2000);assert.equal(button.disabled,true);assert.equal(button.hidden,true);
+ assert.equal(remounted.classList.contains('hidden'),true);
  assert.equal(h.elements.get('system-packages-operation').textContent,'');
  assert.equal(h.elements.get('system-packages-summary').textContent,'All system components are installed.');
  assert.equal(h.elements.get('system-packages-badge').hidden,true);
- assert.equal(h.elements.get('system-packages-detail-panel').hidden,true);
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
+ assert.equal(h.elements.get('system-packages-detail-panel').open,true);
+ assert.deepEqual(rows(),[['libportaudio2','Installed'],['ffmpeg','Installed']]);
+ assert.equal(h.elements.get('system-packages-details-status').hidden,true);
  assert.equal(h.elements.get('system-packages-status').textContent,'');
  h.status={packages:{state:'unavailable',message:'Check unavailable',repairable:false},job:{}};
  h.ctx.BillyVersionUI.refresh();await flush();
  assert.equal(h.elements.get('system-packages-summary').textContent,'Check unavailable');
  assert.equal(h.elements.get('system-packages-status').textContent,'');
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
+ assert.equal(h.elements.get('system-packages-details-status').textContent,'Check unavailable');
+ assert.equal(details.children.length,0);
 });
 
 
@@ -130,8 +165,16 @@ test('component actions distinguish installation, updates, damage and setup with
   assert.equal(h.elements.get('system-packages-action-label').textContent,label);
   assert.equal(h.elements.get('system-packages-badge').textContent,badge);
   assert.equal(h.elements.get('system-packages-status').textContent,'');
+  const category=h.elements.get('settings-software-badge');
+  assert.equal(category.classList.contains('hidden'),false);
+  assert.equal(category.title,`Software update available. System components: ${label}`);
  }
- assert.equal(h.elements.get('system-packages-detail-panel').hidden,true);
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
+ h.status={packages:{state:'ready',repairable:false,message:'All system components are installed.'},job:{}};
+ h.ctx.BillyVersionUI.refresh();await flush();
+ const category=h.elements.get('settings-software-badge');
+ assert.equal(category.classList.contains('hidden'),false);
+ assert.equal(category.title,'Software update available');
 });
 
 

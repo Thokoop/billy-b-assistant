@@ -124,6 +124,7 @@ test/
 !/tests/webconfig/test_live.cjs
 !/tests/webconfig/test_badges.cjs
 !/tests/webconfig/test_settings_navigation.cjs
+!/tests/webconfig/test_wifi_onboarding_button.cjs
 /.ci-results/
 
 !/tests/deployment/

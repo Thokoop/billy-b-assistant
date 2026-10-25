@@ -1710,6 +1710,17 @@ const SettingsForm = (() => {
         const testResultEl = document.getElementById("wifi-test-result");
         const errorResultEl = document.getElementById("wifi-error-result");
         const banner = document.getElementById("wifi-onboarding-banner");
+        // Step-by-step dialog parts. All optional so an older cached template
+        // without them still gets a working (single page) dialog.
+        const wifiSteps = Array.from(wifiModal?.querySelectorAll("[data-wifi-step]") || []);
+        const wifiStepIndicators = Array.from(wifiModal?.querySelectorAll("[data-wifi-step-indicator]") || []);
+        const ssidNextBtn = document.getElementById("wifi-ssid-next");
+        const passwordBackBtn = document.getElementById("wifi-password-back");
+        const passwordNextBtn = document.getElementById("wifi-password-next");
+        const passwordHint = document.getElementById("wifi-password-hint");
+        const connectBackBtn = document.getElementById("wifi-connect-back");
+        const summaryPassword = document.getElementById("wifi-summary-password");
+        const summaryCountry = document.getElementById("wifi-summary-country");
         const setSettingsConnectionStatus = (message, connected = null) => {
             if (!statusEl) return;
             statusEl.textContent = message;
@@ -1802,7 +1813,11 @@ const SettingsForm = (() => {
         let hotspotActive = false;
         let savedFingerprint = "";
         let selectedNetworkValue = "";
+        // Unknown (manual) networks may or may not need a password.
+        let selectedNetworkSecure = true;
+        let currentStep = "network";
         let hasLoadedNetworksOnce = false;
+        let scanning = false;
         const MANUAL_SSID_VALUE = "__manual__";
         const legacyOnboardingMessage = "Legacy Wi-Fi setup is active. Open billy.local:8080 to scan, test, and save Wi-Fi without disconnecting from Billy_Bassistant.";
 
@@ -1823,13 +1838,86 @@ const SettingsForm = (() => {
             saveBtn.disabled = !enabled;
             saveBtn.classList.toggle("opacity-50", !enabled);
             saveBtn.classList.toggle("cursor-not-allowed", !enabled);
-            if (!enabled && savedFingerprint === currentFingerprint()) {
-                saveLabel.textContent = "Saved";
+            if (savedFingerprint && savedFingerprint === currentFingerprint()) {
+                saveLabel.textContent = "Connected";
                 saveIcon.textContent = "check_circle";
             } else {
-                saveLabel.textContent = "Save Wi-Fi";
-                saveIcon.textContent = "save";
+                saveLabel.textContent = "Connect";
+                saveIcon.textContent = "wifi";
             }
+        };
+
+        const isManualSelection = () => selectedNetworkValue === MANUAL_SSID_VALUE;
+
+        const updateWifiSummary = () => {
+            const ssid = ssidInput.value.trim();
+            document.querySelectorAll("[data-wifi-selected-ssid]").forEach(el => {
+                el.textContent = ssid;
+            });
+            if (summaryPassword) {
+                summaryPassword.textContent = passwordInput.value
+                    ? "Entered"
+                    : "None (open network)";
+            }
+            if (summaryCountry) {
+                const option = countrySelect.options?.[countrySelect.selectedIndex];
+                summaryCountry.textContent = option?.textContent?.trim() || countrySelect.value || "";
+            }
+            if (passwordHint) passwordHint.hidden = !isManualSelection();
+        };
+
+        const showStep = (step, {focus = true} = {}) => {
+            if (!wifiSteps.length) return;
+            const order = ["network", "password", "connect"];
+            currentStep = step;
+            updateWifiSummary();
+            wifiSteps.forEach(panel => {
+                panel.hidden = panel.dataset.wifiStep !== step;
+            });
+            // Messages belong right above the buttons that caused them.
+            const panel = wifiSteps.find(item => item.dataset.wifiStep === step);
+            const actions = panel?.querySelector?.(":scope > .wifi-step-actions");
+            if (actions?.before) actions.before(testResultEl, errorResultEl);
+            else panel?.append?.(testResultEl, errorResultEl);
+            wifiStepIndicators.forEach(indicator => {
+                const name = indicator.dataset.wifiStepIndicator;
+                if (name === step) indicator.setAttribute("aria-current", "step");
+                else indicator.removeAttribute("aria-current");
+                indicator.dataset.done = String(order.indexOf(name) < order.indexOf(step));
+            });
+            wifiModal.querySelector(".wifi-setup-panel")?.scrollTo?.(0, 0);
+            if (step === "connect") syncSaveButton();
+            // Choosing from the list needs no typing: drop focus from any text
+            // field (including one on the page behind) so a phone keeps its
+            // keyboard closed until a step actually asks for input.
+            const active = document.activeElement;
+            if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || "")
+                && !(step === "network" && isManualSelection() && active === ssidInput)) {
+                active.blur?.();
+            }
+            if (!focus) return;
+            if (step === "password") passwordInput.focus();
+            else if (step === "network" && isManualSelection()) ssidInput.focus();
+        };
+
+        const goToPassword = () => {
+            if (!ssidInput.value.trim()) {
+                showError("Enter the network name first.");
+                ssidInput.focus();
+                return;
+            }
+            showError("");
+            showStep("password");
+        };
+
+        const goToConnect = () => {
+            if (selectedNetworkSecure && !isManualSelection() && !passwordInput.value) {
+                showError("Enter the Wi-Fi password.");
+                passwordInput.focus();
+                return;
+            }
+            showError("");
+            showStep("connect");
         };
 
         const openWifiModal = () => {
@@ -1837,6 +1925,7 @@ const SettingsForm = (() => {
             editToggleBtn?.classList.add("hidden");
             document.documentElement.classList.add("overflow-hidden");
             document.body.classList.add("overflow-hidden");
+            showStep("network", {focus: false});
             if (!hasLoadedNetworksOnce) {
                 loadNetworks();
             }
@@ -1846,15 +1935,26 @@ const SettingsForm = (() => {
             wifiModal.classList.add("hidden");
             document.documentElement.classList.remove("overflow-hidden");
             document.body.classList.remove("overflow-hidden");
-            if (editToggleBtn && !shouldAutoOpenEditor()) {
-                editToggleBtn.classList.remove("hidden");
-            }
+            editToggleBtn?.classList.remove("hidden");
         };
 
         const syncOnboardingUiState = () => {
             const onboardingUi = shouldAutoOpenEditor();
-            const editLabel = onboardingUi ? "Wi-Fi setup" : "Edit connection";
+            const editLabel = onboardingUi ? "Connect to Wi-Fi" : "Edit connection";
             if (editToggleLabel) editToggleLabel.textContent = editLabel;
+            // Until Billy is on a home network this is the only thing to do on
+            // the page, so it is a labelled primary action rather than an icon.
+            if (editToggleBtn) {
+                editToggleBtn.classList.toggle("primary-action", onboardingUi);
+                editToggleBtn.classList.toggle("bg-emerald-600", onboardingUi);
+                editToggleBtn.classList.toggle("text-black", onboardingUi);
+                editToggleBtn.classList.toggle("secondary-action", !onboardingUi);
+                editToggleBtn.classList.toggle("secondary-action--hover--cyan", !onboardingUi);
+                editToggleBtn.classList.toggle("button-reveal", !onboardingUi);
+                const editIcon = editToggleBtn.querySelector(".material-icons");
+                if (editIcon) editIcon.textContent = onboardingUi ? "wifi" : "edit";
+            }
+            editToggleLabel?.classList.toggle("button-reveal-label", !onboardingUi);
             editToggleBtn?.setAttribute("aria-label", editLabel);
             editToggleBtn?.setAttribute("title", editLabel);
             wifiModalDescription.textContent = onboardingUi
@@ -1880,18 +1980,31 @@ const SettingsForm = (() => {
         };
 
         const syncManualSsidVisibility = () => {
-            const showManual = selectedNetworkValue === MANUAL_SSID_VALUE;
+            const showManual = isManualSelection();
             ssidInput.disabled = !showManual;
-            ssidInput.classList.toggle("bg-zinc-700", showManual);
-            ssidInput.classList.toggle("bg-transparent", !showManual);
-            ssidInput.classList.toggle("opacity-60", !showManual);
-            ssidInput.classList.toggle("cursor-not-allowed", !showManual);
+            ssidField.hidden = !showManual;
             if (!showManual) {
                 ssidInput.value = selectedNetworkValue || "";
-            } else {
-                ssidInput.focus();
             }
             updateSelectedNetworkCard();
+        };
+
+        const chooseNetwork = (item) => {
+            const previousSsid = ssidInput.value.trim();
+            selectedNetworkValue = item.dataset.ssid || "";
+            showError("");
+            if (isManualSelection()) {
+                selectedNetworkSecure = true;
+                syncManualSsidVisibility();
+                ssidInput.focus();
+                return;
+            }
+            selectedNetworkSecure = item.dataset.secure !== "false";
+            syncManualSsidVisibility();
+            if (ssidInput.value.trim() !== previousSsid) passwordInput.value = "";
+            if (!selectedNetworkSecure) passwordInput.value = "";
+            invalidateSuccessfulTest();
+            showStep(selectedNetworkSecure ? "password" : "connect");
         };
 
         const signalIconFor = (signal) => {
@@ -1910,25 +2023,34 @@ const SettingsForm = (() => {
             button.dataset.manual = "false";
 
             const signalIcon = signalIconFor(network.signal);
-            const isSecure = network.security && network.security !== "open";
-            const securityIcon = isSecure ? "lock" : "lock_open";
-            const securityColor = isSecure ? "text-zinc-300" : "text-zinc-500";
-            const activeBadge = network.active
-                ? '<span class="text-xs text-emerald-400">Connected</span>'
-                : "";
-
-            button.innerHTML = `
-                <span class="flex items-center justify-between gap-3">
-                    <span class="min-w-0">
-                        <span class="block truncate">${network.ssid || "Hidden network"}</span>
-                        ${activeBadge}
-                    </span>
-                    <span class="flex shrink-0 items-center gap-2">
-                        <span class="material-icons text-zinc-300">${signalIcon}</span>
-                        <span class="material-icons ${securityColor}">${securityIcon}</span>
-                    </span>
-                </span>
-            `;
+            const isSecure = Boolean(network.security && network.security !== "open");
+            button.dataset.secure = String(isSecure);
+            button.setAttribute(
+                "aria-label",
+                `${network.ssid || "Hidden network"}, ${isSecure ? "password protected" : "open network"}`
+                + (network.active ? ", connected" : ""),
+            );
+            // Network names come from anything broadcasting nearby: build the
+            // item from text nodes, never from HTML.
+            const make = (tag, className, text) => {
+                const el = document.createElement(tag);
+                el.className = className;
+                if (text !== undefined) el.textContent = text;
+                return el;
+            };
+            const row = make("span", "flex items-center justify-between gap-3");
+            const label = make("span", "min-w-0");
+            label.append(make("span", "block truncate", network.ssid || "Hidden network"));
+            if (network.active) label.append(make("span", "text-xs text-emerald-400", "Connected"));
+            const icons = make("span", "flex shrink-0 items-center gap-2");
+            icons.setAttribute("aria-hidden", "true");
+            icons.append(
+                make("span", "material-icons text-zinc-300", signalIcon),
+                make("span", `material-icons ${isSecure ? "text-zinc-300" : "text-zinc-500"}`, isSecure ? "lock" : "lock_open"),
+                make("span", "material-icons text-zinc-500", "chevron_right"),
+            );
+            row.append(label, icons);
+            button.append(row);
             return button;
         };
 
@@ -1940,7 +2062,7 @@ const SettingsForm = (() => {
             button.dataset.manual = "true";
             button.innerHTML = `
                 <span class="flex items-center justify-between gap-3">
-                    <span>Enter SSID manually</span>
+                    <span>Enter network name manually</span>
                     <span class="material-icons text-zinc-400">edit</span>
                 </span>
             `;
@@ -1952,7 +2074,9 @@ const SettingsForm = (() => {
             if (!networks.length) {
                 const emptyState = document.createElement("div");
                 emptyState.className = "rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-400";
-                emptyState.textContent = "No networks found yet. Scan again or enter the SSID manually.";
+                emptyState.textContent = scanning
+                    ? "Scanning for networks…"
+                    : "No networks found. Scan again or enter the network name manually.";
                 networkList.appendChild(emptyState);
             } else {
                 networks.forEach((network) => {
@@ -2023,7 +2147,7 @@ const SettingsForm = (() => {
                 banner.classList.remove("hidden");
             }
             [
-                "section-software",
+                "section-voice",
                 "section-wakeword",
                 "section-hardware",
                 "section-audio",
@@ -2086,11 +2210,7 @@ const SettingsForm = (() => {
                 if (shouldAutoOpenEditor()) {
                     forceOnboardingModalOpen();
                 } else if (editToggleBtn) {
-                    if (wifiModal.classList.contains("hidden")) {
-                        editToggleBtn.classList.remove("hidden");
-                    } else {
-                        editToggleBtn.classList.add("hidden");
-                    }
+                    editToggleBtn.classList.toggle("hidden", !wifiModal.classList.contains("hidden"));
                 }
                 const countryValue = String(data.country || countrySelect.value || "NL").trim().toUpperCase();
                 ensureSelectHasValue(countrySelect, countryValue, "US");
@@ -2111,6 +2231,7 @@ const SettingsForm = (() => {
             }
             setBusy(scanBtn, true);
             showError("");
+            scanning = true;
             try {
                 const response = await fetch("/wifi/networks");
                 const data = await response.json();
@@ -2125,17 +2246,41 @@ const SettingsForm = (() => {
             } catch (error) {
                 showError(error.message || String(error));
             } finally {
+                scanning = false;
                 setBusy(scanBtn, false);
+                if (!hasLoadedNetworksOnce) renderNetworkList();
             }
         };
 
         networkList.addEventListener("click", (event) => {
             const item = event.target.closest(".wifi-network-item");
             if (!item) return;
-            selectedNetworkValue = item.dataset.ssid || "";
-            syncManualSsidVisibility();
-            invalidateSuccessfulTest();
+            chooseNetwork(item);
         });
+
+        ssidNextBtn?.addEventListener("click", goToPassword);
+        passwordNextBtn?.addEventListener("click", goToConnect);
+        passwordBackBtn?.addEventListener("click", () => {
+            showError("");
+            showStep("network");
+        });
+        connectBackBtn?.addEventListener("click", () => {
+            showError("");
+            showStep(selectedNetworkSecure || isManualSelection() ? "password" : "network");
+        });
+        if (wifiSteps.length) {
+            // The phone keyboard's Next/Go key moves on to the next step.
+            ssidInput.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                goToPassword();
+            });
+            passwordInput.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                goToConnect();
+            });
+        }
 
         if (countrySettingsSelect && countryModalSelect) {
             const syncCountryValue = (source, target) => {
@@ -2196,6 +2341,7 @@ const SettingsForm = (() => {
                 showTestResult(`Trying to connect Billy to ${ssid}. If it fails, setup mode will come back automatically.`);
             }
 
+            let rebooting = false;
             try {
                 const response = await fetch("/wifi/save", {
                     method: "POST",
@@ -2205,8 +2351,18 @@ const SettingsForm = (() => {
                 const data = await response.json();
                 if (!response.ok || !data.ok) {
                     const errorMessage = data.error || "Failed to save Wi-Fi";
+                    if (/password/i.test(errorMessage)) showStep("password");
                     showError(errorMessage);
                     showNotification(errorMessage, "error", 4000);
+                    return;
+                }
+                if (data.rebooting) {
+                    // Billy joins the new network after a restart; the page
+                    // loses its connection, so don't reload or redirect.
+                    showTestResult(`Saved Wi-Fi for ${ssid}. Billy restarts now to connect to it. Connect your device to ${ssid} and open Billy’s web interface again in about a minute.`);
+                    showNotification("Wi-Fi saved. Billy is restarting…", "success", 8000);
+                    savedFingerprint = currentFingerprint();
+                    rebooting = true;
                     return;
                 }
                 showTestResult(`Saved Wi-Fi for ${ssid}. Billy is connected. If you were using the setup hotspot, reconnect your device to your home Wi-Fi and open Billy’s web interface again.`);
@@ -2226,7 +2382,8 @@ const SettingsForm = (() => {
                 showError(error.message || String(error));
                 showNotification(error.message || String(error), "error", 4000);
             } finally {
-                setBusy(saveBtn, false);
+                // Billy is going away; keep the button off until he is back.
+                if (!rebooting) setBusy(saveBtn, false);
             }
         });
 
@@ -2238,7 +2395,7 @@ const SettingsForm = (() => {
         syncSaveButton();
         syncOnboardingUiState();
         if (editToggleBtn) {
-            editToggleBtn.classList.toggle("hidden", shouldAutoOpenEditor());
+            editToggleBtn.classList.toggle("hidden", !wifiModal.classList.contains("hidden"));
         }
         loadStatus();
     };

@@ -2,72 +2,72 @@
     <h2 class="settings-menu-title">Settings</h2>
     <div class="settings-menu-group" role="group" aria-labelledby="settings-group-conversation">
         <h3 id="settings-group-conversation">Conversation</h3>
-        <button type="button" id="nav-section-software" class="settings-menu-item" data-settings-target="section-software" aria-controls="section-software">
+        <a href="/settings/voice" id="nav-section-voice" class="settings-menu-item" data-settings-path="/settings/voice" data-settings-target="section-voice" aria-controls="section-voice" {% if settings_category|default('voice', true) == 'voice' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">settings</span>
             <span class="settings-menu-label">Voice &amp; AI</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
-        <button type="button" id="nav-section-audio" class="settings-menu-item" data-settings-target="section-audio" aria-controls="section-audio">
+        </a>
+        <a href="/settings/audio" id="nav-section-audio" class="settings-menu-item" data-settings-path="/settings/audio" data-settings-target="section-audio" aria-controls="section-audio" {% if settings_category|default('voice', true) == 'audio' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">volume_up</span>
             <span class="settings-menu-label">Audio</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
-        <button type="button" id="nav-section-wakeword" class="settings-menu-item" data-settings-target="section-wakeword" aria-controls="section-wakeword">
+        </a>
+        <a href="/settings/wakeword" id="nav-section-wakeword" class="settings-menu-item" data-settings-path="/settings/wakeword" data-settings-target="section-wakeword" aria-controls="section-wakeword" {% if settings_category|default('voice', true) == 'wakeword' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">hearing</span>
             <span class="settings-menu-label">Wake word</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
+        </a>
     </div>
     <div class="settings-menu-group" role="group" aria-labelledby="settings-group-connections">
         <h3 id="settings-group-connections">Connections</h3>
-        <button type="button" id="nav-section-internet" class="settings-menu-item" data-settings-target="section-internet" aria-controls="section-internet">
+        <a href="/settings/network" id="nav-section-internet" class="settings-menu-item" data-settings-path="/settings/network" data-settings-target="section-internet" aria-controls="section-internet" {% if settings_category|default('voice', true) == 'network' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">wifi</span>
             <span class="settings-menu-label">Network</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
-        <button type="button" id="nav-section-bluetooth" class="settings-menu-item" data-settings-target="section-bluetooth" aria-controls="section-bluetooth">
+        </a>
+        <a href="/settings/bluetooth" id="nav-section-bluetooth" class="settings-menu-item" data-settings-path="/settings/bluetooth" data-settings-target="section-bluetooth" aria-controls="section-bluetooth" {% if settings_category|default('voice', true) == 'bluetooth' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">bluetooth</span>
             <span class="settings-menu-label">Bluetooth</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
-        <button type="button" id="nav-section-mqtt" class="settings-menu-item" data-settings-target="section-mqtt" aria-controls="section-mqtt">
+        </a>
+        <a href="/settings/mqtt" id="nav-section-mqtt" class="settings-menu-item" data-settings-path="/settings/mqtt" data-settings-target="section-mqtt" aria-controls="section-mqtt" {% if settings_category|default('voice', true) == 'mqtt' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">cloud_queue</span>
             <span class="settings-menu-label">MQTT</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
-        <button type="button" id="nav-section-ha" class="settings-menu-item" data-settings-target="section-ha" aria-controls="section-ha">
+        </a>
+        <a href="/settings/home-assistant" id="nav-section-ha" class="settings-menu-item" data-settings-path="/settings/home-assistant" data-settings-target="section-ha" aria-controls="section-ha" {% if settings_category|default('voice', true) == 'home-assistant' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">home</span>
             <span class="settings-menu-label">Home Assistant</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
+        </a>
     </div>
     <div class="settings-menu-group" role="group" aria-labelledby="settings-group-system">
         <h3 id="settings-group-system">System</h3>
-        <button type="button" id="nav-section-hardware" class="settings-menu-item" data-settings-target="section-hardware" aria-controls="section-hardware">
+        <a href="/settings/hardware" id="nav-section-hardware" class="settings-menu-item" data-settings-path="/settings/hardware" data-settings-target="section-hardware" aria-controls="section-hardware" {% if settings_category|default('voice', true) == 'hardware' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">build</span>
             <span class="settings-menu-label">Hardware</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
-        <button type="button" id="nav-section-software-version" class="settings-menu-item" data-settings-target="section-software-version" aria-controls="section-software-version">
+        </a>
+        <a href="/settings/software" id="nav-section-software" class="settings-menu-item" data-settings-path="/settings/software" data-settings-target="section-software" aria-controls="section-software" {% if settings_category|default('voice', true) == 'software' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">system_update_alt</span>
             <span class="settings-menu-label">Software</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
-            <span class="settings-update-dot hidden" data-release-badge title="Update available" aria-label="Update available">!</span>
+            <span id="settings-software-badge" class="settings-update-dot hidden" title="Software needs attention" aria-label="Software needs attention">!</span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
-        <button type="button" id="nav-section-advanced-settings" class="settings-menu-item" data-settings-target="section-advanced-settings" aria-controls="section-advanced-settings">
+        </a>
+        <a href="/settings/advanced" id="nav-section-advanced-settings" class="settings-menu-item" data-settings-path="/settings/advanced" data-settings-target="section-advanced-settings" aria-controls="section-advanced-settings" {% if settings_category|default('voice', true) == 'advanced' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">tune</span>
             <span class="settings-menu-label">Advanced</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
-        </button>
+        </a>
     </div>
 </nav>

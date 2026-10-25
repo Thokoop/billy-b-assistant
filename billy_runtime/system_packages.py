@@ -278,9 +278,40 @@ def check(source, root):
         for name, version in requested.items()
         if not lookup(installed, name) or lookup(installed, name)['version'] != version
     ]
+    # Report Billy's planned components, not every installed OS package. Include
+    # damaged inventory entries because they can block the shared repair job.
+    # dpkg may qualify an installed package with its architecture; show it once.
+    component_names = {
+        name.partition(':')[0] for name in [*names, *requested, *damaged]
+    }
+    components = []
+    for name in sorted(component_names):
+        info = lookup(installed, name)
+        expected = (
+            requested.get(name)
+            or requested.get(name + ':arm64')
+            or requested.get(name + ':all')
+        )
+        state = (
+            'missing'
+            if info is None
+            else 'damaged'
+            if info['status'] != 'installed'
+            else 'outdated'
+            if expected is not None and info['version'] != expected
+            else 'installed'
+        )
+        component = {'name': name, 'state': state}
+        if info is not None:
+            component['version'] = info['version']
+        components.append(component)
     configure = not bluetooth_ready(source, root)
     pending = pending_transaction(root)
     unfinished = pending.get('state') in {'applying', 'interrupted'}
+    components.append({
+        'name': 'Bluetooth setup',
+        'state': 'configuration_needed' if configure else 'installed',
+    })
     needs = bool(missing or damaged or outdated or configure or unfinished)
     return {
         'state': 'attention' if needs else 'ready',
@@ -288,6 +319,7 @@ def check(source, root):
         'damaged': damaged,
         'updates': outdated,
         'configuration_needed': configure,
+        'components': components,
         'message': (
             'System components need attention.'
             if needs

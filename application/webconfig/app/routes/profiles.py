@@ -186,11 +186,14 @@ def get_current_user():
 
         current_user = user_manager.get_current_user()
 
-        # Prefer CURRENT_USER from .env when set
-        if (
+        # CURRENT_USER in .env is the truth: Billy's core switches it when
+        # someone introduces themselves, which this process never sees. The
+        # profile it loaded earlier may belong to someone else by now.
+        if current_user_env.lower() == "guest":
+            current_user = None
+        elif current_user_env and (
             not current_user
-            and current_user_env
-            and current_user_env.lower() != "guest"
+            or current_user.name.casefold() != current_user_env.casefold()
         ):
             try:
                 current_user = user_manager.identify_user(current_user_env, "high")

@@ -1,5 +1,6 @@
 import contextlib
 import os
+import re
 import shutil
 import subprocess
 
@@ -16,9 +17,9 @@ from core.env_utils import set_env_key
 from core.logger import logger
 from core.news_manager import load_news_sources, save_news_sources
 from core.vision import describe_scene, detect_rpi_camera_available
-from core.wifi_setup import wifi_mac_address
+from core.wifi_setup import setup_follows_client, wifi_mac_address
 from dotenv import dotenv_values
-from flask import Blueprint, jsonify, redirect, render_template, request
+from flask import Blueprint, abort, jsonify, redirect, render_template, request
 from packaging.version import parse as parse_version
 from werkzeug.utils import secure_filename
 
@@ -132,6 +133,11 @@ WIFI_NM_CAPTIVE_PORTAL_DNSMASQ_CONF = (
 )
 WIFI_UNIFIED_HOTSPOT_CON_NAME = "Billy-Onboarding-Hotspot"
 WIFI_UNIFIED_HOTSPOT_SSID = "Billy_Bassistant"
+# Leaving the setup access point means scanning before Billy can join the home
+# network, which regularly takes longer than ordinary nmcli calls. NetworkManager
+# finishes an activation even when nmcli is killed, so a short client timeout
+# turned a successful join into a "failure" that reopened the hotspot.
+WIFI_ACTIVATION_WAIT_SECONDS = 60
 WIFI_COUNTRIES = [
     ("AU", "Australia"),
     ("BR", "Brazil"),
@@ -318,7 +324,10 @@ def _is_unified_wifi_hotspot_onboarding() -> bool:
 def _set_wifi_onboarding_active(active: bool) -> None:
     try:
         if active:
-            WIFI_ONBOARDING_FLAG.touch(exist_ok=True)
+            # wifi_check.sh creates the flag as root; touching an existing file
+            # someone else owns fails, and there is nothing to change anyway.
+            if not WIFI_ONBOARDING_FLAG.exists():
+                WIFI_ONBOARDING_FLAG.touch()
         elif WIFI_ONBOARDING_FLAG.exists():
             WIFI_ONBOARDING_FLAG.unlink()
     except Exception as exc:
@@ -328,13 +337,22 @@ def _set_wifi_onboarding_active(active: bool) -> None:
 def _run_wifi_command(
     args: list[str], *, check: bool = False, timeout: float = 20.0
 ) -> subprocess.CompletedProcess:
-    return subprocess.run(
+    result = subprocess.run(
         args,
         check=check,
         capture_output=True,
         text=True,
         timeout=timeout,
     )
+    # A hostname missing from /etc/hosts makes sudo print this on every call;
+    # it replaced nmcli's own error in what the user was shown.
+    if result.stderr and "unable to resolve host" in result.stderr:
+        result.stderr = "\n".join(
+            line
+            for line in result.stderr.splitlines()
+            if not (line.startswith("sudo:") and "unable to resolve host" in line)
+        )
+    return result
 
 
 def _split_nmcli_terse_line(line: str, expected_parts: int) -> list[str]:
@@ -464,18 +482,48 @@ def _set_wifi_autoconnect(
     return True, connection_name
 
 
-def _activate_wifi_connection(name: str) -> tuple[bool, str]:
-    if not name:
-        return False, "Missing connection name"
-    result = _run_wifi_command([
+def _wifi_activation_command(name: str) -> list[str]:
+    return [
         "sudo",
         "nmcli",
+        "--wait",
+        str(WIFI_ACTIVATION_WAIT_SECONDS),
         "connection",
         "up",
         name,
         "ifname",
         "wlan0",
-    ])
+    ]
+
+
+def _run_wifi_activation(name: str) -> subprocess.CompletedProcess:
+    started = time.monotonic()
+    try:
+        result = _run_wifi_command(
+            _wifi_activation_command(name), timeout=WIFI_ACTIVATION_WAIT_SECONDS + 15
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(f"[wifi] Activating '{name}' did not finish in time")
+        raise
+    output = (result.stderr or result.stdout or "").strip()
+    logger.info(
+        f"[wifi] Activating '{name}' returned {result.returncode} after "
+        f"{time.monotonic() - started:.0f}s" + (f": {output}" if output else "")
+    )
+    return result
+
+
+def _is_wifi_connection_active(name: str) -> bool:
+    return bool(name) and any(
+        entry.get("name") == name and entry.get("device") == "wlan0"
+        for entry in _list_active_wifi_connections()
+    )
+
+
+def _activate_wifi_connection(name: str) -> tuple[bool, str]:
+    if not name:
+        return False, "Missing connection name"
+    result = _run_wifi_activation(name)
     if result.returncode != 0:
         return (
             False,
@@ -550,6 +598,17 @@ def _stop_wifi_onboarding_services() -> list[str]:
     ]
     if is_unified:
         stop_commands.extend([
+            # Saves before 2.7.0 enabled autoconnect on the setup hotspot, which
+            # lets NetworkManager reopen it whenever the home network drops.
+            [
+                "sudo",
+                "nmcli",
+                "connection",
+                "modify",
+                WIFI_UNIFIED_HOTSPOT_CON_NAME,
+                "connection.autoconnect",
+                "no",
+            ],
             ["sudo", "nmcli", "connection", "down", WIFI_UNIFIED_HOTSPOT_CON_NAME],
             ["sudo", "systemctl", "reload", "NetworkManager"],
         ])
@@ -575,6 +634,7 @@ def _stop_wifi_onboarding_services() -> list[str]:
 def _restore_unified_wifi_onboarding_hotspot() -> None:
     if not _is_unified_wifi_hotspot_onboarding():
         return
+    logger.warning("[wifi] Reopening the setup hotspot")
 
     _set_wifi_onboarding_active(True)
     for args in (
@@ -700,15 +760,7 @@ def _wifi_connect(
             _delete_wifi_connection(connection_name)
             return False, modify_error
 
-        up_result = _run_wifi_command([
-            "sudo",
-            "nmcli",
-            "connection",
-            "up",
-            connection_name,
-            "ifname",
-            "wlan0",
-        ])
+        up_result = _run_wifi_activation(connection_name)
         if up_result.returncode != 0:
             error = (
                 up_result.stderr.strip()
@@ -723,6 +775,8 @@ def _wifi_connect(
 
         return True, connection_name
     except Exception as exc:
+        with contextlib.suppress(Exception):
+            _delete_wifi_connection(connection_name)
         return False, str(exc)
 
 
@@ -1032,17 +1086,33 @@ def library_page():
     return render_template("library.html", **_page_context("library"))
 
 
-@bp.route("/settings")
-def settings_page():
-    return render_template("settings.html", **_page_context("settings"))
+@bp.route("/settings", defaults={"category": None})
+@bp.route("/settings/<path:category>")
+def settings_page(category=None):
+    if category is not None and category not in {
+        "voice",
+        "audio",
+        "wakeword",
+        "network",
+        "bluetooth",
+        "mqtt",
+        "home-assistant",
+        "hardware",
+        "software",
+        "advanced",
+    }:
+        abort(404)
+    return render_template(
+        "settings.html", settings_category=category, **_page_context("settings")
+    )
 
 
 def _captive_portal_redirect():
     host = _get_wlan0_ip_address() or "192.168.4.1"
     port = str(getattr(core_config, "FLASK_PORT", "80"))
-    target = (
-        f"http://{host}/settings" if port == "80" else f"http://{host}:{port}/settings"
-    )
+    # Wi-Fi is the only category that works during setup; open it directly.
+    authority = host if port == "80" else f"{host}:{port}"
+    target = f"http://{authority}/settings/network"
     return redirect(target, code=302)
 
 
@@ -1427,8 +1497,162 @@ def wifi_test():
     })
 
 
+def _request_reboot() -> None:
+    subprocess.Popen(["sudo", "reboot"])
+
+
+def _saved_wifi_connections() -> list[str]:
+    result = _run_wifi_command(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"])
+    if result.returncode != 0:
+        return []
+    return [
+        parts[0]
+        for line in result.stdout.splitlines()
+        if len(parts := _split_nmcli_terse_line(line.strip(), 2)) == 2
+        and parts[1] in {"wifi", "802-11-wireless"}
+    ]
+
+
+def _save_wifi_for_reboot(ssid: str, password: str, country: str):
+    """Save a network to join at the next boot, then reboot into it.
+
+    Nothing is connected now: the profile is stored with the highest priority
+    and Billy reboots. If it cannot be joined after the reboot, NetworkManager
+    falls back to another saved network, or the startup check opens the setup
+    hotspot again.
+    """
+    if password and not (
+        8 <= len(password) <= 63
+        or (
+            len(password) == 64 and all(c in "0123456789abcdefABCDEF" for c in password)
+        )
+    ):
+        return jsonify({"error": "A Wi-Fi password has 8 to 63 characters."}), 400
+    _set_wifi_country(country)
+    staged = f"billy-new-{uuid.uuid4().hex[:8]}"
+    args = [
+        "sudo",
+        "nmcli",
+        "connection",
+        "add",
+        "type",
+        "wifi",
+        "ifname",
+        "wlan0",
+        "con-name",
+        staged,
+        "ssid",
+        ssid,
+    ]
+    if password:
+        args += ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password]
+    created = _run_wifi_command(args)
+    if created.returncode != 0:
+        _delete_wifi_connection(staged)
+        return jsonify({
+            "error": _friendly_wifi_error_message(
+                created.stderr.strip()
+                or created.stdout.strip()
+                or "Wi-Fi connection profile creation failed",
+                password_provided=bool(password),
+            )
+        }), 400
+    ok, error = _set_wifi_autoconnect(staged, True, priority=100)
+    if not ok:
+        _delete_wifi_connection(staged)
+        return jsonify({"error": error}), 400
+    # Never let the setup hotspot start by itself at boot.
+    _run_wifi_command([
+        "sudo",
+        "nmcli",
+        "connection",
+        "modify",
+        WIFI_UNIFIED_HOTSPOT_CON_NAME,
+        "connection.autoconnect",
+        "no",
+    ])
+    logger.info(f"[wifi] Saved '{ssid}'; rebooting to join it")
+    threading.Thread(
+        target=_finish_wifi_save_and_reboot,
+        args=(staged, ssid),
+        name="wifi-save-reboot",
+        daemon=True,
+    ).start()
+    return jsonify({
+        "ok": True,
+        "ssid": ssid,
+        "country": country,
+        "rebooting": True,
+        "warnings": [],
+    })
+
+
+def _finish_wifi_save_and_reboot(staged: str, ssid: str, delay: float = 2.0) -> None:
+    # Let the answer reach the browser: replacing a profile of the network
+    # Billy is on disconnects him straight away.
+    time.sleep(delay)
+    try:
+        # The new network wins at boot; others stay saved as fallbacks.
+        for name in _saved_wifi_connections():
+            if name not in {staged, ssid, WIFI_UNIFIED_HOTSPOT_CON_NAME}:
+                _run_wifi_command([
+                    "sudo",
+                    "nmcli",
+                    "connection",
+                    "modify",
+                    name,
+                    "connection.autoconnect-priority",
+                    "0",
+                ])
+        _delete_wifi_connection(ssid)
+        renamed = _run_wifi_command([
+            "sudo",
+            "nmcli",
+            "connection",
+            "modify",
+            staged,
+            "connection.id",
+            ssid,
+        ])
+        if renamed.returncode != 0:
+            # Still joins at boot under its temporary name.
+            logger.warning(f"[wifi] Could not rename '{staged}' to '{ssid}'")
+    except Exception as exc:
+        logger.warning(f"[wifi] Finishing the saved network failed: {exc}")
+    finally:
+        _request_reboot()
+
+
 @bp.route("/wifi/save", methods=["POST"])
 def wifi_save():
+    # The phone that started a save from the setup hotspot is cut off as soon
+    # as Billy leaves it, so the journal is the only place its outcome shows.
+    started = time.monotonic()
+    result = _wifi_save()
+    response, status = result if isinstance(result, tuple) else (result, 200)
+    payload = (
+        response.get_json(silent=True) if hasattr(response, "get_json") else response
+    )
+    payload = payload or {}
+    elapsed = time.monotonic() - started
+    if status == 200 and payload.get("ok"):
+        logger.info(
+            f"[wifi] Saved and joined '{payload.get('ssid')}' in {elapsed:.0f}s"
+            + (
+                f"; warnings: {payload.get('warnings')}"
+                if payload.get("warnings")
+                else ""
+            )
+        )
+    else:
+        logger.warning(
+            f"[wifi] Saving Wi-Fi failed after {elapsed:.0f}s ({status}): "
+            f"{payload.get('error')}"
+        )
+    return result
+
+
+def _wifi_save():
     if _is_legacy_wifi_hotspot_onboarding():
         return jsonify({
             "ok": False,
@@ -1450,6 +1674,25 @@ def wifi_save():
     active_before = _get_active_wifi_connection()
     previous_connection_name = (
         str(active_before.get("name") or "").strip() if active_before else ""
+    )
+    # After being connected to a network, the Pi's Wi-Fi chip cannot join
+    # another one (the router rejects it, status 16) until it reboots: when
+    # switching networks, and from a hotspot opened by the 10-second button.
+    # Only a hotspot opened at boot can hand over directly.
+    from_hotspot = previous_connection_name == WIFI_UNIFIED_HOTSPOT_CON_NAME
+    if not test_connection and (
+        (previous_connection_name and not from_hotspot)
+        or (from_hotspot and setup_follows_client())
+    ):
+        return _save_wifi_for_reboot(ssid, password, country)
+    if previous_connection_name == WIFI_UNIFIED_HOTSPOT_CON_NAME:
+        # The setup hotspot is not a network to fall back to: re-enabling its
+        # autoconnect below would let NetworkManager start the access point by
+        # itself whenever the home network drops. A failed save restores it
+        # through _restore_unified_wifi_onboarding_hotspot instead.
+        previous_connection_name = ""
+    logger.info(
+        f"[wifi] Saving Wi-Fi '{ssid}' (active: {active_before.get('name') if active_before else 'none'})"
     )
     target_name = ssid
     temporary_name = test_connection or f"{WIFI_TEST_PREFIX}{uuid.uuid4().hex[:8]}"
@@ -1509,7 +1752,12 @@ def wifi_save():
                 _restore_unified_wifi_onboarding_hotspot()
             return jsonify({"error": autoconnect_error}), 400
 
-        activate_ok, activate_detail = _activate_wifi_connection(target_name)
+        # Renaming keeps the joined connection active; activating it again
+        # only drops and re-joins the network Billy is already on.
+        if _is_wifi_connection_active(target_name):
+            activate_ok, activate_detail = True, target_name
+        else:
+            activate_ok, activate_detail = _activate_wifi_connection(target_name)
         if not activate_ok:
             _delete_wifi_connection(target_name)
             if previous_connection_name:
@@ -1539,6 +1787,30 @@ def wifi_save():
             "warnings": stop_errors + finalize_warnings,
         })
     except Exception as exc:
+        if _is_wifi_connection_active(target_name):
+            # Billy did join the network; reopening the hotspot here would
+            # throw him off it again and leave him unreachable until a reboot.
+            logger.warning(f"[wifi] Finishing Wi-Fi setup after an error: {exc}")
+            warnings = [str(exc), *finalize_warnings]
+            try:
+                autoconnect_ok, autoconnect_error = _set_wifi_autoconnect(
+                    target_name, True, priority=100
+                )
+                if not autoconnect_ok:
+                    warnings.append(autoconnect_error)
+                set_env_key(ENV_PATH, "WIFI_COUNTRY", country or "US")
+                _cleanup_test_wifi_connections()
+            except Exception as finish_exc:
+                warnings.append(str(finish_exc))
+            warnings.extend(_stop_wifi_onboarding_services())
+            return jsonify({
+                "ok": True,
+                "ssid": ssid,
+                "country": country,
+                "onboarding_stopped": True,
+                "rebooting": False,
+                "warnings": warnings,
+            })
         if _is_unified_wifi_hotspot_onboarding():
             _restore_unified_wifi_onboarding_hotspot()
         return jsonify({"error": str(exc)}), 500
@@ -2337,6 +2609,46 @@ def _preferred_ha_agent() -> str:
         return ""
 
 
+def _update_hosts_file(new_hostname: str, *, add_missing: bool = True) -> None:
+    """Point 127.0.1.1 at the new hostname, as Raspberry Pi OS's own tools do.
+
+    Without it every sudo call prints "unable to resolve host" and waits for a
+    DNS lookup that cannot succeed while Billy is offline.
+    """
+    try:
+        lines = Path("/etc/hosts").read_text().splitlines()
+    except OSError as exc:
+        logger.warning(f"[hostname] Could not read /etc/hosts: {exc}")
+        return
+    entry = f"127.0.1.1\t{new_hostname}"
+    updated = [entry if line.split()[:1] == ["127.0.1.1"] else line for line in lines]
+    if entry not in updated and add_missing:
+        updated.append(entry)
+    if updated == lines:
+        return
+    result = subprocess.run(
+        ["sudo", "-n", "tee", "/etc/hosts"],
+        input="\n".join(updated) + "\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            f"[hostname] Could not update /etc/hosts: {result.stderr.strip()}"
+        )
+
+
+def repair_hosts_file() -> None:
+    """Fix a 127.0.1.1 line left behind by an earlier hostname change.
+
+    Hostname changes before this release did not update /etc/hosts. Runs at
+    web startup so devices already in the field heal themselves; it only
+    writes when the line exists and names another host.
+    """
+    _update_hosts_file(os.uname().nodename, add_missing=False)
+
+
 @bp.route("/hostname", methods=["GET", "POST"])
 def hostname():
     if request.method == "GET":
@@ -2344,10 +2656,13 @@ def hostname():
     if request.method == "POST":
         data = request.get_json()
         new_hostname = data.get("hostname", "").strip()
-        if not new_hostname:
+        if not re.fullmatch(
+            r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", new_hostname
+        ):
             return jsonify({"error": "Invalid hostname"}), 400
         try:
             subprocess.check_call(["sudo", "hostnamectl", "set-hostname", new_hostname])
+            _update_hosts_file(new_hostname)
             subprocess.run(["sudo", "systemctl", "restart", "avahi-daemon"])
             return jsonify({"status": "ok", "hostname": new_hostname})
         except Exception as e:

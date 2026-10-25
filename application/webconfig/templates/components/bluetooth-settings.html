@@ -1,4 +1,4 @@
-<div id="section-bluetooth" class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4" data-settings-panel aria-labelledby="title-section-bluetooth" hidden>
+<div id="section-bluetooth" class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4" data-settings-panel aria-labelledby="title-section-bluetooth" {% if settings_category|default('voice', true) != 'bluetooth' %}hidden{% endif %}>
     <h3 id="title-section-bluetooth" class="settings-panel-title" tabindex="-1">
         <span class="material-icons" aria-hidden="true">bluetooth</span><span>Bluetooth</span>
     </h3>
@@ -8,7 +8,7 @@
             <span class="material-icons text-base" aria-hidden="true">refresh</span>
             Repair system components
         </button>
-        <a id="bt-components-help" hidden href="/settings#section-software-version" class="text-sm text-cyan-400">Open System components</a>
+        <a id="bt-components-help" hidden href="/settings/software" data-page-link data-page="settings" class="text-sm text-cyan-400">Open System components</a>
         <p id="bt-audio" role="status" aria-live="polite" class="text-slate-400">Checking Bluetooth…</p>
         <ul id="bt-devices" class="bt-devices" aria-label="Devices"></ul>
         <div class="bt-pairing-toolbar">

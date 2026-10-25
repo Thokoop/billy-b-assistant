@@ -690,3 +690,34 @@ def test_similar_display_names_also_require_an_unambiguous_profile_choice(calls)
         assert result['user'] == 'Person42'
 
     asyncio.run(run())
+
+
+def test_identifying_the_same_user_again_does_not_greet_twice(calls):
+    """After a GPT-Live voice handover the model sometimes re-identifies the
+    user it just welcomed; that must not produce a second greeting."""
+
+    async def run():
+        calls.users.identify_user('Thom')
+        calls.users.clear_current_user()
+        result, messages = await calls.invoke(
+            'identify_user', {'name': 'Thom', 'confidence': 'high'}
+        )
+        assert result['status'] == 'success'
+        assert 'greeting' in json.dumps(messages)
+        result, messages = await calls.invoke(
+            'identify_user', {'name': 'Thom', 'confidence': 'high'}
+        )
+        assert result['status'] == 'success' and result['user'] == 'Thom'
+        assert 'already identified' in result['message']
+        assert 'greeting' not in json.dumps(messages)
+        assert not any(m['type'] == 'session.update' for m in messages)
+        calls.session.user_handler.save_current_user_to_env.assert_awaited_once()
+        # A new conversation welcomes the user again.
+        await calls.session.user_handler.auto_identify_default_user()
+        calls.users.clear_current_user()
+        result, messages = await calls.invoke(
+            'identify_user', {'name': 'Thom', 'confidence': 'high'}
+        )
+        assert 'greeting' in json.dumps(messages)
+
+    asyncio.run(run())

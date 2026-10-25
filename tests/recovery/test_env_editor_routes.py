@@ -121,7 +121,7 @@ def test_normal_web_routes_repair_to_software_settings(editor, monkeypatch):
     ).normal_app()
     response = normal.test_client().get('/repair/')
     assert response.status_code == 302
-    assert response.location == '/settings#section-software-version'
+    assert response.location == '/settings/software'
     assert normal.test_client().get('/__runtime_health').status_code == 200
     assert any(
         fn().get('recovery_notice') == store.notice()

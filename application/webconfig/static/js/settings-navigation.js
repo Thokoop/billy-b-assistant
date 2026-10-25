@@ -34,7 +34,15 @@ window.SettingsNavigation = (() => {
         status.classList.toggle('has-changes', labels.length > 0);
     }
 
-    function select(id, {focus = false, writeHash = false} = {}) {
+    function writeLocation(path, replace = false) {
+        const target = path + window.location.search;
+        if (target === window.location.pathname + window.location.search + window.location.hash) return;
+        window.history[replace ? 'replaceState' : 'pushState'](
+            {...window.history.state, url: target}, '', target,
+        );
+    }
+
+    function select(id, {focus = false, writePath = false, replace = false} = {}) {
         const form = currentForm();
         const state = states.get(form);
         if (!state) return false;
@@ -47,7 +55,7 @@ window.SettingsNavigation = (() => {
             else item.removeAttribute('aria-current');
         }
         window.MobileSplitView?.showDetail('settings-workspace');
-        if (writeHash) window.history.replaceState(window.history.state, '', `#${id}`);
+        if (writePath) writeLocation(button.dataset.settingsPath, replace);
         if (focus) {
             const title = form.querySelector(`#title-${id}`);
             title?.focus({preventScroll: true});
@@ -64,8 +72,17 @@ window.SettingsNavigation = (() => {
         const form = currentForm();
         const state = states.get(form);
         if (!state) return;
-        const id = window.location.hash.slice(1);
-        if (id) select(id);
+        // Preserve bookmarks from before categories acquired their own routes.
+        const hash = window.location.hash.slice(1);
+        const legacyId = hash === 'section-software-version' ? 'section-software' : hash;
+        const legacy = state.buttons.find(button => button.dataset.settingsTarget === legacyId && !button.hidden);
+        const path = window.location.pathname.replace(/\/$/, '');
+        const target = legacy || state.buttons.find(button => button.dataset.settingsPath === path && !button.hidden);
+        if (target) {
+            select(target.dataset.settingsTarget, {writePath: !!legacy, replace: true});
+        } else {
+            window.MobileSplitView?.showList('settings-workspace');
+        }
         window.MobileSplitView?.bindAll();
         update(form);
     }
@@ -92,14 +109,20 @@ window.SettingsNavigation = (() => {
             const panel = state.panels.find(panel => panel.id === button.dataset.settingsTarget);
             // Wi-Fi onboarding keeps its existing category locks.
             button.hidden = !panel || panel.classList.contains('hidden');
-            button.addEventListener('click', () => select(button.dataset.settingsTarget, {focus: true, writeHash: true}));
+            button.addEventListener('click', event => {
+                // Retain open-in-new-tab/window and ordinary browser link behavior.
+                if (event.defaultPrevented || event.button !== 0
+                    || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                select(button.dataset.settingsTarget, {focus: true, writePath: true});
+            });
         }
         for (const group of form.querySelectorAll('.settings-menu-group')) {
             group.hidden = [...group.querySelectorAll('[data-settings-target]')].every(button => button.hidden);
         }
         const back = root.querySelector('[data-mobile-split-back]');
         back.addEventListener('click', () => {
-            window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+            writeLocation('/settings');
             state.buttons.find(button => button.dataset.settingsTarget === state.selected)?.focus();
         });
         // A select/toggle can update its real hidden field in its own listener;
@@ -111,15 +134,14 @@ window.SettingsNavigation = (() => {
             // Reveal only the first failing category in this validation pass.
             // Native validation will then focus its first invalid control.
             if (!state.validating) {
-                select(panel.id);
+                select(panel.id, {writePath: true, replace: true});
                 state.validating = true;
                 queueMicrotask(() => {state.validating = false;});
             }
         }, true);
-        const hash = window.location.hash.slice(1);
         const initial = state.buttons.find(button => !button.hidden)?.dataset.settingsTarget;
         select(initial);
-        if (!hash || !select(hash)) window.MobileSplitView?.showList('settings-workspace');
+        restore();
     }
 
     function markSaved(form, submitted) {

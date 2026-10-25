@@ -244,7 +244,6 @@ def service_status():
         from core.mood import mood_manager
         from core.persona_manager import persona_manager
         from core.profile_manager import user_manager
-        from dotenv import load_dotenv
 
         # Get project root and .env path
         from billy_runtime.paths import INSTALL_ROOT
@@ -252,11 +251,11 @@ def service_status():
         project_root = str(INSTALL_ROOT)
         env_path = os.path.join(project_root, ".env")
 
-        # Reload .env to get latest values
-        load_dotenv(env_path)
-        current_user_name = (
-            os.getenv("CURRENT_USER", "").strip().strip("'\"")
-        )  # Remove quotes and whitespace
+        # load_dotenv() never overrides a value this process already has, so
+        # it kept reporting the first user. Billy's core switches user itself.
+        from ..websocket import saved_current_user
+
+        current_user_name = saved_current_user()
         current_user = user_manager.get_current_user()
 
         # Get .env file status

@@ -57,7 +57,12 @@ def env(tmp_path, monkeypatch):
 
 def test_check_and_noop_never_start_apt(env):
     env.installed['hello'] = {'version': '2', 'status': 'installed'}
-    assert packages.check(env.source, env.root)['state'] == 'ready'
+    state = packages.check(env.source, env.root)
+    assert state['state'] == 'ready'
+    assert state['components'] == [
+        {'name': 'hello', 'state': 'installed', 'version': '2'},
+        {'name': 'Bluetooth setup', 'state': 'installed'},
+    ]
     packages.ensure(env.source, env.root, Mock())
     assert env.calls == []
 
@@ -67,6 +72,46 @@ def test_missing_packages_and_bluetooth_config_are_reported(env, monkeypatch):
     state = packages.check(env.source, env.root)
     assert state['missing'] == ['hello'] and state['configuration_needed']
     assert state['repairable'] and state['state'] == 'attention'
+    assert state['components'] == [
+        {'name': 'hello', 'state': 'missing'},
+        {'name': 'Bluetooth setup', 'state': 'configuration_needed'},
+    ]
+    assert env.calls == []
+
+
+def test_component_inventory_reports_actual_versions_and_all_required_actions(env):
+    env.manifest['runtime'] = ['hello', 'broken', 'missing']
+    env.manifest['migrations'] = [
+        {
+            'id': 'media-update',
+            'distribution': 'bookworm',
+            'compatible_with_previous': True,
+            'packages': {'hello': '3', 'migrated:arm64': '2', 'absent-target': '1'},
+        }
+    ]
+    (env.source / 'dependencies/system-packages.json').write_text(
+        json.dumps(env.manifest)
+    )
+    env.installed.update({
+        'hello:arm64': {'version': '2', 'status': 'installed'},
+        'broken:arm64': {'version': '1', 'status': 'half-configured'},
+        'migrated:arm64': {'version': '1', 'status': 'installed'},
+        'other-damaged:all': {'version': '4', 'status': 'unpacked'},
+    })
+    state = packages.check(env.source, env.root)
+    assert state['components'] == [
+        {'name': 'absent-target', 'state': 'missing'},
+        {'name': 'broken', 'state': 'damaged', 'version': '1'},
+        {'name': 'hello', 'state': 'outdated', 'version': '2'},
+        {'name': 'migrated', 'state': 'outdated', 'version': '1'},
+        {'name': 'missing', 'state': 'missing'},
+        {'name': 'other-damaged', 'state': 'damaged', 'version': '4'},
+        {'name': 'Bluetooth setup', 'state': 'installed'},
+    ]
+    assert state['missing'] == ['missing']
+    assert state['damaged'] == ['broken:arm64', 'other-damaged:all']
+    assert state['updates'] == ['hello', 'migrated:arm64', 'absent-target']
+    assert env.calls == []
 
 
 def test_full_plan_download_precedes_core_pause_and_keeps_receipt(env):

@@ -7,6 +7,7 @@ const MainPageRouter = (() => {
     const getMainContent = () => document.getElementById("main-content");
 
     const getPageNameFromPath = (pathName) => {
+        if (/^\/settings\/(voice|audio|wakeword|network|bluetooth|mqtt|home-assistant|hardware|software|advanced)$/.test(pathName)) return "settings";
         switch (pathName) {
             case "/":
             case "/personas":
@@ -141,7 +142,18 @@ const MainPageRouter = (() => {
     };
 
     const loadPage = async (url, { pushState = true } = {}) => {
-        if (getPageNameFromPath(new URL(url, window.location.origin).pathname) === "settings" && settingsDraft) {
+        const settingsDestination = getPageNameFromPath(new URL(url, window.location.origin).pathname) === "settings";
+        if (settingsDestination && getMainContent()?.dataset.page === "settings") {
+            // Category links share the original form, including unsaved secrets
+            // and files. Never fetch or mount a new form for another category.
+            if (pushState && new URL(url, window.location.origin).href !== window.location.href) {
+                window.history.pushState({url}, "", url);
+            }
+            window.SettingsNavigation?.restore();
+            updateActiveNav("settings");
+            return;
+        }
+        if (settingsDestination && settingsDraft) {
             const draft = settingsDraft;
             swapMainContent(draft.main);
             document.title = draft.title;

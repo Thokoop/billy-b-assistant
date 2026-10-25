@@ -1480,3 +1480,230 @@ def test_live_gets_full_listening_window_after_long_output_or_tool_work(
         s.stop_session.assert_awaited_once_with(reason='live_inactivity')
 
     asyncio.run(run())
+
+
+def test_identifying_a_user_with_another_voice_continues_on_a_new_connection(
+    live, monkeypatch
+):
+    """Live fixes the voice at session.start: switching to a user's persona voice
+    hands the conversation to a new connection instead of keeping the old voice."""
+    s, e = live.session, live.engine
+    fake_mic = Mock()
+    monkeypatch.setattr(live.module, 'LiveMicrophone', Mock(return_value=fake_mic))
+    monkeypatch.setattr(live.audio, 'recover_echo_cancellation', lambda: False)
+    voices = iter(['ballad', 'sillage'])
+    current_voice = {'value': next(voices)}
+    monkeypatch.setitem(
+        sys.modules,
+        'isolated_core.persona_manager',
+        SimpleNamespace(
+            persona_manager=SimpleNamespace(
+                get_current_persona_voice=lambda: current_voice['value']
+            )
+        ),
+    )
+    instructions = {'value': 'Be Billy as guest'}
+    monkeypatch.setitem(
+        sys.modules,
+        'isolated_core.session_manager',
+        SimpleNamespace(
+            get_instructions_with_user_context=lambda *_: instructions['value'],
+            get_tools_for_current_mode=lambda: [
+                {'type': 'function', 'name': 'identify_user'}
+            ],
+        ),
+    )
+    s.user_handler = SimpleNamespace(auto_identify_default_user=AsyncMock())
+    s.persona_handler = SimpleNamespace(reload_persona_from_profile=AsyncMock())
+    s.state.reset_for_new_session = Mock()
+    s.kickoff_text = None
+    s.kickoff_kind = None
+    s._set_idle_state = Mock()
+    s.error_handler = SimpleNamespace(play_error_sound=AsyncMock())
+    old, new = s.ws, Socket()
+    s.realtime_ai_provider.connect = AsyncMock(side_effect=[old, new])
+
+    def closes_with_usage(ws, seconds):
+        original = ws.send
+
+        async def send(raw):
+            await original(raw)
+            if json.loads(raw)['type'] == 'session.close':
+                await ws.inbox.put({
+                    'type': 'session.closed',
+                    'usage': {'seconds': seconds},
+                })
+
+        ws.send = send
+
+    closes_with_usage(old, 6)
+    closes_with_usage(new, 9)
+
+    async def identify(name, arguments, call_id):
+        # What user_handler does for a returning user with their own persona.
+        instructions['value'] = 'Be Billy Bourguignon for Thom'
+        current_voice['value'] = next(voices)
+        await s._ws_send_json({
+            'type': 'session.update',
+            'session': {
+                'type': 'realtime',
+                'instructions': instructions['value'],
+                'audio': {'output': {'voice': 'sillage'}},
+            },
+        })
+        await s._ws_send_json({
+            'type': 'conversation.item.create',
+            'item': {
+                'type': 'function_call_output',
+                'call_id': call_id,
+                'output': '{"status":"success","user":"Thom"}',
+            },
+        })
+        await s._ws_send_json({
+            'type': 'conversation.item.create',
+            'item': {
+                'type': 'message',
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'input_text',
+                        'text': '[SYSTEM: Speak your greeting now to acknowledge the returning user]',
+                    }
+                ],
+            },
+        })
+        await s._ws_send_json({'type': 'response.create'})
+
+    s.function_handler.handle = AsyncMock(side_effect=identify)
+
+    async def run():
+        async def stop(**_):
+            s.session_active.clear()
+            await e.close()
+
+        s.stop_session = AsyncMock(side_effect=stop)
+        running = asyncio.create_task(e.start())
+        async with asyncio.timeout(2):
+            while e.receiver is None:
+                await asyncio.sleep(0.01)
+        assert s.realtime_ai_provider.connect.call_args.kwargs['voice'] == 'ballad'
+        await old.inbox.put({
+            'type': 'session.input_transcript.delta',
+            'delta': "It's me, Thom",
+        })
+        await old.inbox.put({
+            'type': 'session.output_transcript.delta',
+            'delta': 'One sec.',
+        })
+        await old.inbox.put(backend('response.created', response={'id': 'r1'}))
+        await old.inbox.put(
+            backend(
+                'response.output_item.done',
+                item={
+                    'type': 'function_call',
+                    'name': 'identify_user',
+                    'arguments': '{"name": "Thom", "confidence": "high"}',
+                    'call_id': 'c1',
+                },
+            )
+        )
+        async with asyncio.timeout(2):
+            while s.ws is not new:
+                await asyncio.sleep(0.01)
+            while not old.closed:
+                await asyncio.sleep(0.01)
+            while [m['type'] for m in new.sent][-1:] != ['response.create']:
+                await asyncio.sleep(0.01)
+
+        second = s.realtime_ai_provider.connect.call_args
+        assert second.kwargs['voice'] == 'sillage'
+        assert second.args[0].startswith('Be Billy Bourguignon for Thom')
+        assert "User: It's me, Thom" in second.args[0]
+        assert 'Billy: One sec.' in second.args[0]
+        # The old connection is closed, never answered: its delegation is gone.
+        assert [m['type'] for m in old.sent] == ['session.close']
+        assert [m['type'] for m in new.sent] == [
+            'response.item.create',
+            'response.create',
+        ]
+        assert 'greeting' in new.sent[0]['item']['content'][0]['text']
+        assert e.voice == 'sillage' and not e.responses
+        assert not running.done(), 'the conversation continues on the new connection'
+
+        # Late audio from a replaced connection is never played, and its end
+        # does not end the session.
+        queued = live.audio.playback_queue.qsize()
+        late = Socket()
+        await late.inbox.put({
+            'type': 'session.output_audio.delta',
+            'delta': base64.b64encode(b'\x40\x00' * 240).decode(),
+        })
+        await late.inbox.put({'type': 'session.closed', 'usage': {}})
+        await e.receive(late)
+        assert live.audio.playback_queue.qsize() == queued
+        assert not e.closed.is_set()
+        await stop()
+        await asyncio.wait_for(running, 2)
+        assert live.audio.playback_queue.qsize() == queued
+        assert new.closed and s.ws is None
+        s.error_handler.play_error_sound.assert_not_awaited()
+        assert s.function_handler.handle.await_count == 1
+
+    asyncio.run(run())
+
+
+def test_a_tool_keeping_the_voice_answers_on_the_same_connection(live):
+    async def run():
+        e, s = live.engine, live.session
+        e.voice = 'sillage'
+        e.tools = [{'name': 'identify_user'}]
+        s.realtime_ai_provider.connect = AsyncMock()
+
+        async def identify(name, arguments, call_id):
+            await s._ws_send_json({
+                'type': 'conversation.item.create',
+                'item': {
+                    'type': 'function_call_output',
+                    'call_id': call_id,
+                    'output': '{}',
+                },
+            })
+            await s._ws_send_json({
+                'type': 'session.update',
+                'session': {
+                    'instructions': 'x',
+                    'audio': {'output': {'voice': 'sillage'}},
+                },
+            })
+
+        s.function_handler.handle = AsyncMock(side_effect=identify)
+        await e.handle(backend('response.created', response={'id': 'r1'}))
+        await e.handle(
+            backend(
+                'response.output_item.done',
+                item={
+                    'type': 'function_call',
+                    'name': 'identify_user',
+                    'arguments': '{}',
+                    'call_id': 'c1',
+                },
+            )
+        )
+        await e.handle(backend('response.completed', response={'id': 'r1'}))
+        await asyncio.gather(*e.tasks)
+        s.realtime_ai_provider.connect.assert_not_awaited()
+        assert s.ws.sent[0] == {
+            'type': 'response.item.create',
+            'item': {'type': 'function_call_output', 'call_id': 'c1', 'output': '{}'},
+        }
+
+    asyncio.run(run())
+
+
+def test_voice_prompt_asks_for_one_greeting_after_identification(live):
+    voice, _ = live.provider.split_instructions(
+        'Be Billy', [{'name': 'identify_user', 'description': 'Identify the user'}]
+    )
+    assert 'One greeting, not two.' in voice
+    voice, _ = live.provider.split_instructions('Be Billy', [{'name': 'get_mood'}])
+    assert 'One greeting' not in voice

@@ -30,6 +30,34 @@ bp = Blueprint("websocket", __name__)
 sock = Sock()
 
 
+_current_user_cache = {'stamp': None, 'value': None}
+
+
+def saved_current_user():
+    """CURRENT_USER as Billy last saved it; read again only when .env changes.
+
+    Billy's core writes it when someone introduces themselves. The web worker's
+    own environment and profile manager do not follow that, so read the file.
+    """
+    from dotenv import dotenv_values
+
+    from billy_runtime.paths import INSTALL_ROOT
+
+    path = INSTALL_ROOT / '.env'
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    stamp = (info.st_mtime_ns, info.st_size)
+    if stamp != _current_user_cache['stamp']:
+        try:
+            value = (dotenv_values(path).get('CURRENT_USER') or '').strip()
+        except Exception:
+            return _current_user_cache['value']
+        _current_user_cache.update(stamp=stamp, value=value.lower() or 'guest')
+    return _current_user_cache['value']
+
+
 def get_service_status():
     """Get full billy.service status with persona/personality data."""
     try:
@@ -49,6 +77,7 @@ def get_service_status():
             return {
                 "status": status,
                 "billy_state": read_activity(),
+                "current_user": saved_current_user(),
                 "current_persona": persona_manager.current_persona,
                 "current_personality": PERSONALITY.to_dict()
                 if hasattr(PERSONALITY, 'to_dict')

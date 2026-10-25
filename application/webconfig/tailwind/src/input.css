@@ -1254,10 +1254,11 @@ button {
 
 
 .system-components-card { padding: 1rem; border: 1px solid #ffffff18; border-radius: .75rem; background: #08232d24; }
-.system-components-heading { display: flex; align-items: flex-start; gap: .75rem; }
+.system-components-overview { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem 1rem; }
+.system-components-heading { display: flex; align-items: flex-start; gap: .75rem; flex: 1 1 20rem; min-width: 0; }
 .system-components-heading > .material-icons { color: #fff; font-size: 1.25rem; margin-top: .125rem; }
 .system-components-heading-content { flex: 1; min-width: 0; }
-.system-components-title-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .5rem .75rem; }
+.system-components-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .75rem; }
 #system-packages-badge { white-space: nowrap; }
 .system-components-detail-panel { margin-top: .875rem; font-size: .75rem; color: #a4bac7; }
 .system-components-detail-panel summary { cursor: pointer; }
@@ -1267,8 +1268,56 @@ button {
 .system-components-heading p, .system-components-details { font-size: .75rem; color: #a4bac7; margin-top: .25rem; overflow-wrap: anywhere; }
 .system-components-status { font-size: .8125rem; color: #cbd5e1; margin-top: .875rem; }
 .system-components-status:empty, .system-components-details:empty { display: none; }
-.system-components-repair { margin-top: 1rem; }
-@media (max-width: 600px) { .system-components-repair { width: 100%; } }
+.system-component-list { list-style: none; margin-top: .625rem; padding: 0; }
+.system-component-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .75rem; padding: .5rem 0; }
+.system-component-row + .system-component-row { border-top: 1px solid #ffffff12; }
+.system-component-name { min-width: 0; color: #e2e8f0; overflow-wrap: anywhere; }
+.system-component-state { display: inline-flex; align-items: center; justify-content: flex-end; gap: .375rem; color: #a4bac7; white-space: nowrap; }
+.system-component-state > .material-icons { font-size: 1rem; flex-shrink: 0; }
+.system-component-state[data-state="installed"] { color: #6ee7b7; }
+.system-component-state:is([data-state="missing"], [data-state="damaged"], [data-state="outdated"], [data-state="configuration_needed"]) { color: #fcd34d; }
+.system-components-repair { margin-left: auto; flex-shrink: 0; max-width: 100%; }
+
+/* Wi-Fi setup: one step at a time, full-width bottom sheet on a phone. */
+.wifi-stepper { display: flex; gap: .5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.wifi-stepper li { display: flex; flex: 1; align-items: center; gap: .5rem; min-width: 0; padding-bottom: .5rem; border-bottom: 2px solid #3f3f46; color: #a1a1aa; font-size: .8125rem; }
+.wifi-stepper li[aria-current="step"] { border-color: #34d399; color: #fff; }
+.wifi-stepper li[data-done="true"] { border-color: #059669; color: #d4d4d8; }
+.wifi-stepper-number { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 1.375rem; height: 1.375rem; border-radius: 9999px; background: #3f3f46; color: #fff; font-size: .75rem; }
+.wifi-stepper li[aria-current="step"] .wifi-stepper-number, .wifi-stepper li[data-done="true"] .wifi-stepper-number { background: #059669; color: #000; }
+.wifi-step { display: flex; flex-direction: column; gap: 1rem; }
+.wifi-step[hidden] { display: none; }
+.wifi-step-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+.wifi-network-list { display: flex; flex-direction: column; gap: .5rem; max-height: 18rem; overflow-y: auto; padding: .5rem; border: 1px solid #3f3f46; border-radius: .5rem; background: #18181b66; }
+.wifi-network-list .wifi-network-item { min-height: 3rem; }
+.wifi-manual-ssid { display: flex; flex-direction: column; gap: .25rem; }
+.wifi-manual-ssid[hidden] { display: none; }
+.wifi-step-actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: .25rem; }
+.wifi-summary { display: grid; gap: .5rem; margin: 0; padding: .75rem 1rem; border: 1px solid #3f3f46; border-radius: .5rem; background: #18181b66; font-size: .875rem; }
+.wifi-summary > div { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: .75rem; }
+.wifi-summary dt { color: #a1a1aa; }
+.wifi-summary dd { margin: 0; color: #fff; }
+.wifi-device-details { display: grid; gap: .125rem; color: #a1a1aa; font-size: .75rem; }
+@media (max-width: 640px) {
+    /* A full-screen page on a phone: no half-visible page behind it, and
+       nothing jumps when the keyboard opens. */
+    #wifi-setup-modal { align-items: stretch; background: #27272a; backdrop-filter: none; }
+    .wifi-setup-panel { display: flex; flex-direction: column; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; border-radius: 0; padding: calc(1rem + env(safe-area-inset-top)) 1rem 0; }
+    .wifi-setup-panel > * { flex-shrink: 0; }
+    /* The open step fills the screen so its buttons sit at the bottom, in
+       thumb reach, instead of floating under short content. */
+    .wifi-setup-panel > .wifi-step { flex: 1 0 auto; }
+    .wifi-step > .wifi-step-actions { margin-top: auto; }
+    .wifi-setup-header { margin-bottom: .75rem; }
+    .wifi-stepper { margin-bottom: .75rem; }
+    .wifi-stepper li { gap: .375rem; font-size: .75rem; }
+    .wifi-network-list { max-height: none; }
+    .wifi-step { padding-bottom: 1rem; }
+    .wifi-step:has(> .wifi-step-actions) { padding-bottom: 0; }
+    .wifi-step-actions { position: sticky; bottom: 0; z-index: 1; margin: 0 -1rem; padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom)); border-top: 1px solid #3f3f46; background: #27272a; }
+    .wifi-manual-ssid .wifi-step-actions { position: static; margin: .5rem 0 0; padding: 0; border: 0; }
+    .wifi-step-actions > * { flex: 1; }
+}
 
 
 #mic-check-btn { white-space: nowrap; }

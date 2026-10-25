@@ -102,6 +102,28 @@ class LiveTranscript:
             return start_ms - previous['end_ms'] > 2500
         return now - previous.get('updated', 0) > 2.5
 
+    def recent(self, max_chars=2000):
+        """The latest part of the conversation, without consuming it."""
+        with self.lock:
+            segments = [
+                (segment['speaker'], ''.join(segment['parts']).strip())
+                for segment in self._segments
+            ]
+        labels = {'user': 'User', 'billy': 'Billy'}
+        lines = [f'{labels[speaker]}: {text}' for speaker, text in segments if text]
+        text = '\n'.join(lines)
+        if len(text) <= max_chars:
+            return text
+        # Keep whole lines from the end.
+        kept = []
+        size = 0
+        for line in reversed(lines):
+            size += len(line) + 1
+            if size > max_chars:
+                break
+            kept.append(line)
+        return '\n'.join(reversed(kept))
+
     def finish(self):
         """Consume the full transcript exactly once, even on concurrent closes."""
         with self.lock:

@@ -198,9 +198,7 @@ def test_initial_page_and_config_agree_even_before_provider_restart(
     assert initial['VOICE_OPTIONS'] == fetched['VOICE_OPTIONS'] == expected
     for voice in expected:
         assert f'<option value="{voice}">' in html
-    assert ('GPT-Live clip generation is experimental.' in html) == (
-        provider == 'gpt-live'
-    )
+    assert 'GPT-Live clip generation is experimental.' not in html
     if provider == 'gpt-live':
         assert set(expected) == EXPECTED_LIVE
     else:

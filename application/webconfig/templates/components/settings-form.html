@@ -30,7 +30,7 @@
 
         <!-- Internet Settings -->
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-internet" data-settings-panel aria-labelledby="title-section-internet" hidden>
+             id="section-internet" data-settings-panel aria-labelledby="title-section-internet" {% if settings_category|default('voice', true) != 'network' %}hidden{% endif %}>
             <h3 id="title-section-internet" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">wifi</span>
                 <span>Network</span>
@@ -144,10 +144,10 @@
 
         </div>
 
-        <!-- Software Settings -->
+        <!-- Voice and AI Settings -->
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-software" data-settings-panel aria-labelledby="title-section-software">
-            <h3 id="title-section-software" class="settings-panel-title" tabindex="-1">
+             id="section-voice" data-settings-panel aria-labelledby="title-section-voice" {% if settings_category|default('voice', true) != 'voice' %}hidden{% endif %}>
+            <h3 id="title-section-voice" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">settings</span>
                 <span>Voice &amp; AI</span>
             </h3>
@@ -606,7 +606,7 @@
 
         <!-- Wake-word Settings -->
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-wakeword" data-settings-panel aria-labelledby="title-section-wakeword" hidden>
+             id="section-wakeword" data-settings-panel aria-labelledby="title-section-wakeword" {% if settings_category|default('voice', true) != 'wakeword' %}hidden{% endif %}>
             <h3 id="title-section-wakeword" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">hearing</span>
                 <span>Wake word</span>
@@ -771,7 +771,7 @@
 
         <!-- Hardware Settings -->
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-hardware" data-settings-panel aria-labelledby="title-section-hardware" hidden>
+             id="section-hardware" data-settings-panel aria-labelledby="title-section-hardware" {% if settings_category|default('voice', true) != 'hardware' %}hidden{% endif %}>
             <h3 id="title-section-hardware" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">build</span>
                 <span>Hardware</span>
@@ -1039,7 +1039,7 @@
 
         <!-- Audio -->
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-audio" data-settings-panel aria-labelledby="title-section-audio" hidden>
+             id="section-audio" data-settings-panel aria-labelledby="title-section-audio" {% if settings_category|default('voice', true) != 'audio' %}hidden{% endif %}>
             <h3 id="title-section-audio" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">volume_up</span>
                 <span>Audio</span>
@@ -1250,7 +1250,7 @@
 
         <!-- MQTT Settings -->
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-mqtt" data-settings-panel aria-labelledby="title-section-mqtt" hidden>
+             id="section-mqtt" data-settings-panel aria-labelledby="title-section-mqtt" {% if settings_category|default('voice', true) != 'mqtt' %}hidden{% endif %}>
             <h3 id="title-section-mqtt" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">cloud_queue</span>
                 <span>MQTT</span>
@@ -1318,7 +1318,7 @@
 
         <!-- Home Assistant -->
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-ha" data-settings-panel aria-labelledby="title-section-ha" hidden>
+             id="section-ha" data-settings-panel aria-labelledby="title-section-ha" {% if settings_category|default('voice', true) != 'home-assistant' %}hidden{% endif %}>
             <h3 id="title-section-ha" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">home</span>
                 <span>Home Assistant</span>
@@ -1407,7 +1407,7 @@
         </div>
 
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-advanced-settings" data-settings-panel aria-labelledby="title-section-advanced-settings" hidden>
+             id="section-advanced-settings" data-settings-panel aria-labelledby="title-section-advanced-settings" {% if settings_category|default('voice', true) != 'advanced' %}hidden{% endif %}>
             <h3 id="title-section-advanced-settings" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">tune</span>
                 <span>Advanced</span>
@@ -1495,8 +1495,8 @@
         </div>
 
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-software-version" data-settings-panel aria-labelledby="title-section-software-version" hidden>
-            <h3 id="title-section-software-version" class="settings-panel-title" tabindex="-1">
+             id="section-software" data-settings-panel aria-labelledby="title-section-software" {% if settings_category|default('voice', true) != 'software' %}hidden{% endif %}>
+            <h3 id="title-section-software" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">system_update_alt</span>
                 <span>Software</span>
                 {{ status_badge('software-update', 'Update available', 'update', release=true) }}
@@ -1608,24 +1608,27 @@
                 </div>
 
                 <div id="system-components-card" class="system-components-card">
-                    <div class="system-components-heading">
-                        <span class="material-icons" aria-hidden="true">build_circle</span>
-                        <div class="system-components-heading-content">
-                            <div class="system-components-title-row">
-                                <h4>System components</h4>
-                                <span id="system-packages-badge" hidden class="rounded-full bg-amber-500/16 px-2 py-0.5 text-[11px] leading-none text-amber-300 border border-amber-400/30">Needs attention</span>
+                    <div class="system-components-overview">
+                        <div class="system-components-heading">
+                            <span class="material-icons" aria-hidden="true">build_circle</span>
+                            <div class="system-components-heading-content">
+                                <div class="system-components-title-row">
+                                    <h4>System components</h4>
+                                    <span id="system-packages-badge" hidden class="rounded-full bg-amber-500/16 px-2 py-0.5 text-[11px] leading-none text-amber-300 border border-amber-400/30">Needs attention</span>
+                                </div>
+                                <p id="system-packages-summary" role="status" aria-live="polite">Checking system components…</p>
                             </div>
-                            <p id="system-packages-summary" role="status" aria-live="polite">Checking system components…</p>
                         </div>
+                        <button id="repair-packages-btn" type="button" hidden disabled class="primary-action bg-amber-600 text-black system-components-repair">
+                            <span id="system-packages-action-icon" class="material-icons" aria-hidden="true">download</span>
+                            <span id="system-packages-action-label">Install components</span>
+                        </button>
                     </div>
                     <p id="system-packages-status" role="status" aria-live="polite" class="system-components-status"></p>
-                    <button id="repair-packages-btn" type="button" hidden disabled class="primary-action bg-amber-600 text-black system-components-repair">
-                        <span id="system-packages-action-icon" class="material-icons" aria-hidden="true">download</span>
-                        <span id="system-packages-action-label">Install components</span>
-                    </button>
-                    <details id="system-packages-detail-panel" class="system-components-detail-panel" hidden>
+                    <details id="system-packages-detail-panel" class="system-components-detail-panel">
                         <summary>View component details</summary>
-                        <p id="system-packages-details" class="system-components-details"></p>
+                        <p id="system-packages-details-status" class="system-components-details" role="status" aria-live="polite">Checking system components…</p>
+                        <ul id="system-packages-details" class="system-components-details system-component-list" aria-label="System components"></ul>
                     </details>
                     <p id="system-packages-operation" role="status" aria-live="polite" class="system-components-status"></p>
                 </div>

@@ -25,6 +25,21 @@
         return !!info.update_available && current && latest && current !== latest;
     };
 
+    let componentAction = '';
+    const refreshSettingsBadge = () => {
+        const badge = document.getElementById('settings-software-badge');
+        if (!badge) return;
+        const reasons = [
+            hasEffectiveUpdate(window.BillyVersionInfo) ? 'Software update available' : '',
+            componentAction ? `System components: ${componentAction}` : '',
+        ].filter(Boolean);
+        const visible = reasons.length > 0;
+        badge.classList.toggle('hidden', !visible);
+        badge.classList.toggle('inline-flex', visible);
+        badge.title = reasons.join('. ');
+        badge.setAttribute('aria-label', badge.title);
+    };
+
 
     const setButtonLoading = (button, loading) => {
         if (!button) return;
@@ -63,6 +78,7 @@
             badge.classList.toggle("inline-flex", updateAvailable);
             if (!updateAvailable) window.InlineDisclosure?.close(badge);
         });
+        refreshSettingsBadge();
         const updateInfo = document.getElementById('software-update-info-text');
         if (updateInfo) updateInfo.textContent = `${info.latest || 'A new software version'} is available for Billy. Review the release notes before updating.`;
     };
@@ -84,6 +100,60 @@
     const setText = (id, value) => {
         const element = document.getElementById(id);
         if (element) element.textContent = value;
+    };
+    const renderComponentDetails = (packages) => {
+        const list = document.getElementById('system-packages-details');
+        if (!list) return;
+        const complete = Array.isArray(packages.components);
+        const fallback = new Map();
+        for (const [key, state] of [['updates', 'outdated'], ['missing', 'missing'], ['damaged', 'damaged']]) {
+            for (const name of packages[key] || []) fallback.set(name, {name, state});
+        }
+        const components = complete ? packages.components : [...fallback.values()];
+        const states = {
+            installed: ['check_circle', 'Installed'],
+            missing: ['download', 'Not installed'],
+            damaged: ['build', 'Repair needed'],
+            outdated: ['system_update_alt', 'Update available'],
+            configuration_needed: ['build', 'Setup needed'],
+            unknown: ['help_outline', 'Unknown'],
+        };
+        const rows = [];
+        for (const component of components) {
+            if (!component || typeof component.name !== 'string' || !component.name) continue;
+            const state = Object.hasOwn(states, component.state) ? component.state : 'unknown';
+            const row = document.createElement('li');
+            row.className = 'system-component-row';
+            const name = document.createElement('span');
+            name.className = 'system-component-name';
+            name.textContent = component.name;
+            const status = document.createElement('span');
+            status.className = 'system-component-state';
+            status.dataset.state = state;
+            const icon = document.createElement('span');
+            icon.className = 'material-icons';
+            icon.setAttribute('aria-hidden', 'true');
+            icon.textContent = states[state][0];
+            const label = document.createElement('span');
+            label.textContent = states[state][1];
+            status.append(icon, label);
+            row.append(name, status);
+            rows.push(row);
+        }
+        list.replaceChildren(...rows);
+        const message = document.getElementById('system-packages-details-status');
+        if (message) {
+            message.textContent = packages.state === 'checking'
+                ? (packages.message || 'Checking system components…')
+                : packages.state === 'unavailable'
+                ? (packages.message || 'Component details are unavailable.')
+                : !complete
+                ? 'The full component list is unavailable. Refresh after updating Billy.'
+                : !rows.length ? 'No system components are listed.' : '';
+            message.hidden = !message.textContent;
+        }
+        const panel = document.getElementById('system-packages-detail-panel');
+        if (panel) panel.hidden = false;
     };
     const setSoftwareProgress = message => {
         setText('software-operation-status', message);
@@ -170,15 +240,10 @@
             }
             setText('system-packages-action-label', action.label);
             setText('system-packages-action-icon', action.icon);
-            const details = [...new Set([...(packages.missing || []), ...(packages.damaged || []), ...(packages.updates || [])])].join(', ');
-            const packageDetails = document.getElementById('system-packages-details');
-            if (packageDetails) packageDetails.textContent = details;
-            const detailPanel = document.getElementById('system-packages-detail-panel');
-            if (detailPanel) {
-                detailPanel.hidden = !needsAttention || !details;
-                if (detailPanel.hidden) detailPanel.open = false;
-            }
+            renderComponentDetails(packages);
             const repair = document.getElementById('repair-packages-btn');
+            componentAction = packages.repairable ? action.label : '';
+            refreshSettingsBadge();
             if (repair) {
                 repair.hidden = !packages.repairable;
                 repair.disabled = softwareBusy || !packages.repairable;

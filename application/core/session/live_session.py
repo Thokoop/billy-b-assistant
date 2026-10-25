@@ -104,6 +104,8 @@ class LiveSession:
         self.started_at = time.monotonic()
         self.audible_intervals = deque()
         self.finishing_tool = None
+        # Connections replaced by a voice handover, still draining their usage.
+        self.retiring = set()
 
     async def send(self, event):
         if self.closing or not self.session.session_active.is_set():
@@ -192,11 +194,18 @@ class LiveSession:
                     },
                 })
                 await self.send({'type': 'response.create'})
-            done, _ = await asyncio.wait(
-                (self.receiver, self.monitor), return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in done:
-                task.result()
+            while True:
+                receiver = self.receiver
+                done, _ = await asyncio.wait(
+                    (receiver, self.monitor), return_when=asyncio.FIRST_COMPLETED
+                )
+                if self.monitor not in done and receiver is not self.receiver:
+                    # A voice handover replaced this connection; the session
+                    # continues on the new one.
+                    continue
+                for task in done:
+                    task.result()
+                break
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -216,6 +225,7 @@ class LiveSession:
                     self.monitor,
                     self.caption_task,
                     *tuple(self.tasks),
+                    *tuple(self.retiring),
                 ):
                     if (
                         task is not None
@@ -231,6 +241,7 @@ class LiveSession:
                             self.monitor,
                             self.caption_task,
                             *tuple(self.tasks),
+                            *tuple(self.retiring),
                         )
                         if t is not None
                         and t is not asyncio.current_task()
@@ -248,20 +259,30 @@ class LiveSession:
                 if not mode.active():
                     s._set_idle_state()
 
-    async def receive(self):
-        ws = self.session.ws
+    async def receive(self, ws=None):
+        ws = ws or self.session.ws
         try:
             async for raw in ws:
                 event = json.loads(raw)
+                current = ws is self.session.ws
                 if event.get('type') == 'session.closed':
                     logger.info(f"GPT-Live final usage: {event.get('usage')}")
-                    self.closed.set()
+                    if current:
+                        self.closed.set()
                     return
-                await self.handle(event)
+                if current:
+                    await self.handle(event)
+                elif event.get('type') in (
+                    'session.input_transcript.delta',
+                    'session.output_transcript.delta',
+                ):
+                    # A replaced connection may still finish a sentence. Its
+                    # audio is not played; its words stay in the transcript.
+                    self._record_transcript(event)
         except ConnectionClosed:
-            if not self.closing:
+            if not self.closing and ws is self.session.ws:
                 raise
-        if not self.closed.is_set() and not self.closing:
+        if not self.closed.is_set() and not self.closing and ws is self.session.ws:
             raise RuntimeError('GPT-Live connection closed before finalization')
 
     def _record_transcript(self, event):
@@ -496,6 +517,24 @@ class LiveSession:
             _tool_messages.reset(token)
         if self.closing or not self.session.session_active.is_set():
             return
+        voice = self._requested_voice(messages)
+        if voice:
+            try:
+                await self.handover(
+                    voice,
+                    [
+                        message
+                        for message in messages
+                        if message.get('type') in ('conversation.item.create',)
+                        and message.get('item', {}).get('type') == 'message'
+                    ],
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error(f'GPT-Live voice handover failed: {exc}')
+                await self.session.stop_session(reason='live_handover_failed')
+            return
         try:
             results = [
                 m['item']
@@ -529,6 +568,92 @@ class LiveSession:
         except Exception as exc:
             logger.error(f'GPT-Live tool result failed: {exc}')
             await self.session.stop_session(reason='live_tool_result_failed')
+
+    def _requested_voice(self, messages):
+        """The voice a tool just selected, when it differs from this connection's."""
+        if TEXT_ONLY_MODE:
+            return None
+        voice = None
+        for message in messages:
+            if message.get('type') == 'session.update':
+                requested = (
+                    message.get('session', {})
+                    .get('audio', {})
+                    .get('output', {})
+                    .get('voice')
+                )
+                voice = requested or voice
+        return voice if voice and voice != self.voice else None
+
+    async def handover(self, voice, followups):
+        """Continue on a new Live connection with another voice.
+
+        Live fixes the voice at session.start, so a user or persona switch that
+        changes it needs a new connection. The new one gets the current persona
+        and user context plus the conversation so far, then answers the tool's
+        follow-up (the greeting) in the new voice.
+        """
+        from ..session_manager import (
+            get_instructions_with_user_context,
+            get_tools_for_current_mode,
+        )
+
+        s = self.session
+        old_ws, old_receiver = s.ws, self.receiver
+        # The old voice may keep filling the silence while we connect.
+        self.drop_output = True
+        tools = live_tools(get_tools_for_current_mode())
+        instructions = get_instructions_with_user_context('gpt-live')
+        history = self.transcript.recent(2000)
+        if history:
+            # Framed as finished business: as an open transcript the new voice
+            # answered the introduction itself and identified the user again.
+            instructions += (
+                '\n---\n# Earlier in this conversation (already handled)\n'
+                'This conversation continues from a moment ago; only your voice '
+                'changed. Do not mention the switch. Everything below has already '
+                'been answered, including identifying the user: do not reply to '
+                'it and do not identify anyone again. Say nothing until the '
+                'backend gives you the greeting, then speak it once.\n' + history
+            )
+        logger.info(f'GPT-Live switching voice: {self.voice} -> {voice}')
+        new_ws = await s.realtime_ai_provider.connect(instructions, tools, voice=voice)
+        if self.closing or not s.session_active.is_set():
+            with suppress(Exception):
+                await new_ws.close()
+            return
+        self.tools = tools
+        self.voice = voice
+        # Delegations and pending tool results belonged to the old connection.
+        self.responses.clear()
+        s.ws = new_ws
+        self.receiver = asyncio.create_task(self.receive(new_ws))
+        retire = asyncio.create_task(self._retire(old_ws, old_receiver))
+        self.retiring.add(retire)
+        retire.add_done_callback(self.retiring.discard)
+        # The old connection's queued words stay audible; anything it sends
+        # from now on is ignored, so the new voice can start right away.
+        self.drop_output = False
+        for message in followups:
+            await self.application_event(message)
+        await self.send({'type': 'response.create'})
+        s.last_activity[0] = time.time()
+
+    async def _retire(self, ws, receiver, timeout=3.0):
+        """Close a replaced connection, logging its usage when it reports it."""
+        try:
+            with suppress(Exception):
+                await ws.send(json.dumps({'type': 'session.close'}))
+            if receiver is not None:
+                with suppress(Exception, asyncio.TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(receiver), timeout)
+        finally:
+            if receiver is not None and not receiver.done():
+                receiver.cancel()
+            with suppress(Exception):
+                await asyncio.wait_for(ws.close(), timeout=0.5)
+            if receiver is not None:
+                await asyncio.gather(receiver, return_exceptions=True)
 
     async def application_event(self, event):
         """Bridge existing business handlers, never Realtime audio/turn events."""

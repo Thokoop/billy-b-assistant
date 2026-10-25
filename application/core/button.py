@@ -20,7 +20,7 @@ from .status_led import (
     set_status_led_state,
     status_led,
 )
-from .wifi_setup import PROJECT_ROOT, SetupHoldGesture
+from .wifi_setup import PROJECT_ROOT, SetupHoldGesture, mark_setup_after_client
 
 
 try:
@@ -706,6 +706,8 @@ def _force_wifi_setup():
     _require_button_release()
     logger.info("Button held for 10 seconds. Opening Wi-Fi setup hotspot.", "📶")
     status_led.set_wifi_setup_starting(True)
+    # Saving a network from this hotspot needs a reboot; see wifi_setup.
+    mark_setup_after_client()
     try:
         subprocess.run(
             [

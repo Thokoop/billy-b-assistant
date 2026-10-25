@@ -259,6 +259,8 @@ def test_web_factory_and_server_initialize_before_profiles_routes_and_background
             setattr(route, attribute, Blueprint(name, __name__))
             if name == 'audio':
                 route.apply_configured_mic_gain = Mock()
+            if name == 'system':
+                route.repair_hosts_file = Mock()
             monkeypatch.setitem(sys.modules, route.__name__, route)
         monkeypatch.setitem(sys.modules, f'{prefix}.websocket', ModuleType('websocket'))
         monkeypatch.setitem(
@@ -290,14 +292,25 @@ def test_web_factory_and_server_initialize_before_profiles_routes_and_background
         if factory_first:
             app = web.create_app()
             assert len(app.blueprints) == 8
-            assert events == ['background', 'background', 'bluetooth-setup']
+            assert events == [
+                'background',
+                'background',
+                'background',
+                'bluetooth-setup',
+            ]
             events.clear()
         monkeypatch.setitem(sys.modules, 'webconfig.app', web)
         server = load_module(
             '_provider_test_server', ROOT / 'application/webconfig/startup.py'
         )
         app = server.normal_app()
-        assert events == ['profile', 'background', 'background', 'bluetooth-setup']
+        assert events == [
+            'profile',
+            'background',
+            'background',
+            'background',
+            'bluetooth-setup',
+        ]
         assert all(value is instance[0] for value in instance)
         assert app.test_client().get('/__runtime_health').status_code == 200
     finally:

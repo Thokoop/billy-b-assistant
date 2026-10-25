@@ -98,6 +98,13 @@ def create_app() -> Flask:
         name="webconfig-mic-gain",
         daemon=True,
     ).start()
+    from .routes.system import repair_hosts_file
+
+    threading.Thread(
+        target=repair_hosts_file,
+        name="webconfig-hosts-repair",
+        daemon=True,
+    ).start()
 
     from core.bluetooth.provisioning import start_setup
 

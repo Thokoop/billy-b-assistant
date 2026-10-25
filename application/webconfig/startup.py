@@ -23,7 +23,7 @@ def normal_app():
     @app.get('/repair/')
     @app.get('/repair/recovery')
     def repair_settings():
-        return redirect('/settings#section-software-version')
+        return redirect('/settings/software')
 
     @app.get('/__runtime_health')
     def runtime_health():

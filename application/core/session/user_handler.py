@@ -21,6 +21,9 @@ class UserHandler:
         self._waiting_for_name_after_denial = False
         self._pending_new_user_name = None
         self._pending_identity_choices = frozenset()
+        # The user already welcomed in this conversation. A model asked again
+        # about an introduction it already handled must not greet twice.
+        self._greeted_user = None
 
     async def handle_identify_user(self, args: dict, call_id: str | None = None):
         """Handle user identification via tool calling."""
@@ -104,6 +107,15 @@ class UserHandler:
             await self._handle_user_denial(current_user.name, call_id)
             return
 
+        if (
+            self._greeted_user
+            and name.casefold() == self._greeted_user
+            and current_user
+            and current_user.name.casefold() == self._greeted_user
+        ):
+            await self._confirm_already_identified(current_user, call_id)
+            return
+
         profile = user_manager.identify_user(name, confidence)
         if profile:
             self._waiting_for_name_after_denial = False
@@ -115,6 +127,7 @@ class UserHandler:
                 # Mark that we're triggering a new response BEFORE sending greeting
                 self.session.state._triggered_new_response = True
                 await self.send_user_greeting(profile, call_id)
+                self._greeted_user = profile.name.casefold()
             else:
                 logger.info(
                     f"Profile loaded for {profile.name} (auto-load, no greeting)", "👤"
@@ -176,6 +189,7 @@ class UserHandler:
 
     async def auto_identify_default_user(self):
         """Automatically identify the current user if set."""
+        self._greeted_user = None  # A new conversation greets again.
         try:
             from dotenv import load_dotenv
 
@@ -269,6 +283,29 @@ class UserHandler:
             logger.info(f"Greeting sent for {profile.name}", "👤")
         except Exception as e:
             logger.warning(f"Failed to send greeting: {e}", "⚠️")
+
+    async def _confirm_already_identified(self, profile, call_id=None):
+        """Answer a repeated identification without a second greeting."""
+        logger.info(f"{profile.name} is already identified; not greeting again", "👤")
+        if call_id:
+            await self.session._ws_send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps({
+                        "status": "success",
+                        "user": profile.name,
+                        "message": (
+                            f"{profile.name} was already identified and welcomed in "
+                            "this conversation. Do not greet or welcome them again; "
+                            "continue the conversation."
+                        ),
+                    }),
+                },
+            })
+        self.session.state._triggered_new_response = True
+        await self.session._ws_send_json({"type": "response.create"})
 
     async def save_current_user_to_env(self, user_name: str):
         """Save current user to .env file."""
