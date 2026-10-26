@@ -65,6 +65,11 @@ def create_recovery_app(store):
         ):
             return 'Open Billy recovery directly in your browser.', 403
         origin = request.headers.get('Origin')
+        if origin == 'null' and request.headers.get('Sec-Fetch-Site') == 'same-origin':
+            # A browser that withholds the origin still says where the request
+            # came from; older browsers without Sec-Fetch-Site never send
+            # "null" for this page's own forms (see Referrer-Policy below).
+            return None
         if origin:
             try:
                 source = urlsplit(origin)
@@ -100,7 +105,9 @@ def create_recovery_app(store):
     def private(response):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Referrer-Policy'] = 'no-referrer'
+        # Not no-referrer: with that policy browsers send "Origin: null" on
+        # this page's own form posts, which the check above has to refuse.
+        response.headers['Referrer-Policy'] = 'same-origin'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
 

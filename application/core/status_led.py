@@ -25,17 +25,6 @@ except ImportError:
     ws = None
     _ws281x_available = False
 
-try:
-    import board
-    import neopixel_spi
-
-    _spi_neopixel_available = True
-except ImportError:
-    board = None
-    neopixel_spi = None
-    _spi_neopixel_available = False
-
-
 ColorTuple = tuple[int, int, int]
 
 
@@ -353,11 +342,18 @@ class StatusLed:
         self._strip.begin()
 
     def _initialize_spi(self):
-        if not _spi_neopixel_available:
+        # Imported here, inside initialize()'s error handling: Blinka raises
+        # RuntimeError, not ImportError, when a platform library it wants is
+        # missing (gpiod on a Pi 5), and at import time that stopped Billy
+        # from starting at all instead of only leaving the LED off.
+        try:
+            import board
+            import neopixel_spi
+        except ImportError as exc:
             raise RuntimeError(
                 "SPI NeoPixel support is not installed "
                 "(requires adafruit-blinka and adafruit-circuitpython-neopixel-spi)"
-            )
+            ) from exc
 
         spi = board.SPI()
         self._strip = neopixel_spi.NeoPixel_SPI(

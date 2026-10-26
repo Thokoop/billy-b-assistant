@@ -351,6 +351,8 @@ def test_recovery_actions_reject_missing_or_incorrect_csrf(store, token):
         {'Origin': 'null'},
         {'Origin': 'http://localhost:invalid'},
         {'Sec-Fetch-Site': 'cross-site'},
+        {'Origin': 'null', 'Sec-Fetch-Site': 'cross-site'},
+        {'Origin': 'null', 'Sec-Fetch-Site': 'same-site'},
     ],
 )
 def test_recovery_rejects_cross_site_mutations_even_with_csrf(store, headers):
@@ -366,6 +368,22 @@ def test_recovery_rejects_cross_site_mutations_even_with_csrf(store, headers):
         == 403
     )
     assert store.read_state() == before
+
+
+def test_recovery_buttons_work_when_the_browser_withholds_the_origin(store):
+    """A browser may post a page's own form with "Origin: null"; it still
+    marks the request as same-origin, so the buttons must keep working."""
+    client = create_recovery_app(store).test_client()
+    page = client.get('/repair/')
+    assert page.headers['Referrer-Policy'] == 'same-origin'
+    with client.session_transaction() as session:
+        csrf = session['csrf']
+    response = client.post(
+        '/repair/',
+        headers={'Origin': 'null', 'Sec-Fetch-Site': 'same-origin'},
+        data={'action': 'retry', 'csrf': csrf},
+    )
+    assert response.status_code != 403
 
 
 def test_recovery_allows_documentation_link_and_same_origin_save(store):

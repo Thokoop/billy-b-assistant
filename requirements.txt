@@ -1,3 +1,6 @@
+# Updates from Billy 2.6.0 and older install this file with --upgrade; the
+# constraints keep them on the versions in the release locks.
+-c dependencies/legacy-constraints.txt
 sounddevice
 websockets
 numpy

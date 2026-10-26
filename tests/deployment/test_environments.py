@@ -57,12 +57,50 @@ def test_production_locks_cover_legacy_requirements_and_installation_tools():
     expected = {
         re.sub(r'[-_.]+', '-', re.match(r'[\w.-]+', line)[0]).lower()
         for line in (ROOT / 'requirements.txt').read_text().splitlines()
-        if line.strip() and not line.startswith('#')
+        if line.strip() and not line.startswith(('#', '-c '))
     }
     for path in (ROOT / 'dependencies').glob('linux-*.lock'):
         names = {name for name, _ in envs.locked_entries(path.read_text())}
         assert expected | envs.BOOTSTRAP_PACKAGES <= names
         assert ('tflite-runtime' in names) == ('py311' in path.name)
+
+
+def test_legacy_updates_install_the_locked_versions():
+    """Billy 2.6.0 and older update with `pip install --upgrade -r
+    requirements.txt`, which upgraded every package to the newest on PyPI. An
+    unpinned Blinka needed gpiod on a Raspberry Pi 5 and stopped Billy from
+    starting. Those updates are constrained to the release locks."""
+    import re
+
+    from packaging.requirements import Requirement
+
+    requirements = (ROOT / 'requirements.txt').read_text().splitlines()
+    assert '-c dependencies/legacy-constraints.txt' in requirements
+    constraints = [
+        Requirement(line)
+        for line in (ROOT / 'dependencies' / 'legacy-constraints.txt')
+        .read_text()
+        .splitlines()
+        if line.strip() and not line.startswith('#')
+    ]
+    skipped = {'pip', 'setuptools', 'wheel', 'aec-audio-processing', 'openwakeword'}
+    for python in ('3.11', '3.13'):
+        path = ROOT / 'dependencies' / f'linux-aarch64-py{python.replace(".", "")}.lock'
+        locked = {}
+        for name, entry in envs.locked_entries(path.read_text()):
+            pinned = re.match(r'[^=@ ]+==([^\s;]+)', entry)
+            if pinned and name not in skipped:
+                locked[name] = pinned[1]
+        environment = {'python_version': python}
+        constrained = {
+            re.sub(r'[-_.]+', '-', c.name).lower(): str(c.specifier)
+            for c in constraints
+            if c.marker is None or c.marker.evaluate(environment)
+        }
+        assert constrained == {name: f'=={v}' for name, v in locked.items()}, path.name
+    # Python versions without a lock keep the earlier behaviour.
+    assert not [c for c in constraints if c.marker.evaluate({'python_version': '3.9'})]
+    assert 'adafruit-blinka' in {c.name for c in constraints}
 
 
 def test_only_known_upstream_tflite_metadata_exception_is_allowed():
@@ -95,9 +133,11 @@ def candidate(tmp_path, monkeypatch):
     monkeypatch.setattr(
         Path,
         'read_text',
-        lambda path, *a, **kw: 'ID=debian\n'
-        if str(path) == '/etc/os-release'
-        else original_read(path, *a, **kw),
+        lambda path, *a, **kw: (
+            'ID=debian\n'
+            if str(path) == '/etc/os-release'
+            else original_read(path, *a, **kw)
+        ),
     )
     calls = []
 
