@@ -509,11 +509,11 @@ label.bg-rose-600:active {
     font-family: 'Material Icons';
     font-style: normal;
     font-weight: 400;
-    src: url(../fonts/material-icons.woff2) format('woff2');
+    src: url(../../static/fonts/material-icons.woff2) format('woff2');
 }
 
 .material-icons {
-    font-family: 'Material Icons';
+    font-family: 'Material Icons', sans-serif;
     font-weight: normal;
     font-style: normal;
     font-size: 24px;
@@ -524,7 +524,7 @@ label.bg-rose-600:active {
     white-space: nowrap;
     word-wrap: normal;
     direction: ltr;
-    -webkit-font-feature-settings: 'liga';
+    font-feature-settings: 'liga';
     -webkit-font-smoothing: antialiased;
 }
 
@@ -640,11 +640,11 @@ button {
 
 
 @keyframes gradient-ocean {
-    0%   { background-position: 0% 50%; }
+    0%   { background-position: 0 50%; }
     25%  { background-position: 50% 75%; }
     50%  { background-position: 100% 50%; }
     75%  { background-position: 50% 25%; }
-    100% { background-position: 0% 50%; }
+    100% { background-position: 0 50%; }
 }
 
 [data-tooltip] {
@@ -746,6 +746,7 @@ button {
    scoping these to .wf-editor left that var undefined there (transparent
    badge) even though structurally everything else about it worked fine. */
 :root {
+    --settings-header-height: 5rem;
     --wf-cyan: #22d3ee;
     --wf-green: #4ade80;
     --wf-yellow: #facc15;
@@ -1563,7 +1564,7 @@ button {
 }
 
 /* Notices follow the header; unresolved startup details stay in Debug. */
-.header-notification { max-width: 72rem; margin-inline: auto; }
+.header-notification { width: 100%; }
 .debug-notice-badge { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 999px; background: #fbbf24; color: #18181b; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
 .debug-notice-badge[hidden], .debug-recovery-notice[hidden] { display: none; }
 .debug-recovery-notice { margin-bottom: 12px; padding: 12px 16px; border: 1px solid #fbbf24; border-radius: 12px; color: #fcd34d; background: rgb(24 24 27 / 40%); }

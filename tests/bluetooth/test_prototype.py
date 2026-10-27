@@ -275,7 +275,7 @@ def test_agent_has_correct_dbus_signatures():
 
 
 @pytest.fixture
-def web(monkeypatch):
+def web(monkeypatch, tmp_path):
     import sys
 
     monkeypatch.setitem(
@@ -289,6 +289,7 @@ def web(monkeypatch):
     spec = importlib.util.spec_from_file_location('bluetooth_routes_test', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, 'AUDIO_STATUS_PATH', tmp_path / 'status.json')
     # Normal route tests need a completed installation and no system D-Bus.
     # Individual setup tests override this fixture explicitly below.
     monkeypatch.setattr(

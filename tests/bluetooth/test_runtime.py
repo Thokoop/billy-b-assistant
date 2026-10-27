@@ -18,7 +18,7 @@ PIPE_READERS = {}
 
 
 @pytest.fixture
-def runtime(monkeypatch):
+def runtime(monkeypatch, tmp_path):
     parent = ModuleType("bt_runtime_test_core")
     parent.__path__ = [str(Path(__file__).parents[2] / "application/core")]
     monkeypatch.setitem(sys.modules, parent.__name__, parent)
@@ -37,6 +37,7 @@ def runtime(monkeypatch):
         sys.modules, "core.config", SimpleNamespace(BLUETOOTH_CALL_AEC=True)
     )
     monkeypatch.setattr(module, "UPLINK_CAPTURE", None)
+    monkeypatch.setattr(module, "STATUS_PATH", tmp_path / "telemetry" / "status.json")
     if sys.platform != 'linux':
         # Linux FIONREAD supports a pipe's write fd. Darwin reports that end's
         # own (empty) read buffer instead. Query the corresponding real read
@@ -528,26 +529,39 @@ def test_full_pipe_stops_on_deadline_without_capture_blocking(runtime, monkeypat
         os.close(writer)
 
 
-def test_status_missing_runtime_directory_is_nonfatal_and_recovers(
+def test_status_creates_its_private_directory_without_a_paired_device(
     runtime, monkeypatch, tmp_path, capsys
 ):
     import json
+    import stat
 
-    target = tmp_path / 'user-runtime' / 'billy-bluetooth.json'
+    target = tmp_path / 'billy-runtime' / 'status.json'
     monkeypatch.setattr(runtime, 'STATUS_PATH', target)
-    assert runtime.status('idle') is False
-    assert runtime.status('waiting') is False
-    assert (
-        not target.parent.exists()
-    )  # Only the OS should create its runtime directory.
-    assert capsys.readouterr().out.count('Billy will continue') == 1
-    target.parent.mkdir()
-    assert runtime.status('media_audio', source='bluez_input.phone') is True
-    assert json.loads(target.read_text())['state'] == 'media_audio'
+    assert runtime.status('idle') is True
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
+    assert json.loads(target.read_text())['state'] == 'idle'
     target.unlink()
     target.parent.rmdir()
+    assert runtime.status('waiting') is True
+    assert json.loads(target.read_text())['state'] == 'waiting'
+    assert 'could not be saved' not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('unsafe', ['symlink', 'public'])
+def test_status_rejects_unsafe_telemetry_directories(
+    runtime, monkeypatch, tmp_path, unsafe
+):
+    directory = tmp_path / 'telemetry'
+    if unsafe == 'symlink':
+        outside = tmp_path / 'outside'
+        outside.mkdir()
+        directory.symlink_to(outside, target_is_directory=True)
+    else:
+        directory.mkdir()
+        directory.chmod(0o755)
+    monkeypatch.setattr(runtime, 'STATUS_PATH', directory / 'status.json')
     assert runtime.status('idle') is False
-    assert capsys.readouterr().out.count('Billy will continue') == 1
+    assert not (directory / 'status.json').exists()
 
 
 @pytest.mark.parametrize('failure', ['create', 'write', 'replace'])
@@ -644,3 +658,33 @@ def test_watcher_start_continues_without_runtime_directory(
     autoconnect.start.assert_called_once_with(env['_stop'])
     env['start']()
     thread_factory.assert_called_once()
+
+
+def test_status_location_is_stable_without_user_session_and_shared_with_web(
+    runtime, monkeypatch, tmp_path
+):
+    from billy_runtime import bluetooth_status
+
+    memory = tmp_path / 'memory'
+    memory.mkdir()
+    monkeypatch.setattr(bluetooth_status, 'SHARED_MEMORY', memory)
+    session = tmp_path / 'not-created-session'
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(session))
+    target = bluetooth_status.status_path(tmp_path / 'installation')
+    session.mkdir()
+    assert bluetooth_status.status_path(tmp_path / 'installation') == target
+    assert bluetooth_status.status_path(tmp_path / 'other-installation') != target
+    monkeypatch.setattr(runtime, 'STATUS_PATH', target)
+    assert runtime.status('idle')
+
+    path = Path(__file__).parents[2] / 'application/webconfig/app/routes/bluetooth.py'
+    spec = importlib.util.spec_from_file_location('telemetry_reader_test', path)
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
+    monkeypatch.setattr(reader, 'AUDIO_STATUS_PATH', target)
+    assert reader.audio_status()['state'] == 'idle'
+    assert runtime.status('call_audio', aec=True)
+    assert reader.audio_status()['aec'] is True
+    assert runtime.status('idle')
+    assert reader.audio_status()['state'] == 'idle'
+    assert list(session.iterdir()) == []

@@ -1,12 +1,12 @@
 """Pairing UI, and what the Bluetooth audio path is currently doing."""
 
 import json
-import os
 import secrets
 import threading
-from pathlib import Path
 
 from flask import Blueprint, jsonify, redirect, request
+
+from billy_runtime.bluetooth_status import status_path
 
 
 bp = Blueprint('bluetooth', __name__)
@@ -25,7 +25,7 @@ def controller():
     return _controller
 
 
-AUDIO_STATUS_PATH = Path(f'/run/user/{os.getuid()}/billy-bluetooth.json')
+AUDIO_STATUS_PATH = status_path()
 PLAYING_STATES = {'media_audio', 'call_audio'}
 
 

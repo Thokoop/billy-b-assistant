@@ -26,6 +26,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from billy_runtime.bluetooth_status import prepare_directory, status_path
+
 from ..logger import logger
 from .diagnostics import UplinkTiming, format_timing
 from .endpoints import ServiceEndpoints
@@ -39,10 +41,7 @@ from .transport import (
 from .uplink_buffer import UplinkBuffer
 
 
-STATUS_PATH = (
-    Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
-    / "billy-bluetooth.json"
-)
+STATUS_PATH = status_path()
 STOP = threading.Event()
 _status_lock = threading.Lock()
 _status_write_failed = False
@@ -82,14 +81,15 @@ class TransportGone(StreamRestart):
 def status(state, **details):
     """Publish optional UI telemetry without stopping Billy or his audio.
 
-    The user runtime directory is managed by the OS and may not exist yet on
-    an unprovisioned unit. Do not create it ourselves or make startup depend on
-    it. A later status update retries once the Bluetooth environment is ready.
+    Billy owns the private telemetry directory, so reporting idle status does
+    not depend on a paired device or on the OS creating /run/user/UID. Actual
+    write failures remain nonfatal and are retried on a later status update.
     """
     global _status_write_failed
     with _status_lock:
         temporary = None
         try:
+            prepare_directory(STATUS_PATH.parent)
             # A unique sibling avoids collisions with another process and a
             # failed write must leave the previous complete snapshot intact.
             with tempfile.NamedTemporaryFile(
