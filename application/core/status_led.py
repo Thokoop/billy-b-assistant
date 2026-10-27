@@ -351,8 +351,8 @@ class StatusLed:
             import neopixel_spi
         except ImportError as exc:
             raise RuntimeError(
-                "SPI NeoPixel support is not installed "
-                "(requires adafruit-blinka and adafruit-circuitpython-neopixel-spi)"
+                f"SPI NeoPixel support is not installed ({exc}; requires "
+                "adafruit-blinka and adafruit-circuitpython-neopixel-spi)"
             ) from exc
 
         spi = board.SPI()
