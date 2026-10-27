@@ -1,5 +1,5 @@
 // ===================== UI HELPERS =====================
-// Recovery stays visible between ordinary, temporary notifications.
+// Shared temporary notifications below the header.
 const NotificationBar = (() => {
     let persistent = null;
     let transient = false;

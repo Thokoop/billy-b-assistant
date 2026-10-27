@@ -10,9 +10,9 @@
 # them in sync (tests/deployment/test_environments.py checks this). Only the
 # Python versions those locks cover are constrained; others behave as before.
 # Not constrained: pip, setuptools and wheel; the aec-audio-processing wheels,
-# which requirements.txt already selects; and openwakeword, which older
-# updaters reinstall themselves on Python 3.13 (0.6.0 cannot be installed with
-# its dependencies there).
+# which requirements.txt already selects; and openwakeword, which needs a
+# separate --no-deps installation on Python 3.13. The baseline supervisor
+# migrates pre-workaround installations to the hashed 0.6.0 wheel at startup.
 
 adafruit-blinka==9.2.0 ; python_version == "3.11" or python_version == "3.13"
 adafruit-circuitpython-busdevice==5.2.17 ; python_version == "3.11" or python_version == "3.13"

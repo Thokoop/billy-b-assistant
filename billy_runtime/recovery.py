@@ -7,6 +7,7 @@ import os
 import time
 from pathlib import Path
 
+from . import system_packages
 from .configuration import (
     ROOT,
     ConfigError,
@@ -101,6 +102,16 @@ class Recovery:
                 else 'runtime'
             )
             message = runtime_error
+            if kind == 'runtime':
+                components = system_packages.status(self.root)
+                if components.get('state') == 'attention' and components.get(
+                    'repairable'
+                ):
+                    kind = 'components'
+                    message = (
+                        'Required system components need installation or repair. '
+                        'Open Software to complete setup, then restart Billy.'
+                    )
         elif state.get('mode') in {'restored', 'setup'}:
             kind = 'configuration'
             message = state.get('reason') or 'Configuration needs attention.'
@@ -109,7 +120,10 @@ class Recovery:
             message = 'Checking Billy and the web interface after startup.'
         else:
             kind, message = None, ''
-        return {'active': active, 'kind': kind, 'message': message}
+        notice = {'active': active, 'kind': kind, 'message': message}
+        if kind == 'components':
+            notice['detail'] = runtime_error
+        return notice
 
     def environment_files(self):
         """Allowlisted editor sources; contents are fetched only on selection."""

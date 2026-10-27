@@ -1,4 +1,5 @@
 <!-- Billy status and controls -->
+{% set notice = recovery_notice|default({}) %}
 {% set header_hostname = device_hostname|default('billy', true) %}
 {% set header_name = header_hostname[:1]|upper ~ header_hostname[1:] %}
 <header class="billy-header z-30 sticky top-0">
@@ -28,10 +29,12 @@
                     <span class="button-reveal-label">Subtitles</span>
                 </button>
                 <button id="toggle-log-btn" type="button"
-                        class="secondary-action secondary-action--hover--amber button-reveal"
+                        class="secondary-action secondary-action--hover--amber button-reveal relative"
                         aria-label="Debug" title="Show debug log">
                     <span class="material-icons bug_report" aria-hidden="true">bug_report</span>
                     <span class="button-reveal-label">Debug</span>
+                    <span id="debug-notice-badge" {% if not notice.get('active') or notice.get('kind') == 'startup' %}hidden{% endif %}
+                          class="debug-notice-badge" aria-label="Startup needs attention">!</span>
                 </button>
             </div>
             <div class="header-settings-actions header-separated-actions">
@@ -68,6 +71,10 @@
         </nav>
     </div>
 
+    <div id="notification" role="status" aria-live="polite" aria-atomic="true"
+         data-recovery-notice='{{ notice|tojson }}'
+         class="hidden header-notification text-center text-white py-2 px-4 shadow-lg transition-opacity duration-300"></div>
+
     <div id="live-captions-panel" class="live-captions-panel" hidden>
         <section id="live-captions" class="live-captions" data-device-name="{{ header_name }}" aria-label="Live subtitles" hidden>
             <h2 id="live-captions-title" class="live-captions-title" hidden>Live subtitles</h2>
@@ -94,6 +101,12 @@
     </div>
 
     <section id="log-panel" class="hidden px-4 pb-4">
+        <div id="debug-recovery-notice" class="debug-recovery-notice" role="status" {% if not notice.get('active') %}hidden{% endif %}>
+            <p id="debug-recovery-message">{{ notice.get('message', '') }}</p>
+            <p id="debug-recovery-detail" class="text-sm" {% if not notice.get('detail') %}hidden{% endif %}>{{ notice.get('detail', '') }}</p>
+            <a id="debug-recovery-software" href="/settings/software" data-page-link {% if notice.get('kind') != 'components' %}hidden{% endif %} class="underline">Open Software</a>
+            <button id="debug-recovery-config" type="button" {% if notice.get('kind') != 'configuration' %}hidden{% endif %} class="underline" onclick="window.LogPanel?.openEnvEditorModal()">Open .env editor</button>
+        </div>
         <div class="p-3 bg-zinc-900/88 backdrop-blur-sm border border-zinc-600 flex gap-3 justify-between items-center flex-wrap shadow-2xl">
             <div class="flex items-center gap-3 flex-wrap">
                 <div class="flex flex-col items-start gap-2">

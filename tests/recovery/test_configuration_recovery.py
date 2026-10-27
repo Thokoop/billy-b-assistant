@@ -794,3 +794,36 @@ def test_recovery_names_invalid_key_and_line_without_exposing_value(store):
     assert 'private-invalid-value' not in state['reason']
     assert 'private-test-key' not in state['reason']
     assert (store.directory / state['original']).read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    'component_state,repairable,expected',
+    [
+        ('attention', True, 'components'),
+        ('ready', False, 'runtime'),
+        ('checking', False, 'runtime'),
+        ('unavailable', False, 'runtime'),
+    ],
+)
+def test_runtime_notice_points_to_software_only_for_confirmed_component_work(
+    store, monkeypatch, component_state, repairable, expected
+):
+    from billy_runtime import system_packages
+
+    monkeypatch.setattr(
+        system_packages,
+        'status',
+        lambda root: {
+            'state': component_state,
+            'repairable': repairable,
+        },
+    )
+    atomic_write(
+        store.directory / 'runtime-error', 'core: Worker exited before becoming healthy'
+    )
+    notice = store.notice()
+    assert notice['kind'] == expected
+    if expected == 'components':
+        assert 'Open Software' in notice['message']
+    else:
+        assert 'Worker exited' in notice['message']

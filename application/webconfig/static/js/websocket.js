@@ -6,20 +6,30 @@ let deviceInfo = null;
 let requestedLogSource = null;
 let receivedLogSource = null;
 
-// Recovery is confirmed by both workers, not systemd's "active" flag.
-// Missing/failed snapshots keep the last notice rather than hiding a problem.
+// Startup/recovery details belong in Debug, with a badge while attention is needed.
+// A missing snapshot must not erase the last known problem.
 window.updateRecoveryNotice = (notice) => {
     if (!notice || typeof notice.active !== 'boolean') return;
     const configuration = notice.kind === 'configuration';
-    const action = configuration
-        ? {label: 'Open .env editor', run: () => window.LogPanel?.openEnvEditorModal()}
-        : notice.kind === 'startup' ? null
-        : {label: 'Open Debug', run: () => window.LogPanel?.openLogPanel()};
-    window.NotificationBar?.setPersistent(notice.active ? {
-        message: notice.message || 'Settings are awaiting a successful startup.',
-        type: 'warning',
-        action,
-    } : null);
+    const badge = document.getElementById('debug-notice-badge');
+    if (badge) badge.hidden = !notice.active || notice.kind === 'startup';
+    const panel = document.getElementById('debug-recovery-notice');
+    if (panel) panel.hidden = !notice.active;
+    const message = document.getElementById('debug-recovery-message');
+    if (message) message.textContent = notice.active ? (
+        notice.kind === 'runtime'
+            ? `Billy could not start normally. ${notice.message || 'Open the logs below for details.'}`
+            : notice.message || 'Settings are awaiting a successful startup.'
+    ) : '';
+    const detail = document.getElementById('debug-recovery-detail');
+    if (detail) {
+        detail.hidden = !notice.active || !notice.detail;
+        detail.textContent = notice.active ? notice.detail || '' : '';
+    }
+    const software = document.getElementById('debug-recovery-software');
+    if (software) software.hidden = !notice.active || notice.kind !== 'components';
+    const config = document.getElementById('debug-recovery-config');
+    if (config) config.hidden = !notice.active || !configuration;
     const editorNotice = document.getElementById('env-recovery-notice');
     if (editorNotice) {
         editorNotice.hidden = !notice.active || !configuration;
@@ -27,7 +37,7 @@ window.updateRecoveryNotice = (notice) => {
     }
 };
 
-// Seed the same bar from the server before the first live status arrives.
+// Seed Debug from the server before the first live status arrives.
 const initialRecoveryNotice = document.getElementById('notification')?.dataset.recoveryNotice;
 if (initialRecoveryNotice) {
     try { window.updateRecoveryNotice(JSON.parse(initialRecoveryNotice)); }

@@ -89,3 +89,36 @@ test('old backend responses cannot be shown as PipeWire logs',async()=>{
     assert.equal(h.node('log-output').textContent,'');
     assert.match(h.node('log-error').textContent,/does not provide/);
 });
+
+test('recovery uses the Debug badge and details without a persistent notification', () => {
+    const h=setup();
+    for (const id of ['debug-notice-badge','debug-recovery-notice','debug-recovery-message','debug-recovery-software','debug-recovery-config']) h.node(id);
+    const calls=[];
+    h.ctx.NotificationBar={setPersistent:notice=>calls.push(notice)};
+    vm.runInContext(socketSource,h.ctx);
+    h.ctx.updateRecoveryNotice({active:true,kind:'components',message:'Install required components.'});
+    assert.equal(h.node('debug-notice-badge').hidden,false);
+    assert.equal(h.node('debug-recovery-notice').hidden,false);
+    assert.equal(h.node('debug-recovery-message').textContent,'Install required components.');
+    assert.equal(h.node('debug-recovery-software').hidden,false);
+    assert.equal(h.node('debug-recovery-config').hidden,true);
+    assert.equal(calls.length,0);
+    h.ctx.updateRecoveryNotice(null);
+    assert.equal(h.node('debug-notice-badge').hidden,false);
+    h.ctx.updateRecoveryNotice({active:false,kind:null,message:''});
+    assert.equal(h.node('debug-notice-badge').hidden,true);
+    assert.equal(h.node('debug-recovery-notice').hidden,true);
+    assert.equal(h.node('debug-recovery-message').textContent,'');
+});
+
+test('startup checks are quiet while configuration errors have an editor action', () => {
+    const h=setup();
+    for (const id of ['debug-notice-badge','debug-recovery-notice','debug-recovery-message','debug-recovery-software','debug-recovery-config']) h.node(id);
+    vm.runInContext(socketSource,h.ctx);
+    h.ctx.updateRecoveryNotice({active:true,kind:'startup',message:'Checking startup.'});
+    assert.equal(h.node('debug-notice-badge').hidden,true);
+    h.ctx.updateRecoveryNotice({active:true,kind:'configuration',message:'Configuration restored.'});
+    assert.equal(h.node('debug-notice-badge').hidden,false);
+    assert.equal(h.node('debug-recovery-config').hidden,false);
+    assert.equal(h.node('debug-recovery-software').hidden,true);
+});

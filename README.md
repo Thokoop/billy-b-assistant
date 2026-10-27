@@ -302,9 +302,13 @@ pip install --no-deps --upgrade openwakeword==0.6.0
 
 Run `pip show openwakeword` again to confirm that version `0.6.0` is installed.
 
-Billy's Web UI software update flow automatically reapplies this workaround
-after reinstalling `requirements.txt`, so later updates should not revert the
-package to `0.4.x`.
+Managed software updates install openWakeWord `0.6.0` from the release lock.
+When upgrading directly from an older version whose updater predates this
+workaround, the baseline assistant supervisor repairs an installed older
+openWakeWord to `0.6.0` before starting Billy. It installs the hashed package
+without resolving TFLite dependencies and skips the repair when `0.6.0` is
+already installed. If the repair fails, the web interface remains available;
+check the connection and storage, then restart Billy to retry.
 
 ---
 

@@ -112,13 +112,14 @@ test('central component status uses shared polling and repair submits one protec
  assert.equal(h.elements.get('system-packages-action-label').textContent,'Install components');
  assert.equal(h.elements.get('system-packages-badge').textContent,'Installation needed');
  assert.equal(h.elements.get('system-packages-badge').hidden,false);
- assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,true);
  assert.equal(h.elements.get('system-packages-status').textContent,'Components missing');
  const details=h.elements.get('system-packages-details');
  const rows=()=>details.children.map(row=>[row.children[0].textContent,row.children[1].children[1].textContent]);
  assert.deepEqual(rows(),[['libportaudio2','Not installed'],['ffmpeg','Installed']]);
  assert.equal(details.children[1].children[1].children[0].attributes['aria-hidden'],'true');
- h.elements.get('system-packages-detail-panel').open=true;
+ h.elements.get('toggle-component-details').click();
+ assert.equal(h.elements.get('toggle-component-details').attributes['aria-expanded'],'true');
  const button=h.elements.get('repair-packages-btn');assert.equal(button.disabled,false);assert.equal(button.hidden,false);
  // Version refreshes and mounting the settings page again retain component attention.
  h.elements.delete('settings-software-badge');h.ctx.BillyVersionUI.refresh();
@@ -138,7 +139,7 @@ test('central component status uses shared polling and repair submits one protec
  assert.equal(h.elements.get('system-packages-summary').textContent,'All system components are installed.');
  assert.equal(h.elements.get('system-packages-badge').hidden,true);
  assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
- assert.equal(h.elements.get('system-packages-detail-panel').open,true);
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
  assert.deepEqual(rows(),[['libportaudio2','Installed'],['ffmpeg','Installed']]);
  assert.equal(h.elements.get('system-packages-details-status').hidden,true);
  assert.equal(h.elements.get('system-packages-status').textContent,'');
@@ -169,7 +170,7 @@ test('component actions distinguish installation, updates, damage and setup with
   assert.equal(category.classList.contains('hidden'),false);
   assert.equal(category.title,`Software update available. System components: ${label}`);
  }
- assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
+ assert.equal(h.elements.get('system-packages-detail-panel').hidden,true);
  h.status={packages:{state:'ready',repairable:false,message:'All system components are installed.'},job:{}};
  h.ctx.BillyVersionUI.refresh();await flush();
  const category=h.elements.get('settings-software-badge');
@@ -245,4 +246,24 @@ test('completed software status stays clear while failures and rollback remain v
  assert.equal(fresh.elements.get('software-operation-status').textContent,'');
  assert.equal(fresh.notices.length,0);
  assert.equal(fresh.overlay.visible,false);
+});
+
+test('component versions are rendered as text and refresh preserves disclosure state',async()=>{
+ const h=setup();await flush();
+ h.status={packages:{state:'ready',repairable:false,components:[
+  {name:'bluez',state:'installed',version:'5.79-1'},
+  {name:'pipewire',state:'missing'},
+ ]},job:{}};
+ h.ctx.BillyVersionUI.refresh();await flush();
+ const rows=h.elements.get('system-packages-details').children;
+ assert.equal(rows[0].children[0].children[0].textContent,'Installed version: 5.79-1');
+ assert.equal(rows[1].children[0].children.length,0);
+ const panel=h.elements.get('system-packages-detail-panel');
+ assert.equal(panel.hidden,true);
+ h.elements.get('toggle-component-details').click();
+ assert.equal(panel.hidden,false);
+ h.ctx.BillyVersionUI.refresh();await flush();
+ assert.equal(panel.hidden,false);
+ h.elements.get('toggle-component-details').click();
+ assert.equal(panel.hidden,true);
 });

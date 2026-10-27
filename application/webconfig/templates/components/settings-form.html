@@ -1623,13 +1623,18 @@
                             <span id="system-packages-action-icon" class="material-icons" aria-hidden="true">download</span>
                             <span id="system-packages-action-label">Install components</span>
                         </button>
+                        <button id="toggle-component-details" type="button"
+                                class="secondary-action secondary-action--hover--cyan system-components-details-toggle"
+                                aria-expanded="false" aria-controls="system-packages-detail-panel">
+                            <span>View component details</span>
+                            <span class="material-icons" aria-hidden="true">expand_more</span>
+                        </button>
                     </div>
                     <p id="system-packages-status" role="status" aria-live="polite" class="system-components-status"></p>
-                    <details id="system-packages-detail-panel" class="system-components-detail-panel">
-                        <summary>View component details</summary>
+                    <div id="system-packages-detail-panel" class="system-components-detail-panel" hidden>
                         <p id="system-packages-details-status" class="system-components-details" role="status" aria-live="polite">Checking system components…</p>
                         <ul id="system-packages-details" class="system-components-details system-component-list" aria-label="System components"></ul>
-                    </details>
+                    </div>
                     <p id="system-packages-operation" role="status" aria-live="polite" class="system-components-status"></p>
                 </div>
 

@@ -261,9 +261,21 @@ def detect_devices(debug=False):
             output_index = index
 
     if mic_index is None:
-        raise RuntimeError(f"No microphone matches {MIC_PREFERENCE!r}")
+        raise RuntimeError(
+            f"The configured microphone ({MIC_PREFERENCE!r}) is not available. "
+            "Check the USB connection, then open Settings > Audio "
+            "(/settings/audio), select the connected microphone, save settings "
+            "and restart Billy. A saved USB port selection may no longer match "
+            "after moving devices or restoring an SD card image."
+        )
     if output_index is None and not TEXT_ONLY_MODE:
-        raise RuntimeError(f"No speaker matches {SPEAKER_PREFERENCE!r}")
+        raise RuntimeError(
+            f"The configured speaker ({SPEAKER_PREFERENCE!r}) is not available. "
+            "Check the USB connection, then open Settings > Audio "
+            "(/settings/audio), select the connected speaker, save settings "
+            "and restart Billy. A saved USB port selection may no longer match "
+            "after moving devices or restoring an SD card image."
+        )
     mic_channels = devices[mic_index]["max_input_channels"]
     mic_rate = _pick_mic_rate(mic_index, mic_channels)
     if output_index is not None and not TEXT_ONLY_MODE:

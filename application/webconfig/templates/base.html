@@ -9,9 +9,8 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="text-white font-sans">
-    {% block header %}{% endblock %}
-
     {% set notice = recovery_notice|default({}) %}
+    {% block header %}{% endblock %}
     {% block main_content %}{% endblock %}
 
     {% block footer %}
@@ -61,12 +60,6 @@
     {% endblock %}
 
     {% include "components/password-modal.html" %}
-
-    <!-- Global Notification Bar -->
-    <div id="notification" role="status" aria-live="polite" aria-atomic="true"
-         data-recovery-notice='{{ notice|tojson }}'
-         class="{% if notice.get('active') %}bg-amber-500/80 opacity-100{% else %}hidden{% endif %} w-full fixed top-0 left-0 text-center text-white py-2 px-4 rounded shadow-lg transition-opacity duration-300"
-         style="z-index: 2147483647;">{% if notice.get('active') %}{{ notice.get('message', '') }} {% if notice.get('kind') == 'configuration' %}<button type="button" class="underline ml-2" onclick="window.LogPanel?.openEnvEditorModal()">Open .env editor</button>{% elif notice.get('kind') != 'startup' %}<button type="button" class="underline ml-2" onclick="window.LogPanel?.openLogPanel()">Open Debug</button>{% endif %}{% endif %}</div>
 
     <dialog id="live-captions-dialog" class="live-captions-dialog" aria-label="Session transcript"></dialog>
 

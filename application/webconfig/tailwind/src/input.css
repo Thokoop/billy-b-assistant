@@ -1561,3 +1561,12 @@ button {
 @media (max-width: 360px) {
     .settings-panel-title > #software-update-badge { margin-left: 0; }
 }
+
+/* Notices follow the header; unresolved startup details stay in Debug. */
+.header-notification { max-width: 72rem; margin-inline: auto; }
+.debug-notice-badge { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 999px; background: #fbbf24; color: #18181b; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
+.debug-notice-badge[hidden], .debug-recovery-notice[hidden] { display: none; }
+.debug-recovery-notice { margin-bottom: 12px; padding: 12px 16px; border: 1px solid #fbbf24; border-radius: 12px; color: #fcd34d; background: rgb(24 24 27 / 40%); }
+
+.system-components-details-toggle { margin-left: auto; flex-shrink: 0; max-width: 100%; }
+.system-component-version { display: block; margin-top: .125rem; font-size: .6875rem; color: #a4bac7; overflow-wrap: anywhere; }

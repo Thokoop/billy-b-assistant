@@ -127,6 +127,12 @@
             const name = document.createElement('span');
             name.className = 'system-component-name';
             name.textContent = component.name;
+            if (typeof component.version === 'string' && component.version) {
+                const version = document.createElement('span');
+                version.className = 'system-component-version';
+                version.textContent = `Installed version: ${component.version}`;
+                name.append(version);
+            }
             const status = document.createElement('span');
             status.className = 'system-component-state';
             status.dataset.state = state;
@@ -152,8 +158,6 @@
                 : !rows.length ? 'No system components are listed.' : '';
             message.hidden = !message.textContent;
         }
-        const panel = document.getElementById('system-packages-detail-panel');
-        if (panel) panel.hidden = false;
     };
     const setSoftwareProgress = message => {
         setText('software-operation-status', message);
@@ -349,6 +353,20 @@
             bindSimulateUpdateButton();
             bindRollbackButton();
             bindPackagesButton();
+            const detailsToggle = document.getElementById('toggle-component-details');
+            if (detailsToggle && !detailsToggle.dataset.bound) {
+                detailsToggle.dataset.bound = 'true';
+                const panel = document.getElementById('system-packages-detail-panel');
+                if (panel) panel.hidden = true;
+                detailsToggle.addEventListener('click', () => {
+                    const panel = document.getElementById('system-packages-detail-panel');
+                    if (!panel) return;
+                    panel.hidden = !panel.hidden;
+                    detailsToggle.setAttribute('aria-expanded', String(!panel.hidden));
+                    const icon = detailsToggle.querySelector('.material-icons');
+                    if (icon) icon.textContent = panel.hidden ? 'expand_more' : 'expand_less';
+                });
+            }
             pollSoftware();
         },
     };

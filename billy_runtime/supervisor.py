@@ -25,6 +25,7 @@ from .configuration import (
     revision,
     validate_bootstrap,
 )
+from .legacy_dependencies import LegacyDependencyError, ensure_for_worker
 from .recovery import SAFE_DEFAULTS, Recovery
 from .storage import atomic_write
 
@@ -268,8 +269,17 @@ def monitor(entry, role, root=ROOT):
             if not allowed:
                 continue
             try:
+                # Migrate old baseline dependencies before worker deadlines.
+                # Web/recovery and selected release environments are excluded.
+                ensure_for_worker(root, role, managed=managed)
                 child, fd, gate = launch(entry, role, content, listener, root=root)
                 active_software = child.billy_software
+            except LegacyDependencyError as exc:
+                atomic_write(store.directory / 'runtime-error', str(exc))
+                print(str(exc), flush=True)
+                # No repeated package installs in an automatic crash loop.
+                retries = 3
+                continue
             except (OSError, ValueError) as exc:
                 print(f'Worker launch failed ({type(exc).__name__})', flush=True)
                 retries += 1
