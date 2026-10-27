@@ -127,25 +127,35 @@ function notificationHarness(h) {
  return bar;
 }
 
-test('recovery uses notification bar and clears live without hiding unrelated messages',()=>{
- const h=setup(),sockets=[],bar=notificationHarness(h);
- h.labels.set('env-recovery-notice',element());
- let opened=0;h.c.window.LogPanel={openEnvEditorModal(){opened++;}};
+function recoveryNodes(h) {
+ const nodes={};
+ for(const id of ['debug-notice-badge','debug-recovery-notice','debug-recovery-message','debug-recovery-detail','debug-recovery-software','debug-recovery-config','env-recovery-notice']) {
+  nodes[id]=element(id);h.labels.set(id,nodes[id]);
+ }
+ return nodes;
+}
+test('live recovery updates Debug without hiding unrelated notifications',()=>{
+ const h=setup(),sockets=[],bar=notificationHarness(h),nodes=recoveryNodes(h);
  h.c.WebSocket=class{static OPEN=1;constructor(){this.readyState=1;sockets.push(this);}};
  h.c.window.location={protocol:'http:',host:'billy.local'};h.run(wsSource);h.c.document.dispatchEvent({type:'DOMContentLoaded'});
  const send=recovery=>sockets[0].onmessage({data:JSON.stringify({type:'status',data:{status:'active',recovery}})});
  send({active:true,kind:'configuration',message:'Restored'});
- assert.equal(bar.textContent,'Restored');assert.equal(bar.classList.contains('hidden'),false);
- const action=bar.children[0];action.onclick();assert.equal(opened,1);
- send({active:true,kind:'configuration',message:'Restored'});assert.equal(bar.children[0],action);
- send(undefined);send({error:'unavailable'});assert.equal(bar.textContent,'Restored');
+ assert.equal(nodes['debug-recovery-message'].textContent,'Restored');
+ assert.equal(nodes['debug-notice-badge'].hidden,false);
+ assert.equal(nodes['debug-recovery-config'].hidden,false);
+ assert.equal(bar.textContent,'');
+ send(undefined);send({error:'unavailable'});
+ assert.equal(nodes['debug-recovery-message'].textContent,'Restored');
  h.c.showNotification('Saved','success');assert.equal(bar.textContent,'Saved');
  send({active:false,message:''});assert.equal(bar.textContent,'Saved');
- assert.equal(h.labels.get('env-recovery-notice').hidden,true);
+ assert.equal(nodes['debug-notice-badge'].hidden,true);
+ assert.equal(nodes['debug-recovery-notice'].hidden,true);
+ assert.equal(nodes['env-recovery-notice'].hidden,true);
  h.tick();h.tick();assert.equal(bar.classList.contains('hidden'),true);
  send({active:true,kind:'configuration',message:'New error <script>'});
- assert.equal(bar.textContent,'New error <script>');assert.equal(bar.children.length,1);
- assert.equal(bar.children[0].textContent,'Open .env editor');
+ assert.equal(nodes['debug-recovery-message'].textContent,'New error <script>');
+ assert.equal(nodes['debug-recovery-message'].children.length,0);
+ assert.equal(bar.classList.contains('hidden'),true);
  assert.equal(h.requests.length,0);
 });
 
@@ -161,15 +171,16 @@ test('temporary notification returns to recovery and old timers cannot hide newe
  h.tick();h.tick();assert.equal(bar.classList.contains('hidden'),true);
 });
 
-test('initial recovery snapshot populates existing bar before WebSocket connects',()=>{
- const h=setup(),bar=notificationHarness(h);
- bar.dataset.recoveryNotice=JSON.stringify({active:true,message:'Startup failed'});
+test('initial recovery snapshot populates Debug before WebSocket connects',()=>{
+ const h=setup(),bar=notificationHarness(h),nodes=recoveryNodes(h);
+ bar.dataset.recoveryNotice=JSON.stringify({active:true,kind:'runtime',message:'Startup failed'});
  h.run(wsSource);
- assert.equal(bar.textContent,'Startup failed');
- assert.equal(bar.children[0].textContent,'Open Debug');
+ assert.match(nodes['debug-recovery-message'].textContent,/Startup failed/);
+ assert.equal(nodes['debug-notice-badge'].hidden,false);
+ assert.equal(nodes['debug-recovery-config'].hidden,true);
+ assert.equal(bar.textContent,'');
  assert.equal(h.timers.size,0);assert.equal(h.requests.length,0);
 });
-
 
 test('paired device auto-connect defaults off, persists through action and reflects live state',async()=>{
  const phone={Address:'AA:BB:CC:DD:EE:FF',Alias:'Phone',Paired:true,Connected:false};
@@ -225,24 +236,29 @@ test('failed disconnect remains an error and keeps Disconnect available',async()
 });
 
 
-test('runtime failure opens Debug only; probation has no repair action',()=>{
- const h=setup(),bar=notificationHarness(h);h.labels.set('env-recovery-notice',element());
- let debug=0,editor=0;
- h.c.window.LogPanel={openLogPanel(){debug++;},openEnvEditorModal(){editor++;}};
+test('recovery kind selects Debug guidance and probation has no warning badge',()=>{
+ const h=setup(),bar=notificationHarness(h),nodes=recoveryNodes(h);
  h.run(wsSource);
  h.c.window.updateRecoveryNotice({active:true,kind:'runtime',message:'Worker exited'});
- assert.equal(bar.children[0].textContent,'Open Debug');assert.equal(debug,0);assert.equal(editor,0);
- bar.children[0].onclick();assert.equal(debug,1);assert.equal(editor,0);
- assert.equal(h.labels.get('env-recovery-notice').hidden,true);
- assert.equal(h.labels.get('env-recovery-notice').textContent,'');
- // Identical text with a different kind must replace the action too.
+ assert.match(nodes['debug-recovery-message'].textContent,/Worker exited/);
+ assert.equal(nodes['debug-notice-badge'].hidden,false);
+ assert.equal(nodes['debug-recovery-config'].hidden,true);
+ assert.equal(nodes['env-recovery-notice'].hidden,true);
+ assert.equal(nodes['env-recovery-notice'].textContent,'');
  h.c.window.updateRecoveryNotice({active:true,kind:'configuration',message:'Worker exited'});
- assert.equal(bar.children[0].textContent,'Open .env editor');
- assert.equal(h.labels.get('env-recovery-notice').hidden,false);
+ assert.equal(nodes['debug-recovery-config'].hidden,false);
+ assert.equal(nodes['env-recovery-notice'].hidden,false);
+ h.c.window.updateRecoveryNotice({active:true,kind:'components',message:'Install components',detail:'Worker exited'});
+ assert.equal(nodes['debug-recovery-software'].hidden,false);
+ assert.equal(nodes['debug-recovery-config'].hidden,true);
+ assert.equal(nodes['debug-recovery-detail'].textContent,'Worker exited');
  h.c.window.updateRecoveryNotice({active:true,kind:'startup',message:'Checking startup'});
- assert.equal(bar.children.length,0);assert.equal(h.labels.get('env-recovery-notice').hidden,true);
+ assert.equal(nodes['debug-notice-badge'].hidden,true);
+ assert.equal(nodes['debug-recovery-detail'].hidden,true);
+ assert.equal(nodes['debug-recovery-software'].hidden,true);
+ assert.equal(nodes['env-recovery-notice'].hidden,true);
+ assert.equal(bar.textContent,'');
 });
-
 
 test('Open Debug opens an already visible panel without toggling it closed',async()=>{
  const h=setup();const panel=element(),button=element();
