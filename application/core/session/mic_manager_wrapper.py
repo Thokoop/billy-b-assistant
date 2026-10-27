@@ -1,0 +1,1059 @@
+"""Microphone management wrapper for Billy session."""
+
+import asyncio
+import contextlib
+import math
+import os
+import time
+from collections import deque
+
+from .. import audio
+from ..audio import calculate_input_rms, mic_input_samples_for_meter
+from ..config import (
+    CHUNK_MS,
+    MIC_TIMEOUT_TAIL_FLAP,
+    SILENCE_THRESHOLD,
+    TEXT_ONLY_MODE,
+)
+from ..logger import logger
+from ..mic import MicManager
+from ..mic_uplink import MicUplink
+
+
+# AEC3 needs a few frames of Billy's own audio before it cancels it, and the
+# similarity reference is only meaningful once that audio has actually reached
+# the microphone. Confirmations inside this window are echo onset, not speech.
+_BARGE_IN_PLAYBACK_ONSET_SECONDS = 0.4
+
+
+class MicManagerWrapper:
+    """Manages microphone lifecycle and audio input."""
+
+    def __init__(self, session):
+        self.session = session
+        self.mic = MicManager()
+        self.mic_running = False
+        self.mic_timeout_task = None
+        self._retry_task = None
+        self._uplink = None
+        self._mic_generation = 0
+        self.last_rms = 0.0
+        self._mic_guard_until = 0.0
+        self._timeout_motor_guard_until = 0.0
+        self._mic_data_started = False
+        self._logged_waiting_for_wakeup = False
+        self._timeout_countdown_active = False
+        self._local_activity_until = 0.0
+        self._last_local_activity_rms = 0.0
+        self._last_timeout_progress_log = 0.0
+        self._timeout_countdown_started_at = 0.0
+        self._timeout_head_retracted = False
+        self._logged_barge_in_active = False
+        self._prebuffered_audio = deque()
+        self._prebuffered_audio_samples = 0
+        self._prebuffer_seconds = 3.0
+        self._barge_in_rms_window = deque(maxlen=40)
+        self._barge_in_voice_window = deque(maxlen=40)
+        self._barge_in_similarity_window = deque(maxlen=40)
+        self._barge_in_residual_samples = deque(maxlen=25)
+        # Similarity scores measured while only Billy is audible. They say what
+        # "this is Billy's own voice" looks like on this hardware right now,
+        # which is the only fair baseline for deciding that a frame is not.
+        self._barge_in_echo_similarity_samples = deque(maxlen=80)
+        # Frames of Billy's audio actually played during this response.
+        self._playback_frames_in_response = 0
+        self._barge_in_trace_file = None
+        # Preserve a slowly adapting residual estimate across responses. AEC can
+        # briefly produce near-zero cleaned samples after a response starts; if
+        # those samples replace the baseline immediately, ordinary speaker
+        # leakage looks like near-end speech.
+        self._barge_in_residual_floor = max(100.0, SILENCE_THRESHOLD * 0.5)
+        self._barge_in_candidate_floor = None
+        # Tracks whether the current provider-VAD candidate has ever shown a
+        # moment of independent (non-echo) voice evidence. Used to release
+        # pure-echo candidates faster than the full stale-speech timeout.
+        self._barge_in_candidate_ever_independent = False
+        # How many frames of this candidate looked like independent (non-echo)
+        # voice in total. Confirmation needs several of them inside one short
+        # window; this running total also credits speech whose evidence was
+        # real but too spread out for that window, so the turn can still be
+        # answered once it is committed.
+        self._barge_in_independent_frames = 0
+        self._barge_in_frame_index = 0
+        self._barge_in_last_counted_frame = -1
+        # Similarity reading observed at (or just before) this candidate's
+        # onset. Residual echo cancellation is imperfect on this hardware, so
+        # playback_similarity starts elevated even for genuine barge-ins and
+        # only falls as sustained independent speech outweighs the echo
+        # residual. Comparing against this baseline lets a clear downward
+        # trend confirm faster than waiting for the absolute 0.30 floor.
+        self._barge_in_candidate_initial_similarity: float | None = None
+
+    def _ensure_uplink(self):
+        if self._uplink is None or self._uplink.closed:
+            self._reported_uplink_overflow = 0
+            self._last_uplink_warning = None
+            self._uplink = MicUplink(
+                self.session.loop,
+                self._send_audio,
+                self._uplink_failed,
+                self._report_uplink,
+                capacity=max(
+                    8,
+                    math.ceil(
+                        (self._prebuffer_seconds + 1.0) * 1000 / max(1, CHUNK_MS)
+                    ),
+                ),
+            )
+
+    async def _send_audio(self, samples):
+        if not self.session.session_active.is_set() or self.session.ws is None:
+            raise asyncio.CancelledError
+        payload = audio.mic_audio_payload(samples)
+        if payload is not None:
+            await self.session.ws.send(payload)
+
+    async def _uplink_failed(self, error):
+        logger.warning(f"Microphone uplink failed: {error}")
+        await self.session.stop_session(reason="mic_uplink_failed")
+
+    def _report_uplink(self, metrics):
+        # Keep the first loss visible immediately; summarize ongoing loss at
+        # most every 30 seconds without dropping counts between warnings.
+        now = time.monotonic()
+        overflow = metrics.get("overflow", 0)
+        previous = getattr(self, "_reported_uplink_overflow", 0)
+        last_warning = getattr(self, "_last_uplink_warning", None)
+        if overflow > previous and (last_warning is None or now - last_warning >= 30):
+            count = overflow - previous
+            label = "input overflow" if count == 1 else "input overflows"
+            logger.warning(
+                f"Microphone audio loss: {count} {label} "
+                f"({overflow} total for this capture)."
+            )
+            self._reported_uplink_overflow = overflow
+            self._last_uplink_warning = now
+
+        details = {
+            **metrics,
+            "sample_rate": audio.MIC_RATE,
+            "block_frames": audio.CHUNK_SIZE,
+        }
+        stream = getattr(getattr(self, "mic", None), "stream", None)
+        if stream is not None:
+            # Read outside the capture callback; the stream may close meanwhile.
+            with contextlib.suppress(Exception):
+                details["input_latency_ms"] = round(float(stream.latency) * 1000, 1)
+            with contextlib.suppress(Exception):
+                details["input_cpu_load"] = round(float(stream.cpu_load), 3)
+        logger.verbose(f"Microphone timing: {details}")
+
+    async def reset_uplink(self):
+        """Cancel old pending/in-flight input before clearing the provider buffer."""
+        old = self._uplink
+        if old is not None:
+            old.close()
+            if old._task is not None:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await old._task
+        if self.session.session_active.is_set():
+            self._ensure_uplink()
+
+    def start(self, *, retry=True):
+        """Try to open the mic with optional retry on failure."""
+        if self.mic_running or not self.session.session_active.is_set():
+            return
+
+        self._ensure_uplink()
+        try:
+            self._mic_data_started = False
+            self._logged_waiting_for_wakeup = False
+            self._clear_prebuffer()
+            if self.mic is None:
+                self.mic = MicManager()
+
+            self.mic.start(self.callback)
+            self.mic_running = True
+            self._mic_guard_until = time.time() + 0.35
+            self._timeout_countdown_active = False
+            self._timeout_countdown_started_at = 0.0
+            self._timeout_head_retracted = False
+            self._last_timeout_progress_log = 0.0
+            logger.verbose("Mic started", "🎤")
+            if not self.mic_timeout_task or self.mic_timeout_task.done():
+                self.mic_timeout_task = asyncio.create_task(self.timeout_checker())
+            self.session._set_listening_state()
+
+        except Exception as e:
+            self.mic_running = False
+            logger.error(f"Mic start failed: {e}")
+            if (
+                retry
+                and self.session.session_active.is_set()
+                and (self._retry_task is None or self._retry_task.done())
+            ):
+                self._retry_task = asyncio.create_task(self._retry_loop())
+
+    def stop(self):
+        """Stop the microphone and invalidate pending reopen attempts."""
+        self._mic_generation += 1
+        if self._uplink is not None:
+            self._uplink.close()
+        task = self._retry_task
+        if task is not None and not task.done():
+            # stop() can run in an executor thread during session teardown.
+            with contextlib.suppress(RuntimeError):
+                task.get_loop().call_soon_threadsafe(task.cancel)
+        if self.mic_running:
+            try:
+                self.mic.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping mic: {e}")
+            self.mic_running = False
+        self._timeout_countdown_active = False
+        self._timeout_head_retracted = False
+        self._clear_prebuffer()
+        self._close_barge_in_trace()
+
+    def _close_barge_in_trace(self):
+        """Release the barge-in trace file, if tracing opened one.
+
+        Clearing the attribute first keeps the audio thread from writing to a
+        handle that is on its way out; a frame that lands in the gap is caught
+        by the tracer's own guard, and the next one reopens the file.
+        """
+        trace_file = self._barge_in_trace_file
+        self._barge_in_trace_file = None
+        if trace_file is None:
+            return
+        with contextlib.suppress(Exception):
+            trace_file.close()
+
+    def _clear_prebuffer(self):
+        self._prebuffered_audio.clear()
+        self._prebuffered_audio_samples = 0
+
+    def reset_barge_in_evidence(self):
+        """Start a fresh response window while preserving the learned floor."""
+        self._barge_in_rms_window.clear()
+        self._barge_in_voice_window.clear()
+        self._barge_in_similarity_window.clear()
+        self._barge_in_residual_samples.clear()
+        self._barge_in_echo_similarity_samples.clear()
+        self._playback_frames_in_response = 0
+        self._barge_in_candidate_floor = None
+        # Follow a later reduction in speaker volume or microphone gain without
+        # letting a single quiet response erase useful calibration.
+        base_floor = max(100.0, SILENCE_THRESHOLD * 0.5)
+        self._barge_in_residual_floor = max(
+            base_floor,
+            0.95 * self._barge_in_residual_floor + 0.05 * base_floor,
+        )
+
+    def observe_barge_in_residual(self, rms: float):
+        """Learn AEC residue only while provider VAD reports no speech."""
+        if self._barge_in_candidate_floor is not None:
+            return
+        self._barge_in_residual_samples.append(float(rms))
+        if len(self._barge_in_residual_samples) < 5:
+            return
+        ordered = sorted(self._barge_in_residual_samples)
+        # A median resists isolated mouth/motor and near-end transients while
+        # still following a genuine speaker-volume change.
+        observed_floor = ordered[len(ordered) // 2]
+        alpha = 0.08 if observed_floor > self._barge_in_residual_floor else 0.03
+        base_floor = max(100.0, SILENCE_THRESHOLD * 0.5)
+        self._barge_in_residual_floor = max(
+            base_floor,
+            (1.0 - alpha) * self._barge_in_residual_floor + alpha * observed_floor,
+        )
+
+    def trace_barge_in_frame(
+        self,
+        rms: float,
+        voice: bool,
+        similarity: float | None,
+        reference: float | None,
+        playback_active: bool,
+    ):
+        """Append one frame to the barge-in trace file, when tracing is on.
+
+        Set BARGE_IN_TRACE=/path/to/file.csv to record what the microphone,
+        the voice detector and the echo reference actually did, so thresholds
+        can be chosen from measurements instead of guesses. Off by default.
+        """
+        path = os.getenv("BARGE_IN_TRACE", "").strip()
+        if not path:
+            return
+        try:
+            if self._barge_in_trace_file is None:
+                # Deliberately not a context manager: the trace is one file
+                # appended to on every audio frame for as long as the mic runs,
+                # and reopening it per frame would cost more than the
+                # measurement is worth. stop() closes it.
+                self._barge_in_trace_file = open(path, "a", buffering=1)  # noqa: SIM115
+                if self._barge_in_trace_file.tell() == 0:
+                    self._barge_in_trace_file.write(
+                        "time,rms,voice,similarity,reference,ratio,"
+                        "playback,candidate,server_speech\n"
+                    )
+            ratio = ""
+            if reference and reference > 1.0:
+                ratio = f"{rms / reference:.4f}"
+            self._barge_in_trace_file.write(
+                f"{time.time():.3f},{rms:.1f},{int(bool(voice))},"
+                f"{'' if similarity is None else f'{similarity:.4f}'},"
+                f"{'' if reference is None else f'{reference:.1f}'},{ratio},"
+                f"{int(bool(playback_active))},{int(self.candidate_open())},"
+                f"{int(bool(self.session.state._server_input_speaking))}\n"
+            )
+        except Exception as exc:  # pragma: no cover - tracing must never break audio
+            logger.warning(f"Could not write barge-in trace: {exc}", "\U0001f4c8")
+            self._barge_in_trace_file = None
+            os.environ["BARGE_IN_TRACE"] = ""
+
+    def observe_echo_similarity(self, similarity: float | None):
+        """Learn how much pure speaker echo resembles the playback reference."""
+        if similarity is None or self._barge_in_candidate_floor is not None:
+            return
+        self._barge_in_echo_similarity_samples.append(float(similarity))
+
+    def candidate_open(self) -> bool:
+        """Whether a provider-VAD candidate is still being judged locally."""
+        return self._barge_in_candidate_floor is not None
+
+    def note_playback_frame(self):
+        """Count a captured frame that carried Billy's own playback."""
+        self._playback_frames_in_response += 1
+
+    def _echo_similarity_baseline(self) -> float | None:
+        """A low percentile of pure-echo similarity: echo rarely scores below."""
+        samples = sorted(self._barge_in_echo_similarity_samples)
+        if len(samples) < 8:
+            return None
+        index = max(0, int(len(samples) * 0.2) - 1)
+        return samples[index]
+
+    def start_barge_in_candidate(self):
+        """Scope local evidence to the provider's current speech event."""
+        # OpenAI reports speech_started with 300 ms of prefix audio. Preserve
+        # the matching local frames: clearing the whole window here discarded
+        # the spoken onset which caused provider VAD to fire, so short barge-in
+        # phrases could finish before local confirmation even began.
+        prefix_chunks = max(1, math.ceil(300 / max(1, CHUNK_MS)))
+        recent_rms = list(self._barge_in_rms_window)[-prefix_chunks:]
+        recent_voice = list(self._barge_in_voice_window)[-prefix_chunks:]
+        recent_similarity = list(self._barge_in_similarity_window)[-prefix_chunks:]
+        self._barge_in_rms_window.clear()
+        self._barge_in_rms_window.extend(recent_rms)
+        self._barge_in_voice_window.clear()
+        self._barge_in_voice_window.extend(recent_voice)
+        self._barge_in_similarity_window.clear()
+        self._barge_in_similarity_window.extend(recent_similarity)
+        # Freeze calibration for this complete provider candidate. Candidate
+        # samples include the user's voice and must never raise their own gate.
+        self._barge_in_candidate_floor = max(
+            SILENCE_THRESHOLD * 0.35,
+            self._barge_in_residual_floor,
+        )
+        self._barge_in_candidate_ever_independent = False
+        self._barge_in_independent_frames = 0
+        self._barge_in_last_counted_frame = -1
+        # Prefer what echo alone scored during this response. The old baseline
+        # was the single similarity reading at the moment the candidate opened;
+        # if the user started talking in a gap between Billy's words that
+        # reading came from near-silence, and the trend gate below then asked
+        # for a score no real speech ever reaches.
+        baseline = self._echo_similarity_baseline()
+        if baseline is None:
+            recent_measured_similarity = [v for v in recent_similarity if v is not None]
+            baseline = (
+                recent_measured_similarity[0] if recent_measured_similarity else None
+            )
+        self._barge_in_candidate_initial_similarity = baseline
+
+    def has_barge_in_evidence(self, sensitivity_db: float) -> tuple[bool, dict]:
+        """Confirm post-AEC voice and energy without disturbing playback."""
+        values = list(self._barge_in_rms_window)
+        candidate = values[-6:]
+        voice_candidate = list(self._barge_in_voice_window)[-6:]
+        similarity_candidate = list(self._barge_in_similarity_window)[-6:]
+        if len(similarity_candidate) < len(candidate):
+            # No score is a valid state at playback onset or in a quiet render
+            # gap. Align those chunks with the other evidence instead of
+            # shifting later similarity scores onto earlier audio.
+            similarity_candidate = [None] * (
+                len(candidate) - len(similarity_candidate)
+            ) + similarity_candidate
+        residual_floor = max(
+            SILENCE_THRESHOLD * 0.35,
+            self._barge_in_candidate_floor
+            if self._barge_in_candidate_floor is not None
+            else self._barge_in_residual_floor,
+        )
+
+        adaptive_threshold = max(
+            150.0,
+            residual_floor * math.pow(10.0, float(sensitivity_db) / 20.0),
+            SILENCE_THRESHOLD * 0.65,
+        )
+        evidence = sum(rms >= adaptive_threshold for rms in candidate)
+        # High and Balanced both need three energetic chunks. Balanced remains
+        # stricter through its higher relative energy threshold and its extra
+        # post-AEC voice frame; requiring a fourth energy chunk made short,
+        # clearly voiced phrases fail after both VADs had already agreed.
+        required = 3 if sensitivity_db <= 9.0 else 4
+        voice_evidence = sum(voice_candidate)
+        voice_required = (
+            2 if sensitivity_db <= 6.0 else 3 if sensitivity_db <= 9.0 else 4
+        )
+        voice_confirmed = (
+            len(voice_candidate) >= voice_required and voice_evidence >= voice_required
+        )
+        # VADs detect speech, not the speaker. Require the energetic voiced
+        # chunks to be dissimilar to Billy's exact outgoing audio before they
+        # may stop playback. A missing score means the frame cannot be judged
+        # at all — at playback onset there is no usable reference yet and
+        # everything looks independent — so it does not count as evidence.
+        playback_similarity_limit = 0.30
+        independent_evidence = sum(
+            rms >= adaptive_threshold
+            and voice
+            and similarity is not None
+            and similarity < playback_similarity_limit
+            for rms, voice, similarity in zip(
+                candidate, voice_candidate, similarity_candidate
+            )
+        )
+        independent_required = voice_required
+        independent_confirmed = (
+            len(similarity_candidate) >= independent_required
+            and independent_evidence >= independent_required
+        )
+        # Residual echo cancellation is imperfect on this hardware: similarity
+        # starts elevated even for genuine barge-ins and only falls as
+        # sustained independent speech outweighs leftover echo, which can take
+        # several seconds against the fixed 0.30 floor above. A clear, sustained
+        # drop relative to this candidate's own starting similarity is a much
+        # faster-arriving signal than waiting for the absolute floor, while
+        # still requiring the same energy+voice evidence as the strict check.
+        trend_limit = None
+        if self._barge_in_candidate_initial_similarity is not None:
+            trend_limit = max(
+                0.12,
+                min(0.55, self._barge_in_candidate_initial_similarity * 0.7),
+            )
+        trend_evidence = 0
+        if trend_limit is not None:
+            trend_evidence = sum(
+                rms >= adaptive_threshold
+                and voice
+                and similarity is not None
+                and similarity <= trend_limit
+                for rms, voice, similarity in zip(
+                    candidate, voice_candidate, similarity_candidate
+                )
+            )
+        trend_confirmed = (
+            trend_limit is not None
+            and len(similarity_candidate) >= independent_required
+            and trend_evidence >= independent_required
+        )
+        if independent_evidence > 0 or trend_evidence > 0:
+            self._barge_in_candidate_ever_independent = True
+        # Count the newest frame once, however often this runs per chunk.
+        if (
+            candidate
+            and self._barge_in_last_counted_frame != self._barge_in_frame_index
+        ):
+            self._barge_in_last_counted_frame = self._barge_in_frame_index
+            newest_similarity = similarity_candidate[-1]
+            if (
+                candidate[-1] >= adaptive_threshold
+                and voice_candidate[-1]
+                and (
+                    newest_similarity is None
+                    or newest_similarity < playback_similarity_limit
+                    or (trend_limit is not None and newest_similarity <= trend_limit)
+                )
+            ):
+                self._barge_in_independent_frames += 1
+        independent_confirmed = independent_confirmed or trend_confirmed
+        measured_similarities = [
+            value for value in similarity_candidate if value is not None
+        ]
+        onset_frames = max(
+            1, math.ceil(_BARGE_IN_PLAYBACK_ONSET_SECONDS * 1000 / max(1, CHUNK_MS))
+        )
+        onset_ready = self._playback_frames_in_response >= onset_frames
+        details = {
+            "playback_frames": self._playback_frames_in_response,
+            "onset_frames": onset_frames,
+            "evidence": evidence,
+            "required": required,
+            "voice_evidence": voice_evidence,
+            "voice_required": voice_required,
+            "voice_frames": len(voice_candidate),
+            "independent_evidence": independent_evidence,
+            "independent_required": independent_required,
+            "trend_evidence": trend_evidence,
+            "trend_limit": trend_limit,
+            "trend_confirmed": trend_confirmed,
+            "candidate_echo_baseline": self._barge_in_candidate_initial_similarity,
+            "echo_samples": len(self._barge_in_echo_similarity_samples),
+            "playback_similarity": max(measured_similarities, default=None),
+            "playback_similarity_min": min(measured_similarities, default=None),
+            "playback_similarity_limit": playback_similarity_limit,
+            "threshold": adaptive_threshold,
+            "residual_floor": residual_floor,
+            "peak": max(candidate, default=0.0),
+            "learning": len(values) < 6,
+        }
+        return (
+            onset_ready
+            and len(values) >= 6
+            and evidence >= required
+            and voice_confirmed
+            and independent_confirmed
+        ), details
+
+    def candidate_independent_frames(self) -> int:
+        """Frames of independent (non-echo) voice seen in the open candidate."""
+        return self._barge_in_independent_frames
+
+    def clear_candidate_independent_frames(self):
+        """Forget the running total once a turn has been decided on it."""
+        self._barge_in_independent_frames = 0
+
+    def _store_prebuffer(self, samples):
+        if samples is None or len(samples) == 0:
+            return
+        chunk = samples.copy()
+        self._prebuffered_audio.append(chunk)
+        self._prebuffered_audio_samples += len(chunk)
+        max_samples = int(
+            (audio.MIC_RATE or audio.PROVIDER_MIC_RATE) * self._prebuffer_seconds
+        )
+        while self._prebuffered_audio_samples > max_samples and self._prebuffered_audio:
+            dropped = self._prebuffered_audio.popleft()
+            self._prebuffered_audio_samples -= len(dropped)
+
+    def flush_prebuffer(self):
+        """Send audio captured after wake-up playback but before the session was ready."""
+        if not self._prebuffered_audio:
+            return
+        if self.session.ws is None or self.session.loop is None:
+            return
+        chunks = len(self._prebuffered_audio)
+        samples = self._prebuffered_audio_samples
+        while self._prebuffered_audio:
+            self._uplink.submit(self._prebuffered_audio.popleft())
+        self._prebuffered_audio_samples = 0
+        logger.info(
+            f"Flushed startup mic prebuffer ({chunks} chunks, {samples} samples).",
+            "🎤",
+        )
+
+    async def start_after_playback(self, delay: float = 0.6, retries: int = 3) -> bool:
+        """Open mic after playback with retry logic."""
+        if not self.session.session_active.is_set():
+            return False
+        self._ensure_uplink()
+        # Fast path: in normal interactive sessions the mic stream is already open
+        # and only input gating was disabled while Billy spoke.
+        if self.mic_running:
+            # New listen window; reset timeout countdown state so "started" is
+            # emitted consistently for each follow-up window.
+            self._timeout_countdown_active = False
+            self._timeout_countdown_started_at = 0.0
+            self._last_timeout_progress_log = 0.0
+            if not self.mic_timeout_task or self.mic_timeout_task.done():
+                self.mic_timeout_task = asyncio.create_task(self.timeout_checker())
+            self.session._set_listening_state()
+            logger.info("Mic already open; continuing follow-up listen window.", "🎙️")
+            return True
+
+        for attempt in range(1, retries + 1):
+            try:
+                if attempt > 1:
+                    wait_time = delay * (attempt - 1) + 0.5
+                    logger.info(
+                        f"Waiting {wait_time:.1f}s before mic retry {attempt}...", "⏳"
+                    )
+                    await asyncio.sleep(wait_time)
+
+                if self.mic_running:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.mic.stop), timeout=1.5
+                    )
+                    self.mic_running = False
+                    await asyncio.sleep(0.2)
+
+                if not self.mic_running:
+                    self._mic_data_started = False
+                    self._logged_waiting_for_wakeup = False
+                    # Run stream open on a worker thread with timeout so audio-driver
+                    # stalls cannot wedge the session loop.
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.mic.start, self.callback), timeout=2.5
+                    )
+                    self.mic_running = True
+                    self._mic_guard_until = time.time() + 0.35
+                    self._timeout_countdown_active = False
+                    self._timeout_countdown_started_at = 0.0
+                    self._last_timeout_progress_log = 0.0
+                    if not self.mic_timeout_task or self.mic_timeout_task.done():
+                        self.mic_timeout_task = asyncio.create_task(
+                            self.timeout_checker()
+                        )
+                    self.session._set_listening_state()
+                logger.info(f"Mic opened (attempt {attempt}).", "🎙️")
+                return True
+            except Exception as e:
+                err = str(e)
+                logger.warning(f"Mic open failed (attempt {attempt}/{retries}): {err}")
+                self.mic_running = False
+                # Ensure we get a fresh stream object on retry.
+                self.mic = MicManager()
+                if "Device unavailable" in err or "PaErrorCode -9985" in err:
+                    logger.warning(
+                        "Mic device unavailable (-9985) during follow-up reopen; retrying with backoff.",
+                        "⚠️",
+                    )
+                    # Extra settle time for ALSA handoff races (e.g. wake-word stream).
+                    await asyncio.sleep(0.6)
+
+        logger.error("Mic failed to open after retries.")
+        return False
+
+    def callback(self, indata, *callback_args):
+        started = time.monotonic()
+        playing = not audio.playback_done_event.is_set()
+        try:
+            self._process_microphone(indata)
+        finally:
+            if self._uplink is not None:
+                flags = callback_args[-1] if callback_args else None
+                self._uplink.record_callback(
+                    started,
+                    bool(getattr(flags, "input_overflow", False)),
+                    playing=playing,
+                )
+
+    def _process_microphone(self, indata):
+        """Handle incoming audio data from microphone."""
+        if not self.session.session_active.is_set():
+            return
+
+        aec_active = audio.echo_cancellation_active()
+        samples = mic_input_samples_for_meter(indata)
+        playback_active = not audio.playback_done_event.is_set()
+        if aec_active:
+            # AEC3 receives the exact speaker PCM from the output worker and the
+            # corresponding capture frames here. Its internal delay estimator and
+            # double-talk handling decide what belongs to Billy and what belongs
+            # to the near-end speaker. Silent render frames keep the complete
+            # WebRTC front end (including NS/AGC) continuous between responses.
+            samples = audio.process_mic_with_aec(
+                samples,
+                render_active=playback_active,
+            )
+            # A failed DSP call returns raw audio. Recheck this very block,
+            # before either forwarding it or treating it as barge-in evidence.
+            aec_active = audio.echo_cancellation_active()
+            if not aec_active:
+                self.reset_barge_in_evidence()
+                self._clear_prebuffer()
+
+        full_duplex_barge_in = (
+            aec_active
+            and self.session._server_barge_in_enabled
+            and (
+                self.session.state.assistant_speaking
+                or self.session.state.response_active
+            )
+        )
+
+        # With AEC3 active, the provider receives the cleaned mic continuously
+        # and owns speech-start/end detection. Without it, retain safe half-duplex
+        # gating so Billy's speaker cannot become user input.
+        if not self.session.state.allow_mic_input and not full_duplex_barge_in:
+            return
+
+        if full_duplex_barge_in and not self._logged_barge_in_active:
+            logger.info(
+                "WebRTC AEC3 full-duplex barge-in active; post-AEC voice and "
+                "provider VAD are listening.",
+                "👂",
+            )
+            self._logged_barge_in_active = True
+        elif not full_duplex_barge_in:
+            self._logged_barge_in_active = False
+
+        if self.session.state.assistant_speaking and not full_duplex_barge_in:
+            return
+
+        if self.session.state.response_active and not full_duplex_barge_in:
+            return
+
+        if (
+            not TEXT_ONLY_MODE
+            and not audio.playback_done_event.is_set()
+            and not full_duplex_barge_in
+        ):
+            if not self._logged_waiting_for_wakeup:
+                logger.info("Mic waiting for wake-up sound to finish...", "⏳")
+                self._logged_waiting_for_wakeup = True
+            return
+
+        rms = calculate_input_rms(samples)
+
+        if not self._mic_data_started and not TEXT_ONLY_MODE:
+            logger.info("Mic data now being sent", "🎤")
+            self._mic_data_started = True
+
+        self.last_rms = rms
+        now = time.time()
+
+        # Ignore the short mechanical burst after opening/repositioning Billy.
+        if now < self._timeout_motor_guard_until:
+            return
+
+        self.session.state.observe_rms(rms)
+        if full_duplex_barge_in:
+            if not self.session.state._server_input_speaking:
+                self.observe_barge_in_residual(rms)
+            voice_detected = audio.aec_voice_detected() is True
+            self._barge_in_rms_window.append(rms)
+            self._barge_in_voice_window.append(voice_detected)
+            similarity = audio.aec_playback_similarity()
+            self._barge_in_similarity_window.append(similarity)
+            self._barge_in_frame_index += 1
+            self.trace_barge_in_frame(
+                rms,
+                voice_detected,
+                similarity,
+                audio.aec_playback_reference_level(),
+                playback_active,
+            )
+            if playback_active:
+                self.note_playback_frame()
+            if (
+                playback_active
+                and rms >= self._barge_in_residual_floor
+                and not self.session.state._server_input_speaking
+            ):
+                # Only frames that actually carry audible echo say what echo
+                # scores. Quiet gaps score low and would drag the baseline
+                # down until every echo frame looked independent.
+                self.observe_echo_similarity(similarity)
+        else:
+            self._barge_in_rms_window.clear()
+            self._barge_in_voice_window.clear()
+            self._barge_in_similarity_window.clear()
+        # Pause timeout countdown only when local mic activity reaches the
+        # configured speech threshold.
+        if rms >= SILENCE_THRESHOLD:
+            self._local_activity_until = now + 0.8
+            self._last_local_activity_rms = rms
+            if self._timeout_countdown_active:
+                logger.info(
+                    (
+                        "Mic timeout countdown paused by local mic activity "
+                        f"(rms={rms:.1f}, threshold={SILENCE_THRESHOLD:.1f})."
+                    ),
+                    "🎤",
+                )
+                self._timeout_countdown_active = False
+                self._timeout_countdown_started_at = 0.0
+
+        if rms > SILENCE_THRESHOLD:
+            if self._timeout_countdown_active:
+                logger.info(
+                    f"Mic timeout interrupted by speech above threshold (rms={rms:.1f} >= {SILENCE_THRESHOLD:.1f}).",
+                    "🎤",
+                )
+                self._timeout_countdown_active = False
+                self._timeout_countdown_started_at = 0.0
+            self.session.state.update_activity()
+            self.session.state.increment_loud_mic_chunks()
+
+        self.session.state.increment_mic_chunks()
+        if full_duplex_barge_in and self.session.state._server_input_speaking:
+            self.session.schedule_server_barge_in_confirmation()
+        if self.session.ws is None or not self.session.session_initialized:
+            self._store_prebuffer(samples)
+            return
+        if self._prebuffered_audio:
+            self.flush_prebuffer()
+        self._uplink.submit(samples)
+
+    async def timeout_checker(self):
+        """Monitor mic activity and timeout if idle too long."""
+        from ..config import MIC_TIMEOUT_SECONDS
+        from ..mood import mood_manager
+        from ..movements import move_head, move_tail_async
+        from ..status_led import (
+            clear_status_led_timeout_progress,
+            set_status_led_timeout_progress,
+        )
+
+        logger.info("Mic timeout checker active", "🛡️")
+        last_tail_move = 0
+
+        while self.session.session_active.is_set():
+            now = time.time()
+            if not self.mic_running:
+                await asyncio.sleep(0.2)
+                continue
+
+            if self.session.tool_calls.pending(self.session._current_response_id):
+                self.session.last_activity[0] = now
+                self._timeout_countdown_active = False
+
+            # This stale-speech release must run even while a response/playback
+            # is nominally still active. It exists specifically to unstick a
+            # provider VAD speech segment that never resolves (e.g. a barge-in
+            # candidate that can never satisfy the independent-voice gate);
+            # gating it behind response_active/playback_done_event meant it
+            # could never fire during exactly the situation it was meant to
+            # catch, since those flags only clear once this segment resolves.
+            if self.session.state._server_input_speaking:
+                speech_started_at = self.session.state._server_input_speech_started_at
+                speech_open_seconds = (
+                    now - speech_started_at if speech_started_at > 0.0 else 0.0
+                )
+                local_activity_ended = now >= self._local_activity_until
+                # Release sooner once local activity has stopped (the provider
+                # is clearly stuck). Give an actively-talking user more room,
+                # but still force a release eventually so continuous overlap
+                # speech that never passes the barge-in gate cannot wedge the
+                # session indefinitely.
+                stale_after = 8.0 if local_activity_ended else 20.0
+                echo_only = (
+                    local_activity_ended
+                    and not self._barge_in_candidate_ever_independent
+                )
+                if echo_only:
+                    # Local mic activity is already quiet and this candidate
+                    # has never shown a moment of independent (non-echo)
+                    # voice evidence — almost certainly Billy's own echo
+                    # tripping the provider VAD at response start, not real
+                    # speech trailing off (that would normally close out via
+                    # the provider's own silence_duration_ms). Don't make
+                    # every single turn wait out the full stale-timeout for
+                    # this extremely common case. Kept above 2.5s (tried
+                    # first) because a brief-but-real interruption can end
+                    # (local activity stops) before independent/trend
+                    # evidence ever gets a chance to appear at all, and got
+                    # discarded here before it could confirm; this gives it
+                    # more runway while still being well under the 8s/20s
+                    # general fallback.
+                    stale_after = min(stale_after, 4.0)
+                if speech_open_seconds >= stale_after:
+                    logger.warning(
+                        (
+                            "Server VAD speech remained open for "
+                            f"{speech_open_seconds:.1f}s "
+                            + ("(echo-only candidate) " if echo_only else "")
+                            + (
+                                "after local activity ended; "
+                                if local_activity_ended
+                                else "despite ongoing local activity; "
+                            )
+                            + "releasing stale speech state."
+                        ),
+                        "⚠️",
+                    )
+                    self.session.state._server_input_speaking = False
+                    self.session.state._server_input_speech_started_at = 0.0
+                    # The provider item keeps its assistant-overlap tag: its
+                    # aggregate RMS is mostly Billy's own echo, and releasing
+                    # the tag here let that echo be committed as a user turn
+                    # and answered once playback finished. If the user's real
+                    # reply lands in the same item, it is accepted on its own
+                    # post-playback evidence instead (see
+                    # SessionState.last_commit_continued_after_playback).
+                    self.session.last_activity[0] = now
+                    continue
+
+            if not TEXT_ONLY_MODE and not audio.playback_done_event.is_set():
+                await asyncio.sleep(0.2)
+                continue
+
+            # Don't timeout while assistant is actively processing/responding.
+            if self.session.state.response_active:
+                await asyncio.sleep(0.2)
+                continue
+            # Don't timeout while the server is actively detecting user speech.
+            if self.session.state._server_input_speaking:
+                if self._timeout_countdown_active:
+                    logger.info(
+                        "Mic timeout countdown paused while user speech is active.",
+                        "🎤",
+                    )
+                    self._timeout_countdown_active = False
+                    self._timeout_countdown_started_at = 0.0
+                    self._last_timeout_progress_log = 0.0
+                await asyncio.sleep(0.2)
+                continue
+            # Mini model does not always emit speech_started/speech_stopped
+            # reliably. Use local mic activity as an additional pause signal.
+            if now < self._local_activity_until:
+                if self._timeout_countdown_active:
+                    logger.info(
+                        (
+                            "Mic timeout countdown paused while local mic activity is ongoing "
+                            f"(last_rms={self._last_local_activity_rms:.1f})."
+                        ),
+                        "🎤",
+                    )
+                    self._timeout_countdown_active = False
+                    self._timeout_countdown_started_at = 0.0
+                    self._last_timeout_progress_log = 0.0
+                await asyncio.sleep(0.2)
+                continue
+
+            idle_seconds = now - max(
+                self.session.last_activity[0], audio.last_played_time
+            )
+
+            if idle_seconds > 0.5:
+                if not self._timeout_head_retracted:
+                    move_head("off")
+                    self._timeout_head_retracted = True
+                    self._timeout_motor_guard_until = max(
+                        self._timeout_motor_guard_until, now + 0.6
+                    )
+                    self.session.last_activity[0] = now
+                    await asyncio.sleep(0.6)
+                    continue
+                if not self._timeout_countdown_active:
+                    self._timeout_countdown_active = True
+                    self._timeout_countdown_started_at = now
+                    logger.info(
+                        f"Mic timeout countdown started ({MIC_TIMEOUT_SECONDS}s limit, threshold={SILENCE_THRESHOLD:.1f}).",
+                        "⏳",
+                    )
+                    self._last_timeout_progress_log = 0.0
+
+                elapsed = now - self._timeout_countdown_started_at
+                progress = min(elapsed / MIC_TIMEOUT_SECONDS, 1.0)
+                set_status_led_timeout_progress(progress)
+                if (
+                    self._last_timeout_progress_log == 0.0
+                    or now - self._last_timeout_progress_log >= 1.0
+                ):
+                    remaining = max(0.0, MIC_TIMEOUT_SECONDS - elapsed)
+                    logger.verbose(
+                        (
+                            f"Mic timeout countdown progress: elapsed={elapsed:.1f}s, "
+                            f"remaining={remaining:.1f}s, rms={self.last_rms:.1f}"
+                        ),
+                        "⏳",
+                    )
+                    self._last_timeout_progress_log = now
+
+                if MIC_TIMEOUT_TAIL_FLAP and now - last_tail_move > 1.0:
+                    motion = mood_manager.get_motion_profile()
+                    move_tail_async(duration=motion.get("tail_duration", 0.2))
+                    self._timeout_motor_guard_until = max(
+                        self._timeout_motor_guard_until, now + 0.35
+                    )
+                    last_tail_move = now
+
+                if elapsed > MIC_TIMEOUT_SECONDS:
+                    logger.info(
+                        (
+                            f"Mic timeout reached end ({MIC_TIMEOUT_SECONDS}s). "
+                            f"Ending input... last_rms={self.last_rms:.1f}"
+                        ),
+                        "⏱️",
+                    )
+                    self._timeout_countdown_active = False
+                    self._timeout_countdown_started_at = 0.0
+                    self._last_timeout_progress_log = 0.0
+                    # Don't clear the progress overlay here: the LED state is
+                    # still "listening" at this instant (it only becomes
+                    # "idle" once stop_session's MQTT publish round-trips back
+                    # to the LED's subscriber), so clearing it now made the
+                    # LED flash back to plain listening-green for that whole
+                    # window instead of staying red through to idle.
+                    await self.session.stop_session(reason="mic_timeout")
+                    break
+            elif self._timeout_countdown_active:
+                logger.info(
+                    "Mic timeout countdown cleared before expiry.",
+                    "✅",
+                )
+                self._timeout_countdown_active = False
+                self._timeout_countdown_started_at = 0.0
+                self._last_timeout_progress_log = 0.0
+                self._timeout_head_retracted = False
+                clear_status_led_timeout_progress()
+
+            await asyncio.sleep(0.5)
+
+    async def _retry_loop(self):
+        """Retry opening mic once with backoff."""
+        logger.verbose("Mic retry loop started", "🔁")
+
+        if not self.session.session_active.is_set():
+            return
+
+        generation = self._mic_generation
+        await asyncio.sleep(0.5)
+        if (
+            not self.session.session_active.is_set()
+            or generation != self._mic_generation
+        ):
+            return
+
+        try:
+            self.mic = MicManager()
+        except Exception as e:
+            logger.warning(f"MicManager recreate failed: {e}")
+
+        try:
+            self.mic.start(self.callback)
+            if (
+                not self.session.session_active.is_set()
+                or generation != self._mic_generation
+            ):
+                self.mic.stop()
+                return
+            self.mic_running = True
+            self._mic_guard_until = time.time() + 0.35
+            logger.info("Mic started after retry", "✅")
+            if not self.mic_timeout_task or self.mic_timeout_task.done():
+                self.mic_timeout_task = asyncio.create_task(self.timeout_checker())
+            self.session._set_listening_state()
+        except Exception as e:
+            self.mic_running = False
+            logger.warning(f"Mic retry failed: {e}")
+            logger.info("Assuming no follow-up needed, ending session.", "🛑")
+            await self.session.stop_session(reason="mic_retry_failed")
+
+    async def _reset_audio_system(self):
+        """Reset audio system for device unavailable errors."""
+        logger.info("Attempting audio system reset...", "🔄")
+        try:
+            import subprocess
+
+            import sounddevice as sd
+
+            sd._terminate()
+            await asyncio.sleep(0.5)
+            sd._initialize()
+
+            subprocess.run(
+                ["sudo", "alsactl", "restore"], capture_output=True, timeout=5
+            )
+            subprocess.run(
+                ["sudo", "fuser", "-k", "/dev/snd/*"], capture_output=True, timeout=3
+            )
+
+            await asyncio.sleep(2.0)
+            logger.info("Audio system reset completed", "✅")
+        except Exception as e:
+            logger.warning(f"Audio reset failed: {e}")

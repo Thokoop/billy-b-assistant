@@ -1,0 +1,2428 @@
+// ===================== SETTINGS FORM =====================
+const SettingsForm = (() => {
+    const MODEL_ALIASES = {
+        // Legacy/compat aliases mapped to current options
+        'gpt-4o-realtime': 'gpt-realtime',
+        'gpt-4o-realtime-preview': 'gpt-4o-mini-realtime-preview'
+    };
+
+    const normalizeModelValue = (value) => {
+        if (!value) return value;
+        const v = String(value).trim();
+        return MODEL_ALIASES[v] || v;
+    };
+
+    // STATUS_LED_ENABLED intentionally isn't here - it no longer has its own
+    // select/toggle (0% brightness means "off" now); handleSettingsSave()
+    // derives and submits it from STATUS_LED_BRIGHTNESS on every save instead.
+    const BOOLEAN_SELECT_IDS = new Set([
+        'AEC_ENABLED',
+        'WEB_SEARCH_ENABLED',
+        'WAKE_WORD_ENABLED',
+        'MIC_TIMEOUT_TAIL_FLAP',
+        'MOOD_INSTRUCTIONS_ENABLED',
+    ]);
+
+    const normalizeSelectValue = (id, value) => {
+        if (value === undefined || value === null) return value;
+        if (BOOLEAN_SELECT_IDS.has(id)) {
+            const normalized = String(value).trim().toLowerCase();
+            if (['true', '1', 'yes', 'y', 'on', 'enabled'].includes(normalized)) {
+                return 'true';
+            }
+            if (['false', '0', 'no', 'n', 'off', 'disabled'].includes(normalized)) {
+                return 'false';
+            }
+        }
+        if (['OPENAI_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL', 'XAI_MODEL'].includes(id)) {
+            return normalizeModelValue(value);
+        }
+        if (id === 'AEC_BARGE_IN_SNR_DB') {
+            const numericValue = Number(value);
+            if (Number.isFinite(numericValue)) return String(numericValue);
+        }
+        return String(value).trim();
+    };
+
+    const setSelectValueSafely = (element, value) => {
+        if (!element || !value) return false;
+        const exists = Array.from(element.options).some(opt => opt.value === value);
+        if (!exists) return false;
+        element.value = value;
+        return true;
+    };
+
+    // The 5 BOOLEAN_SELECT_IDS keep their original <select> (hidden) as the
+    // real form control - it's what FormData/localStorage/refreshFromConfig
+    // already all work against, untouched. The visible iOS-style switch is a
+    // pure proxy: this keeps it in sync whenever code sets the select's value
+    // programmatically (population/refresh never fire a 'change' event, so
+    // the toggle's own 'change' listener wouldn't see these).
+    const syncBooleanToggle = (selectElement) => {
+        if (!selectElement || !BOOLEAN_SELECT_IDS.has(selectElement.id)) return;
+        const toggle = document.getElementById(`${selectElement.id}_toggle`);
+        if (toggle) toggle.checked = selectElement.value === 'true';
+    };
+
+    // Same idea for the few selects drawn as a stepped slider: the select is
+    // the form control, the slider is the picture of it, and population and
+    // refresh set the select without firing 'change'.
+    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB', 'UPDATE_CHANNEL']);
+
+    const syncStepSlider = (selectElement) => {
+        if (!selectElement || !STEP_SLIDER_SELECT_IDS.has(selectElement.id)) return;
+        const bar = document.getElementById(`${selectElement.id}-bar`);
+        const fill = document.getElementById(`${selectElement.id}-fill`);
+        const label = document.getElementById(`${selectElement.id}-label`);
+        if (!bar || !fill) return;
+        const count = selectElement.options.length;
+        const index = Math.max(0, selectElement.selectedIndex);
+        const percent = count > 1 ? (index / (count - 1)) * 100 : 100;
+        fill.style.width = `${percent}%`;
+        fill.dataset.value = selectElement.value;
+        if (label) label.textContent = selectElement.options[index]?.text || '';
+        bar.setAttribute('aria-valuemin', '1');
+        bar.setAttribute('aria-valuemax', String(count));
+        bar.setAttribute('aria-valuenow', String(index + 1));
+        bar.setAttribute('aria-valuetext', selectElement.options[index]?.text || '');
+
+    };
+
+    const ensureSelectHasValue = (element, preferredValue, fallbackValue = null) => {
+        if (!element) return false;
+        if (setSelectValueSafely(element, preferredValue)) {
+            syncBooleanToggle(element);
+            syncStepSlider(element);
+            return true;
+        }
+        if (setSelectValueSafely(element, fallbackValue)) {
+            syncBooleanToggle(element);
+            syncStepSlider(element);
+            return true;
+        }
+        if (element.options.length > 0) {
+            element.value = element.options[0].value;
+            syncBooleanToggle(element);
+            syncStepSlider(element);
+            return true;
+        }
+        return false;
+    };
+
+    const getCameraSelectionFromConfig = (cfg) => {
+        const hardware = String(cfg?.CAMERA_HARDWARE || "none").trim().toLowerCase();
+        const index = String(cfg?.CAMERA_DEVICE_INDEX || "0").trim();
+        if (hardware === "usb_webcam") return `usb_webcam:${index}`;
+        if (hardware === "rpi_camera") return "rpi_camera";
+        return "none";
+    };
+
+    const populateCameraHardwareDropdown = async (cfg = null, preferredValue = null) => {
+        const select = document.getElementById("CAMERA_HARDWARE");
+        if (!select) return;
+        const selectionAtRequest = select.value;
+
+        const fallbackOptions = [
+            { value: "none", label: "None" },
+            { value: "rpi_camera", label: "Raspberry Pi Camera Module" },
+            { value: "usb_webcam", label: "USB Webcam" }
+        ];
+        const renderOptions = (entries) => {
+            const usableEntries = Array.isArray(entries)
+                ? entries.filter(entry => entry && entry.value)
+                : [];
+            const options = usableEntries.length > 0 ? usableEntries : fallbackOptions;
+            select.replaceChildren(...options.map((entry) => {
+                const opt = document.createElement("option");
+                opt.value = String(entry.value);
+                opt.textContent = String(entry.label || entry.value);
+                return opt;
+            }));
+        };
+
+        try {
+            let data = await window.BootstrapData?.take("camera");
+            if (!data) {
+                const response = await fetch("/camera/devices");
+                if (!response.ok) {
+                    console.error(`Camera discovery returned HTTP ${response.status}`);
+                    return;
+                }
+                data = await response.json();
+            }
+            // Discovery can finish after the user has chosen a camera.
+            if (select.value !== selectionAtRequest) return;
+            renderOptions(data.options);
+
+            const savedSelection = localStorage.getItem("dropdown_CAMERA_HARDWARE");
+            const configSelection = getCameraSelectionFromConfig(cfg || {});
+            const hasConfiguredSelection = Boolean(
+                cfg && Object.prototype.hasOwnProperty.call(cfg, "CAMERA_HARDWARE")
+            );
+            const target = preferredValue
+                || (hasConfiguredSelection ? configSelection : savedSelection)
+                || "none";
+            if (!setSelectValueSafely(select, target)) {
+                if (!setSelectValueSafely(select, configSelection)) {
+                    setSelectValueSafely(select, "none");
+                }
+            }
+            localStorage.setItem("dropdown_CAMERA_HARDWARE", select.value);
+        } catch (error) {
+            console.error("Failed to load detected camera devices:", error);
+            if (select.value !== selectionAtRequest) return;
+            if (select.options.length === 0) {
+                renderOptions(fallbackOptions);
+            }
+            const configSelection = getCameraSelectionFromConfig(cfg || {});
+            ensureSelectHasValue(
+                select,
+                preferredValue || configSelection,
+                "none"
+            );
+        }
+        return select.value;
+    };
+
+    const bindCameraPreview = () => {
+        const button = document.getElementById("test-camera-btn");
+        const select = document.getElementById("CAMERA_HARDWARE");
+        const rotationInput = document.getElementById("CAMERA_ROTATION");
+        const rotationButton = document.getElementById("camera-rotation-btn");
+        const rotationIcon = document.getElementById("camera-rotation-icon");
+        const rotationLabel = document.getElementById("camera-rotation-label");
+        const image = document.getElementById("camera-preview-image");
+        const status = document.getElementById("camera-preview-status");
+        if (!button || !select || !image || !status || !rotationInput || !rotationButton || !rotationIcon || !rotationLabel) return;
+
+        const setStatus = (text, isError = false) => {
+            status.textContent = text;
+            status.classList.toggle("text-red-300", isError);
+            status.classList.toggle("text-slate-400", !isError);
+        };
+
+        const clearPreview = () => {
+            image.removeAttribute("src");
+            image.classList.add("hidden");
+        };
+
+        const normalizeRotation = (value) => {
+            const parsed = Number.parseInt(String(value || "0"), 10);
+            if (Number.isNaN(parsed)) return 0;
+            const normalized = ((parsed % 360) + 360) % 360;
+            return [0, 90, 180, 270].includes(normalized) ? normalized : 0;
+        };
+
+        const updateRotationUi = (value) => {
+            const rotation = normalizeRotation(value);
+            rotationInput.value = String(rotation);
+            rotationLabel.textContent = `${rotation}°`;
+            rotationIcon.style.transform = `rotate(${rotation}deg)`;
+        };
+
+        updateRotationUi(rotationInput.value);
+
+        select.addEventListener("change", () => {
+            clearPreview();
+            setStatus("Camera selection changed. Run test again.");
+        });
+
+        rotationButton.addEventListener("click", () => {
+            const nextRotation = (normalizeRotation(rotationInput.value) + 90) % 360;
+            updateRotationUi(nextRotation);
+            clearPreview();
+            setStatus(`Orientation set to ${nextRotation}°. Run test again.`);
+        });
+
+        button.addEventListener("click", async () => {
+            const selection = String(select.value || "none");
+            const rotation = normalizeRotation(rotationInput.value);
+            button.disabled = true;
+            button.classList.add("opacity-60", "cursor-not-allowed");
+            setStatus("Capturing preview...");
+            try {
+                const response = await fetch("/camera/preview", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({selection, rotation}),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    const error = data.error || "Preview failed";
+                    clearPreview();
+                    setStatus(error, true);
+                    showNotification(`Camera preview failed: ${error}`, "error", 4000);
+                    return;
+                }
+
+                image.src = data.image_url;
+                image.classList.remove("hidden");
+                setStatus(`Preview captured (${data.bytes || 0} bytes).`);
+                showNotification("Camera preview updated", "success", 2000);
+            } catch (error) {
+                clearPreview();
+                setStatus(String(error), true);
+                showNotification(`Camera preview failed: ${error}`, "error", 4000);
+            } finally {
+                button.disabled = false;
+                button.classList.remove("opacity-60", "cursor-not-allowed");
+            }
+        });
+    };
+
+    const populateUpdateChannel = (cfg) => {
+        // Explicit channel wins; old installs keep their RC opt-in. Never use
+        // localStorage here: another unit's Beta selection must not leak in.
+        const channel = document.getElementById('UPDATE_CHANNEL');
+        if (channel) {
+            const syncWarning = () => {
+                const warning = document.getElementById('update-channel-warning');
+                const preview = ['rc', 'beta'].includes(channel.value);
+                if (warning) {
+                    warning.hidden = !preview;
+                    if (!preview) warning.open = false;
+                }
+                for (const control of [channel, document.getElementById('UPDATE_CHANNEL-bar')]) {
+                    if (!control) continue;
+                    if (preview) control.setAttribute('aria-describedby', 'update-channel-warning-text');
+                    else control.removeAttribute('aria-describedby');
+                }
+            };
+            if (!channel.dataset.warningBound) {
+                channel.addEventListener('change', syncWarning);
+                channel.dataset.warningBound = 'true';
+            }
+            const saved = String(cfg.UPDATE_CHANNEL || '').trim().toLowerCase();
+            channel.value = saved ? (['stable', 'rc', 'beta'].includes(saved) ? saved : 'stable')
+                : (String(cfg.SHOW_RC_VERSIONS).trim().toLowerCase() === 'true' ? 'rc' : 'stable');
+            syncWarning();
+            syncStepSlider(channel);
+        }
+    };
+
+    const populateDropdowns = async (cfg) => {
+        let cameraReady;
+        populateUpdateChannel(cfg);
+        // Populate dropdown values with saved configuration
+        const dropdowns = [
+            { id: 'REALTIME_AI_PROVIDER', key: 'REALTIME_AI_PROVIDER' },
+            { id: 'OPENAI_MODEL', key: 'OPENAI_MODEL' },
+            { id: 'OPENAI_LIVE_MODEL', key: 'OPENAI_LIVE_MODEL' },
+            { id: 'OPENAI_LIVE_BACKEND_MODEL', key: 'OPENAI_LIVE_BACKEND_MODEL' },
+            { id: 'XAI_MODEL', key: 'XAI_MODEL' },
+            { id: 'VOICE', key: 'VOICE' },
+            { id: 'RUN_MODE', key: 'RUN_MODE' },
+            { id: 'TURN_EAGERNESS', key: 'TURN_EAGERNESS' },
+            { id: 'BILLY_MODEL', key: 'BILLY_MODEL' },
+            { id: 'CAMERA_HARDWARE', key: 'CAMERA_HARDWARE' },
+            { id: 'BILLY_PINS_SELECT', key: 'BILLY_PINS' },
+            { id: 'HA_LANG', key: 'HA_LANG' },
+            { id: 'HA_AGENT_ID', key: 'HA_AGENT_ID' },
+            { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
+            { id: 'AEC_ENABLED', key: 'AEC_ENABLED' },
+            { id: 'WEB_SEARCH_ENABLED', key: 'WEB_SEARCH_ENABLED' },
+            { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
+            { id: 'MIC_TIMEOUT_TAIL_FLAP', key: 'MIC_TIMEOUT_TAIL_FLAP' },
+            { id: 'MOOD_INSTRUCTIONS_ENABLED', key: 'MOOD_INSTRUCTIONS_ENABLED' },
+            { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
+            { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
+        ];
+
+        dropdowns.forEach(({ id, key }) => {
+            const element = document.getElementById(id);
+            if (element) {
+                if (id === 'CAMERA_HARDWARE') {
+                    cameraReady = populateCameraHardwareDropdown(cfg);
+                    return;
+                }
+                // First try to get from localStorage (user's last selection)
+                const savedValue = localStorage.getItem(`dropdown_${id}`);
+                // Then fall back to config value
+                const configValue = id === "REALTIME_AI_PROVIDER"
+                    ? (cfg[key] || "openai")
+                    : cfg[key];
+                // System-controlled selectors prefer .env/config over localStorage.
+                const preferConfigValue = id === 'OPENAI_MODEL'
+                    || id === 'OPENAI_LIVE_MODEL'
+                    || id === 'OPENAI_LIVE_BACKEND_MODEL'
+                    || id === 'XAI_MODEL'
+                    || id === 'WEB_SEARCH_ENABLED'
+                    || id === 'WAKE_WORD_BACKEND'
+                    || id === 'REALTIME_AI_PROVIDER'
+                    || id === 'AEC_BARGE_IN_SNR_DB'
+                    || BOOLEAN_SELECT_IDS.has(id);
+                const preferredValue = preferConfigValue ? configValue : (savedValue || configValue);
+                const fallbackValue = preferConfigValue ? savedValue : null;
+
+                if (preferConfigValue) {
+                    const normalizedPreferred = normalizeSelectValue(id, preferredValue);
+                    const normalizedFallback = normalizeSelectValue(id, fallbackValue);
+
+                    if (ensureSelectHasValue(element, normalizedPreferred, normalizedFallback)) {
+                        localStorage.setItem(`dropdown_${id}`, element.value);
+                    } else {
+                        // Clear stale localStorage when no matching option exists.
+                        localStorage.removeItem(`dropdown_${id}`);
+                    }
+                } else if (preferredValue) {
+                    ensureSelectHasValue(
+                        element,
+                        normalizeSelectValue(id, preferredValue),
+                        id === "WIFI_COUNTRY" ? "NL" : null
+                    );
+                } else if (id === "WIFI_COUNTRY") {
+                    ensureSelectHasValue(element, "NL");
+                }
+            }
+        });
+
+        const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
+        const cameraRotationLabel = document.getElementById("camera-rotation-label");
+        const cameraRotationIcon = document.getElementById("camera-rotation-icon");
+        if (cameraRotationInput && cameraRotationLabel && cameraRotationIcon) {
+            const parsed = Number.parseInt(String(cfg?.CAMERA_ROTATION || "0"), 10);
+            const rotation = [0, 90, 180, 270].includes(parsed) ? parsed : 0;
+            cameraRotationInput.value = String(rotation);
+            cameraRotationLabel.textContent = `${rotation}°`;
+            cameraRotationIcon.style.transform = `rotate(${rotation}deg)`;
+        }
+        syncApiProviderFields();
+        await cameraReady;
+    };
+
+    // Binds each BOOLEAN_SELECT_IDS field's visible iOS toggle to its hidden
+    // <select> (the real, save/load-wired form control - see
+    // syncBooleanToggle()'s comment for why the select stays the source of
+    // truth). One-time bind guarded by dataset, same as the rest of this
+    // form's init functions - the settings page's DOM persists across SPA
+    // navigations, so this can run again on a return visit.
+    const initBooleanToggles = () => {
+        BOOLEAN_SELECT_IDS.forEach((id) => {
+            const select = document.getElementById(id);
+            const toggle = document.getElementById(`${id}_toggle`);
+            if (!select || !toggle) return;
+            toggle.checked = select.value === 'true';
+            if (toggle.dataset.bound === 'true') return;
+            toggle.dataset.bound = 'true';
+            toggle.addEventListener('change', () => {
+                select.value = toggle.checked ? 'true' : 'false';
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+    };
+
+    // Applies immediately (not just after Save Settings) so you see the
+    // effect right away, the same way "UI Animations & Effects" does.
+    const initShowTooltipsToggle = () => {
+        const checkbox = document.getElementById('SHOW_TOOLTIPS');
+        if (!checkbox || checkbox.dataset.bound === 'true') return;
+        checkbox.dataset.bound = 'true';
+        checkbox.addEventListener('change', () => {
+            applyShowTooltipsPreference(checkbox.checked);
+        });
+    };
+
+    const saveDropdownSelections = () => {
+        // Save dropdown selections to localStorage when they change
+        const dropdowns = [
+            'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
+            'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG',
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY', 'AEC_ENABLED',
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
+        ];
+
+        dropdowns.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('change', () => {
+                    localStorage.setItem(`dropdown_${id}`, element.value);
+                });
+            }
+        });
+    };
+
+    const handleSettingsSave = () => {
+        const form = document.getElementById("config-form");
+        if (!form || form.dataset.bound === "true") {
+            return;
+        }
+        form.dataset.bound = "true";
+        form.addEventListener("submit", async function (e) {
+            e.preventDefault();
+
+            const saveButton = document.getElementById("save-btn");
+            const saveDropdownButton = document.getElementById("dropdown-btn");
+            const originalSaveMarkup = saveButton?.innerHTML;
+            if (saveButton) {
+                saveButton.disabled = true;
+                saveButton.classList.add("opacity-70", "cursor-not-allowed");
+                saveButton.innerHTML = '<span class="material-icons align-middle animate-spin">sync</span>Saving…';
+            }
+            if (saveDropdownButton) saveDropdownButton.disabled = true;
+
+            const saveSnapshot = window.SettingsNavigation?.snapshot(this);
+            this.dataset.saving = "true";
+            try {
+
+            const formData = new FormData(this);
+            const payload = Object.fromEntries(formData.entries());
+
+            const flaskPortInput = document.getElementById("FLASK_PORT");
+            const oldPort = parseInt(flaskPortInput.getAttribute("data-original")) || 80;
+            const newPort = parseInt(payload["FLASK_PORT"] || "80");
+
+            const hostnameInput = document.getElementById("hostname");
+            const oldHostname = (hostnameInput.getAttribute("data-original") || hostnameInput.defaultValue || "").trim();
+            const newHostname = (formData.get("hostname") || "").trim();
+
+            const timezoneInput = document.getElementById("timezone");
+            const oldTimezone = (timezoneInput?.getAttribute("data-original") || "").trim();
+            const newTimezone = (formData.get("timezone") || "").trim();
+
+            const pinSelect = document.getElementById("BILLY_PINS_SELECT");
+            if (pinSelect) {
+                payload.BILLY_PINS = pinSelect.value; // "new" | "legacy"
+            }
+
+            const cameraSelect = document.getElementById("CAMERA_HARDWARE");
+            if (cameraSelect) {
+                const selected = String(cameraSelect.value || "none");
+                if (selected.startsWith("usb_webcam:")) {
+                    const idx = selected.split(":")[1] || "0";
+                    payload.CAMERA_HARDWARE = "usb_webcam";
+                    payload.CAMERA_DEVICE_INDEX = idx;
+                } else if (selected === "usb_webcam") {
+                    payload.CAMERA_HARDWARE = "usb_webcam";
+                    payload.CAMERA_DEVICE_INDEX = String(payload.CAMERA_DEVICE_INDEX || "0");
+                } else if (selected === "rpi_camera") {
+                    payload.CAMERA_HARDWARE = "rpi_camera";
+                    payload.CAMERA_DEVICE_INDEX = "0";
+                } else {
+                    payload.CAMERA_HARDWARE = "none";
+                }
+            }
+
+            // Manually add MOUTH_ARTICULATION value
+            const mouthArticulationInput = document.getElementById("MOUTH_ARTICULATION");
+            if (mouthArticulationInput) {
+                payload.MOUTH_ARTICULATION = mouthArticulationInput.value;
+            }
+
+            // STATUS_LED_ENABLED no longer has its own control - 0% brightness
+            // now means "off". Derive and submit it on every save so it stays
+            // consistent with STATUS_LED_BRIGHTNESS (core/config.py also
+            // AND-gates on brightness > 0 for anyone with an older .env who
+            // hasn't saved from this form yet).
+            const statusLedBrightnessInput = document.getElementById("STATUS_LED_BRIGHTNESS");
+            if (statusLedBrightnessInput) {
+                payload.STATUS_LED_ENABLED = parseFloat(statusLedBrightnessInput.value) > 0 ? 'true' : 'false';
+            }
+
+            // Manually add FLAP_ON_BOOT value (only set to True when checked)
+            const flapOnBootCheckbox = document.getElementById("FLAP_ON_BOOT");
+            if (flapOnBootCheckbox && flapOnBootCheckbox.checked) {
+                payload.FLAP_ON_BOOT = 'True';
+            } else {
+                payload.FLAP_ON_BOOT = 'False';
+            }
+
+            // Manually add SHOW_TOOLTIPS value (only set to True when checked)
+            const showTooltipsCheckbox = document.getElementById("SHOW_TOOLTIPS");
+            if (showTooltipsCheckbox && showTooltipsCheckbox.checked) {
+                payload.SHOW_TOOLTIPS = 'True';
+            } else {
+                payload.SHOW_TOOLTIPS = 'False';
+            }
+
+            let hostnameChanged = false;
+
+            const saveResult = await requestJson("/save", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(payload),
+                accept: (data, res) => res.ok && data?.status === "ok",
+                error: "The settings could not be saved",
+            });
+            const portChanged = saveResult.port_changed || (oldPort !== newPort);
+            if (saveResult.update_channel_changed) {
+                await window.BillyVersionUI?.reloadVersion?.();
+                window.ReleaseNotes?.reload?.();
+            }
+
+            // Refresh the config cache after saving. A mounted settings draft
+            // keeps its inputs: edits made during this request are still unsaved.
+            try {
+                const refreshedConfig = await ConfigService.fetchConfig(true);
+                if (refreshedConfig && !saveSnapshot) {
+                    refreshFromConfig(refreshedConfig);
+                }
+            } catch (refreshError) {
+                // Saving succeeded; a control-refresh failure must not be
+                // reported as if writing .env failed.
+                console.error("Settings saved, but form refresh failed:", refreshError);
+            }
+
+            if (timezoneInput && newTimezone && newTimezone !== oldTimezone) {
+                try {
+                    const tzResult = await requestJson("/timezone", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({timezone: newTimezone}),
+                        // A body that did not arrive, or that names an
+                        // error, means the zone was not changed - whatever the
+                        // status code says.
+                        accept: (data, res) => res.ok && data && !data.error,
+                        error: "The timezone could not be changed",
+                    });
+                    timezoneInput.setAttribute("data-original", tzResult.timezone);
+                    startDeviceClock(tzResult.now, tzResult.timezone);
+                    showNotification(`Timezone set to ${tzResult.timezone}`, "success", 5000);
+                } catch (error) {
+                    // The rest of the settings did save; say what did not.
+                    console.error("Failed to set timezone:", error);
+                    saveSnapshot?.delete(timezoneInput);
+                    showNotification(`Settings saved, but the timezone could not be changed: ${error.message}`, "warning", 6000);
+                }
+            }
+
+            if (newHostname && newHostname !== oldHostname) {
+                const hostResponse = await fetch("/hostname", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({hostname: newHostname})
+                });
+                const hostResult = await hostResponse.json();
+                if (hostResult.hostname) {
+                    hostnameInput.setAttribute("data-original", hostResult.hostname);
+                    hostnameChanged = true;
+                    showNotification(`Hostname updated to ${hostResult.hostname}.local`, "success", 5000);
+                } else {
+                    saveSnapshot?.delete(hostnameInput);
+                    showNotification("Settings saved, but the hostname could not be changed", "warning", 6000);
+                }
+            }
+
+            window.SettingsNavigation?.markSaved(this, saveSnapshot);
+
+            if (portChanged || hostnameChanged) {
+                try {
+                    await fetch("/restart", {method: "POST"});
+                    showNotification("Settings saved — restarting interface in background", "success");
+                } catch (error) {
+                    console.error("Failed to restart Billy services after save:", error);
+                    showNotification("Settings saved, but the background restart failed", "warning", 5000);
+                }
+
+                const targetHost = hostnameChanged ? `${newHostname}.local` : window.location.hostname;
+                const targetPort = portChanged ? newPort : (window.location.port || 80);
+
+                showNotification(`Redirecting to http://${targetHost}:${targetPort}/...`, "warning", 5000);
+                setTimeout(() => {
+                    window.location.href = `http://${targetHost}:${targetPort}/`;
+                }, 3000);
+            } else {
+                try {
+                    sessionStorage.removeItem("billy:reload_on_ws_reconnect");
+                    await fetch("/restart-billy", {method: "POST"});
+                    showNotification("Settings saved — restarting Billy in background", "success");
+                } catch (error) {
+                    console.error("Failed to restart Billy after save:", error);
+                    showNotification("Settings saved, but the Billy restart failed", "warning", 5000);
+                }
+            }
+            } catch (error) {
+                console.error("Failed to save settings:", error);
+                showNotification(`Settings were not saved: ${error.message}`, "error", 6000);
+            } finally {
+                delete this.dataset.saving;
+                if (saveButton) {
+                    saveButton.disabled = false;
+                    saveButton.classList.remove("opacity-70", "cursor-not-allowed");
+                    saveButton.innerHTML = originalSaveMarkup;
+                }
+                if (saveDropdownButton) saveDropdownButton.disabled = false;
+            }
+        });
+    };
+
+    const bindFactoryReset = () => {
+        const resetBtn = document.getElementById("factory-reset-btn");
+        const resetBtnWrapper = document.getElementById("factory-reset-btn-wrapper");
+        const resetCard = document.getElementById("reset-defaults-card");
+        const modal = document.getElementById("factory-reset-modal");
+        const closeBtn = document.getElementById("close-factory-reset-modal");
+        const cancelBtn = document.getElementById("cancel-factory-reset");
+        const confirmBtn = document.getElementById("confirm-factory-reset");
+        const envCheckbox = document.getElementById("factory-reset-env");
+        const profilesCheckbox = document.getElementById("factory-reset-profiles");
+        const personasCheckbox = document.getElementById("factory-reset-personas");
+        const logsCheckbox = document.getElementById("factory-reset-logs");
+        const gitCheckbox = document.getElementById("factory-reset-git");
+        const wifiCheckbox = document.getElementById("factory-reset-wifi");
+        const rebootCheckbox = document.getElementById("factory-reset-reboot");
+
+        if (!resetBtn || !resetBtnWrapper) return;
+        if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
+        if (wifiCheckbox && rebootCheckbox) {
+            wifiCheckbox.addEventListener("change", () => {
+                if (wifiCheckbox.checked) {
+                    rebootCheckbox.checked = true;
+                    rebootCheckbox.disabled = true;
+                } else {
+                    rebootCheckbox.disabled = false;
+                }
+            });
+        }
+        const resetSection = document.getElementById("recovery-reset-section");
+        const openModal = () => {
+            if (resetSection) resetSection.open = false;
+            modal.classList.remove("hidden");
+            window.BillyVersionUI?.refresh();
+        };
+        const closeModal = () => {
+            modal.classList.add("hidden");
+        };
+
+        if (resetCard) {
+            resetCard.addEventListener("click", () => {
+                const isHidden = resetBtnWrapper.classList.contains("hidden");
+                if (isHidden) {
+                    resetBtnWrapper.classList.remove("hidden");
+                } else {
+                    resetBtnWrapper.classList.add("hidden");
+                }
+            });
+        }
+
+        resetBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            openModal();
+        });
+
+        closeBtn.addEventListener("click", closeModal);
+        cancelBtn.addEventListener("click", () => {
+            if (resetSection) {
+                resetSection.open = false;
+                resetSection.querySelector('summary')?.focus();
+            }
+        });
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        confirmBtn.addEventListener("click", async () => {
+            const options = {
+                env: envCheckbox?.checked ?? false,
+                profiles: profilesCheckbox?.checked ?? false,
+                personas: personasCheckbox?.checked ?? false,
+                logs: logsCheckbox?.checked ?? false,
+                git: gitCheckbox?.checked ?? false,
+                wifi: wifiCheckbox?.checked ?? false,
+                reboot: rebootCheckbox?.checked ?? false,
+            };
+
+            const anySelected = Object.values(options).some(Boolean);
+            if (!anySelected) {
+                showNotification("Select at least one reset option.", "warning", 4000);
+                return;
+            }
+
+            confirmBtn.disabled = true;
+            confirmBtn.classList.add("opacity-50", "cursor-not-allowed");
+            resetBtn.disabled = true;
+            resetBtn.classList.add("opacity-50", "cursor-not-allowed");
+            showNotification("Running reset to defaults...", "warning", 4000);
+
+            try {
+                const response = await fetch("/factory-reset", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({confirm: true, options}),
+                });
+                const data = await response.json();
+
+                if (response.ok && data.status === "ok") {
+                    const summary = [];
+                    if (data.removed?.env) summary.push(".env");
+                    if (data.removed?.versions) summary.push("versions.ini");
+                    if (data.removed?.profiles?.length) summary.push(`${data.removed.profiles.length} profile(s)`);
+                    if (data.requested?.personas) {
+                        const personaCount = data.removed?.personas?.length || 0;
+                        summary.push(`${personaCount} persona(s)`);
+                    }
+                    if (data.logs_cleared) summary.push("service logs");
+                    if (data.git_reset) summary.push("git worktree");
+                    if (data.requested?.wifi) {
+                        summary.push("Wi-Fi connection");
+                    }
+                    const msg = summary.length
+                        ? `Reset to defaults complete: ${summary.join(", ")}`
+                        : "Reset to defaults complete.";
+                    let postfix = "";
+                    if (data.rebooting) {
+                        postfix = " Rebooting now...";
+                    } else if (data.restarting_services) {
+                        postfix = " Restarting UI...";
+                    }
+                    showNotification(`${msg}${postfix}`, "success", 6000);
+                    if (data.restarting_services) {
+                        try {
+                            await fetch("/restart", {method: "POST"});
+                            setTimeout(() => location.reload(), 3000);
+                        } catch (restartErr) {
+                            console.error("Failed to restart UI:", restartErr);
+                        }
+                    }
+                    closeModal();
+                } else {
+                    const errors = data.errors?.length ? data.errors.join("; ") : (data.error || "Reset to defaults incomplete");
+                    showNotification(errors, "error", 8000);
+                }
+            } catch (error) {
+                console.error("Reset to defaults failed:", error);
+                showNotification("Reset to defaults failed", "error", 6000);
+            } finally {
+                confirmBtn.disabled = false;
+                confirmBtn.classList.remove("opacity-50", "cursor-not-allowed");
+                resetBtn.disabled = false;
+                resetBtn.classList.remove("opacity-50", "cursor-not-allowed");
+            }
+        });
+    };
+
+    const bindEnvEditorCard = () => {
+        const openEnvEditorBtn = document.getElementById("open-env-editor-modal-btn");
+        if (!openEnvEditorBtn) return;
+
+        if (openEnvEditorBtn.dataset.envEditorOpenBound !== "true") {
+            openEnvEditorBtn.dataset.envEditorOpenBound = "true";
+            openEnvEditorBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                window.LogPanel?.openEnvEditorModal?.();
+            });
+        }
+    };
+
+    // Billy has no battery-backed clock, so its time can differ from this
+    // browser's. Tick from the offset measured once against the device's own
+    // reading rather than from the browser clock, so a wrong device clock shows
+    // up here instead of being papered over.
+    let deviceClockTimer = null;
+
+    // The address is only shown when the device actually has one: on the setup
+    // hotspot, or with no lease yet, there is nothing useful to print.
+    const setWifiIpAddress = (address) => {
+        const value = String(address || "").trim();
+        document.querySelectorAll("[data-wifi-ip-address]").forEach(el => {
+            el.textContent = value;
+        });
+        document.querySelectorAll("[data-wifi-ip-row]").forEach(el => {
+            el.classList.toggle("hidden", !value);
+        });
+    };
+
+    const startDeviceClock = (deviceNow, deviceTimezone) => {
+        const label = document.getElementById("device-time");
+        const dateLabel = document.getElementById("device-time-date");
+        if (!label) return;
+        const parsed = deviceNow ? Date.parse(deviceNow) : NaN;
+        if (Number.isNaN(parsed)) {
+            label.textContent = "--:--:--";
+            if (dateLabel) dateLabel.textContent = "Unavailable";
+            return;
+        }
+        const skewMs = parsed - Date.now();
+        let formatter;
+        let dateFormatter = null;
+        try {
+            formatter = new Intl.DateTimeFormat(undefined, {
+                timeZone: deviceTimezone || undefined,
+                hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+            });
+            dateFormatter = new Intl.DateTimeFormat(undefined, {
+                timeZone: deviceTimezone || undefined,
+                day: "numeric", month: "short", year: "numeric",
+                timeZoneName: "short",
+            });
+        } catch (error) {
+            // An IANA name this browser does not know: fall back to the
+            // device's own offset so the reading is still right.
+            formatter = null;
+        }
+        const offsetMatch = /([+-]\d{2}):?(\d{2})$/.exec(deviceNow.trim());
+        const offsetMinutes = offsetMatch
+            ? (offsetMatch[1].startsWith("-") ? -1 : 1)
+              * (Math.abs(parseInt(offsetMatch[1], 10)) * 60 + parseInt(offsetMatch[2], 10))
+            : 0;
+        const sign = offsetMinutes < 0 ? "-" : "+";
+        const pad = (value) => String(Math.floor(Math.abs(value))).padStart(2, "0");
+        const render = () => {
+            const deviceDate = new Date(Date.now() + skewMs);
+            if (formatter) {
+                label.textContent = formatter.format(deviceDate);
+                if (dateLabel) dateLabel.textContent = dateFormatter.format(deviceDate);
+                return;
+            }
+            // Shift the instant by the device's own offset and read it as UTC,
+            // so the clock still shows the device's local time.
+            const shifted = new Date(deviceDate.getTime() + offsetMinutes * 60000);
+            const iso = shifted.toISOString();
+            label.textContent = iso.slice(11, 19);
+            if (dateLabel) {
+                dateLabel.textContent = `${iso.slice(0, 10)} `
+                    + `UTC${sign}${pad(offsetMinutes / 60)}:${pad(offsetMinutes % 60)}`;
+            }
+        };
+        if (deviceClockTimer) clearInterval(deviceClockTimer);
+        render();
+        deviceClockTimer = setInterval(render, 1000);
+    };
+
+    // The assistant list comes from Home Assistant itself, so it can only be
+    // filled in after the page has loaded and only when HA is reachable.
+    const initHomeAssistantAgents = async () => {
+        const select = document.getElementById("HA_AGENT_ID");
+        const status = document.getElementById("HA_AGENT_ID-status");
+        if (!select) return;
+        const selected = select.value;
+        try {
+            const data = await window.BootstrapData?.take("ha_agents")
+                || await (await fetch("/ha/agents")).json();
+            const agents = Array.isArray(data.agents) ? data.agents : [];
+            if (!agents.length) {
+                if (status) {
+                    status.textContent = data.error
+                        ? "Could not reach Home Assistant, so its assistants are not listed."
+                        : "";
+                }
+                return;
+            }
+            const preferred = agents.find((agent) => agent.id === data.preferred);
+            const options = [
+                {
+                    id: "",
+                    name: preferred
+                        ? `Preferred in Home Assistant (${preferred.name})`
+                        : "Preferred in Home Assistant",
+                },
+                ...agents,
+            ];
+            select.replaceChildren(...options.map(({ id, name }) => {
+                const option = document.createElement("option");
+                option.value = id;
+                option.textContent = name;
+                return option;
+            }));
+            // A saved agent that no longer exists must stay visible rather than
+            // silently turning into the built-in one.
+            if (selected && !options.some((option) => option.id === selected)) {
+                const missing = document.createElement("option");
+                missing.value = selected;
+                missing.textContent = `${selected} (not found)`;
+                select.appendChild(missing);
+            }
+            select.value = selected;
+            if (status) status.textContent = "";
+        } catch (error) {
+            console.error("Failed to load Home Assistant assistants:", error);
+            if (status) status.textContent = "Could not reach Home Assistant, so its assistants are not listed.";
+        }
+    };
+
+    const initHostFields = async () => {
+        const hostnameInput = document.getElementById("hostname");
+        const flaskPortInput = document.getElementById("FLASK_PORT");
+
+        if (flaskPortInput) {
+            flaskPortInput.setAttribute("data-original", flaskPortInput.value);
+        }
+
+        const timezoneInput = document.getElementById("timezone");
+        if (timezoneInput) {
+            try {
+                const tzData = await window.BootstrapData?.take("timezone")
+                    || await (await fetch("/timezone")).json();
+                if (tzData.timezone) {
+                    timezoneInput.value = tzData.timezone;
+                    timezoneInput.setAttribute("data-original", tzData.timezone);
+                }
+                startDeviceClock(tzData.now, tzData.timezone);
+                if (Array.isArray(tzData.timezones)) {
+                    SearchableSelect.setOptions(timezoneInput, tzData.timezones);
+                }
+            } catch (error) {
+                console.error("Failed to load timezone:", error);
+            }
+        }
+
+        if (!hostnameInput) return;
+
+        try {
+            const data = await window.BootstrapData?.take("hostname")
+                || await (await fetch("/hostname")).json();
+            if (data.hostname) {
+                hostnameInput.value = data.hostname;
+                hostnameInput.setAttribute("data-original", data.hostname);
+            }
+        } catch (error) {
+            console.error("Failed to load hostname:", error);
+        }
+    };
+
+    // A select rendered as a slider with one stop per option: click, drag or
+    // arrow-key to a stop and the label underneath names it.
+    const initStepSliders = () => {
+        STEP_SLIDER_SELECT_IDS.forEach((id) => {
+            const select = document.getElementById(id);
+            const bar = document.getElementById(`${id}-bar`);
+            if (!select || !bar) return;
+
+            const dots = bar.querySelector('[data-step-dots]');
+            if (dots && !dots.childElementCount) {
+                const count = select.options.length;
+                for (let index = 0; index < count; index += 1) {
+                    const dot = document.createElement('span');
+                    dot.dataset.stepDot = String(index);
+                    dot.className = 'settings-step-dot';
+                    // Nudged inwards at both ends so the outer dots are not
+                    // clipped by the track's rounded, overflow-hidden edges.
+                    const fraction = count > 1 ? index / (count - 1) : 0;
+                    dot.style.left = `calc(${fraction * 100}% + ${(0.5 - fraction) * 16}px)`;
+                    dot.style.transform = 'translate(-50%, -50%)';
+                    dots.appendChild(dot);
+                }
+            }
+
+            const selectIndex = (index) => {
+                const clamped = Math.min(select.options.length - 1, Math.max(0, index));
+                if (clamped === select.selectedIndex) {
+                    syncStepSlider(select);
+                    return;
+                }
+                select.selectedIndex = clamped;
+                syncStepSlider(select);
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+
+            if (bar.dataset.bound !== 'true') {
+                bar.dataset.bound = 'true';
+                let pointerId = null;
+                const indexFromPointer = (event) => {
+                    const rect = bar.getBoundingClientRect();
+                    if (!rect.width) return;
+                    const fraction = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
+                    selectIndex(Math.round(fraction * (select.options.length - 1)));
+                };
+                bar.addEventListener('pointerdown', (event) => {
+                    if (event.button !== 0 || pointerId !== null) return;
+                    pointerId = event.pointerId;
+                    bar.setPointerCapture(pointerId);
+                    bar.focus();
+                    indexFromPointer(event);
+                });
+                bar.addEventListener('pointermove', (event) => {
+                    if (event.pointerId === pointerId) indexFromPointer(event);
+                });
+                const finishDrag = (event) => {
+                    if (event.pointerId === pointerId) pointerId = null;
+                };
+                bar.addEventListener('pointerup', finishDrag);
+                bar.addEventListener('pointercancel', finishDrag);
+                bar.addEventListener('lostpointercapture', finishDrag);
+                bar.addEventListener('keydown', (event) => {
+                    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                        selectIndex(select.selectedIndex - 1);
+                    } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                        selectIndex(select.selectedIndex + 1);
+                    } else if (event.key === 'Home') {
+                        selectIndex(0);
+                    } else if (event.key === 'End') {
+                        selectIndex(select.options.length - 1);
+                    } else {
+                        return;
+                    }
+                    event.preventDefault();
+                });
+                select.addEventListener('change', () => syncStepSlider(select));
+            }
+            syncStepSlider(select);
+        });
+    };
+
+    const initMouthArticulationSlider = () => {
+        // Use the same slider pattern as mic gain
+        setupSlider("mouth-articulation-bar", "mouth-articulation-fill", "MOUTH_ARTICULATION", 1, 10);
+    };
+
+    const initStatusLedBrightnessSlider = () => {
+        setupSlider(
+            "status-led-brightness-bar",
+            "status-led-brightness-fill",
+            "STATUS_LED_BRIGHTNESS",
+            0,
+            1,
+            {
+                step: 0.05,
+                valueDisplayId: "status-led-brightness-value",
+                valueFormatter: (val) => `${Math.round(Number(val) * 100)}%`,
+            }
+        );
+    };
+
+    const initMouthBoostSlider = () => {
+        setupSlider(
+            "mouth-boost-bar",
+            "mouth-boost-fill",
+            "MOUTH_BOOST",
+            1,
+            2.5,
+            {
+                step: 0.25,
+                valueDisplayId: "mouth-boost-value",
+                valueFormatter: (val) => `${Number(val).toFixed(2)}x`,
+            }
+        );
+    };
+
+    function setupSlider(barId, fillId, inputId, min, max, options = {}) {
+        const bar = document.getElementById(barId);
+        const fill = document.getElementById(fillId);
+        const input = document.getElementById(inputId);
+        const step = Number(options.step ?? 1);
+        const valueDisplayId = options.valueDisplayId || "mouth-articulation-value";
+        const decimals = Number.isInteger(options.decimals) ? options.decimals : 0;
+        const valueFormatter = typeof options.valueFormatter === "function"
+            ? options.valueFormatter
+            : (val) => Number(val).toFixed(decimals);
+
+        if (!bar || !fill || !input) return;
+
+        const updateUI = (val) => {
+            const percent = ((val - min) / (max - min)) * 100;
+            fill.style.width = `${percent}%`;
+            fill.dataset.value = val;
+            // Ensure input value is set for form submission
+            input.value = val;
+            input.setAttribute('value', val);
+            // Update the value display
+            const valueDisplay = document.getElementById(valueDisplayId);
+            if (valueDisplay) {
+                valueDisplay.textContent = valueFormatter(val);
+            }
+        };
+
+        // #main-content is replaced wholesale on normal SPA navigation (fresh
+        // DOM => must bind), but this can also be re-run against the *same*
+        // DOM (e.g. after a reconnect) => must not double-bind mousemove/up
+        // on document, which would otherwise accumulate across soft refreshes.
+        if (bar.dataset.bound !== 'true') {
+            bar.dataset.bound = 'true';
+
+            let isDragging = false;
+            const updateFromMouse = (e) => {
+                const rect = bar.getBoundingClientRect();
+                const percent = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+                const rawVal = min + percent * (max - min);
+                const steppedVal = Math.round(rawVal / step) * step;
+                const val = Math.min(max, Math.max(min, Number(steppedVal.toFixed(4))));
+                input.value = val;
+                // Ensure the input value is properly set for form submission
+                input.setAttribute('value', val);
+                input.dispatchEvent(new Event("input", {bubbles: true}));
+                updateUI(val);
+            };
+            bar.addEventListener("mousedown", (e) => { isDragging = true; updateFromMouse(e); });
+            document.addEventListener("mousemove", (e) => { if (isDragging) updateFromMouse(e); });
+            document.addEventListener("mouseup", () => { isDragging = false; });
+            input.addEventListener("input", () => updateUI(Number(input.value)));
+        }
+        updateUI(Number(input.value));
+    }
+
+    const refreshFromConfig = (config) => {
+        const form = document.getElementById("config-form");
+        if (window.SettingsNavigation?.hasDraft(form)) return;
+        populateUpdateChannel(config);
+        // Update dropdowns with new configuration values
+        const dropdowns = [
+            'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
+            'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED', 'WEB_SEARCH_ENABLED',
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
+        ];
+        dropdowns.forEach(id => {
+            const element = document.getElementById(id);
+            if (element && config[id] !== undefined && config[id] !== null) {
+                const normalizedValue = normalizeSelectValue(id, config[id]);
+                if (ensureSelectHasValue(element, normalizedValue)) {
+                    localStorage.setItem(`dropdown_${id}`, element.value);
+                } else {
+                    localStorage.removeItem(`dropdown_${id}`);
+                }
+            }
+        });
+        const followUpRetryInput = document.getElementById("FOLLOW_UP_RETRY_LIMIT");
+        if (
+            followUpRetryInput
+            && config.FOLLOW_UP_RETRY_LIMIT !== undefined
+            && config.FOLLOW_UP_RETRY_LIMIT !== null
+        ) {
+            followUpRetryInput.value = String(config.FOLLOW_UP_RETRY_LIMIT);
+        }
+        const cameraReady = populateCameraHardwareDropdown(config);
+        const cameraRotationInput = document.getElementById("CAMERA_ROTATION");
+        const cameraRotationLabel = document.getElementById("camera-rotation-label");
+        const cameraRotationIcon = document.getElementById("camera-rotation-icon");
+        const rotationValue = Number.parseInt(String(config.CAMERA_ROTATION || "0"), 10);
+        const normalizedRotation = [0, 90, 180, 270].includes(rotationValue) ? rotationValue : 0;
+        if (cameraRotationInput) {
+            cameraRotationInput.value = String(normalizedRotation);
+        }
+        if (cameraRotationLabel) {
+            cameraRotationLabel.textContent = `${normalizedRotation}°`;
+        }
+        if (cameraRotationIcon) {
+            cameraRotationIcon.style.transform = `rotate(${normalizedRotation}deg)`;
+        }
+        const ledBrightness = document.getElementById("STATUS_LED_BRIGHTNESS");
+        if (ledBrightness && config.STATUS_LED_BRIGHTNESS) {
+            ledBrightness.value = config.STATUS_LED_BRIGHTNESS;
+        }
+        const mouthBoost = document.getElementById("MOUTH_BOOST");
+        if (mouthBoost && config.MOUTH_BOOST) {
+            mouthBoost.value = config.MOUTH_BOOST;
+        }
+        syncApiProviderFields();
+        if (form && window.SettingsNavigation?.isInitialized(form)) {
+            window.SettingsNavigation.markSaved(form, window.SettingsNavigation.snapshot(form));
+            const camera = form.querySelector('#CAMERA_HARDWARE');
+            cameraReady.then(value => {
+                if (camera && value !== undefined) window.SettingsNavigation.markSaved(form, new Map([[camera, value]]));
+            });
+        }
+    };
+
+    const bindWakeWordKeywordUpload = () => {
+        const uploadBtn = document.getElementById("wakeword-upload-keyword-btn");
+        const fileInput = document.getElementById("wakeword-keyword-file");
+        const status = document.getElementById("wakeword-keyword-status");
+        const keywordPathInput = document.getElementById("WAKE_WORD_PORCUPINE_KEYWORD_PATH");
+        const openWakeWordModelInput = document.getElementById("WAKE_WORD_OPENWAKEWORD_MODEL_PATH");
+        const backendSelect = document.getElementById("WAKE_WORD_BACKEND");
+        if (!keywordPathInput || !openWakeWordModelInput || !backendSelect) return;
+
+        const normalizeWakeWordName = (value) => {
+            const raw = String(value || "").trim();
+            if (!raw) return "";
+            const parts = raw.split(/[\\/]/);
+            return parts[parts.length - 1] || raw;
+        };
+
+        const syncWakeWordProviderFields = () => {
+            const provider = String(backendSelect.value || "porcupine").trim().toLowerCase();
+            document.querySelectorAll("[data-wakeword-provider]").forEach((element) => {
+                const match = element.dataset.wakewordProvider === provider;
+                element.classList.toggle("hidden", !match);
+            });
+        };
+
+        const populateSelectOptions = (select, options, preferredPath = null) => {
+            if (!select) return;
+            const currentValue = normalizeWakeWordName(
+                preferredPath || select.value || select.dataset.current || ""
+            );
+            const merged = [...new Set([...options, currentValue].filter(Boolean))];
+            select.innerHTML = "";
+            merged.forEach((name) => {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = name;
+                select.appendChild(opt);
+            });
+            if (currentValue && merged.includes(currentValue)) {
+                select.value = currentValue;
+            }
+        };
+
+        const loadWakeWordOptions = async (preferredKeywordPath = null, preferredModelPath = null) => {
+            try {
+                // Only the first, unprompted load can come from the bootstrap
+                // payload; an upload calls this again and must see the disk.
+                const data = (!preferredKeywordPath && !preferredModelPath
+                        && await window.BootstrapData?.take("wakeword_keywords"))
+                    || await (await fetch("/wakeword/keywords")).json();
+                const keywordOptions = Array.isArray(data.keywords)
+                    ? data.keywords.map(normalizeWakeWordName).filter(Boolean)
+                    : [];
+                const modelOptions = Array.isArray(data.models)
+                    ? data.models.map(normalizeWakeWordName).filter(Boolean)
+                    : [];
+                populateSelectOptions(keywordPathInput, keywordOptions, preferredKeywordPath);
+                populateSelectOptions(openWakeWordModelInput, modelOptions, preferredModelPath);
+            } catch (error) {
+                console.error("Failed to load wake-word options:", error);
+            }
+        };
+
+        const optionsReady = loadWakeWordOptions();
+        syncWakeWordProviderFields();
+        backendSelect.addEventListener("change", syncWakeWordProviderFields);
+
+        if (!uploadBtn || !fileInput) return optionsReady;
+        uploadBtn.addEventListener("click", async () => {
+            const file = fileInput.files && fileInput.files[0];
+            if (!file) {
+                showNotification("Select a .ppn or .onnx file first", "warning", 3000);
+                return;
+            }
+            const lowerName = file.name.toLowerCase();
+            const isPorcupine = lowerName.endsWith(".ppn");
+            const isOpenWakeWord = lowerName.endsWith(".onnx");
+            if (!isPorcupine && !isOpenWakeWord) {
+                showNotification("Only .ppn and .onnx files are supported", "warning", 3000);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("keyword_file", file);
+
+            uploadBtn.disabled = true;
+            uploadBtn.classList.add("opacity-50", "cursor-not-allowed");
+            if (status) {
+                status.textContent = `Uploading ${file.name}...`;
+            }
+            try {
+                const response = await fetch("/wakeword/model/upload", {
+                    method: "POST",
+                    body: formData,
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    const errorMessage = data.error || "Upload failed";
+                    console.error("Wake-word file upload failed:", errorMessage);
+                    if (status) {
+                        status.textContent = `Upload failed: ${errorMessage}`;
+                    }
+                    showNotification(`Upload failed: ${errorMessage}`, "error", 5000);
+                    return;
+                }
+                if (data.backend === "porcupine" && data.filename) {
+                    await loadWakeWordOptions(data.filename, null);
+                } else if (data.backend === "openwakeword" && data.filename) {
+                    await loadWakeWordOptions(null, data.filename);
+                }
+                if (backendSelect && data.backend) {
+                    backendSelect.value = data.backend;
+                    syncWakeWordProviderFields();
+                }
+                if (status) {
+                    status.textContent = `Uploaded ${data.filename} for ${data.backend}`;
+                }
+                fileInput.value = "";
+                showNotification(`${data.filename} uploaded`, "success", 3000);
+            } catch (error) {
+                console.error("Wake-word file upload failed:", error);
+                if (status) {
+                    status.textContent = `Upload failed: ${error.message}`;
+                }
+                showNotification(`Upload failed: ${error.message}`, "error", 5000);
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.classList.remove("opacity-50", "cursor-not-allowed");
+            }
+        });
+        return optionsReady;
+    };
+
+    const syncApiProviderFields = () => {
+        const providerSelect = document.getElementById("REALTIME_AI_PROVIDER");
+        if (!providerSelect) return;
+        const provider = String(providerSelect.value || "openai").trim().toLowerCase();
+        document.querySelectorAll("[data-api-provider]").forEach((element) => {
+            const match = element.dataset.apiProvider.split(/\s+/).includes(provider);
+            element.classList.toggle("hidden", !match);
+            element.toggleAttribute("hidden", !match);
+            element.style.display = match ? "" : "none";
+        });
+    };
+
+    const bindApiProviderFields = () => {
+        const providerSelect = document.getElementById("REALTIME_AI_PROVIDER");
+        if (!providerSelect) return;
+        syncApiProviderFields();
+        if (providerSelect.dataset.providerFieldsBound === "true") return;
+        providerSelect.dataset.providerFieldsBound = "true";
+        providerSelect.addEventListener("change", syncApiProviderFields);
+    };
+
+    const NEWS_SOURCE_TEMPLATES = {
+        google_news_headlines: {
+            name: "Google News (Headlines)",
+            url: "https://news.google.com/rss?hl=en-GB&gl=GB&ceid=GB:en",
+            topics: ["general", "headlines"],
+        },
+        google_news_localized: {
+            name: "Google News (Localized search)",
+            url: "https://news.google.com/rss/search?q={{query}}&hl=en-GB&gl=GB&ceid=GB:en",
+            topics: ["general", "headlines"],
+        },
+        open_meteo_forecast: {
+            name: "Open-Meteo Forecast (Amsterdam)",
+            url: "https://api.open-meteo.com/v1/forecast?latitude=52.3676&longitude=4.9041&timezone=Europe%2FAmsterdam",
+            topics: ["weather", "forecast"],
+        },
+        espn_premier_league: {
+            name: "ESPN Scoreboard (Premier League)",
+            url: "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard",
+            topics: ["sports", "epl", "soccer", "football"],
+        },
+        espn_soccer_news: {
+            name: "ESPN Soccer News (Serie A)",
+            url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/news",
+            topics: ["sports", "soccer", "football", "news", "serie a", "italy"],
+        },
+        espn_team_info_napoli: {
+            name: "ESPN Team Info (Napoli)",
+            url: "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/teams/114",
+            topics: ["sports", "soccer", "football", "team", "napoli", "serie a"],
+        },
+        billy_project_releases: {
+            name: "Billy Project Releases",
+            url: "https://github.com/Thokoop/billy-b-assistant/releases.atom",
+            topics: ["billy", "project", "release", "update", "changelog"],
+        },
+    };
+
+    const isDynamicSourceUrl = (rawUrl) => {
+        let candidate = String(rawUrl || "");
+        if (!candidate) return false;
+        candidate = candidate
+            .replaceAll("&amp;", "&")
+            .replaceAll("&#123;", "{")
+            .replaceAll("&#125;", "}");
+
+        if (/\{\{\s*query\s*}}/i.test(candidate)) return true;
+        if (/\{\s*query\s*}/i.test(candidate)) return true;
+        if (/%7B%7B\s*query\s*%7D%7D/i.test(candidate)) return true;
+        if (/%7B\s*query\s*%7D/i.test(candidate)) return true;
+
+        try {
+            // Handle single and double encoded URLs.
+            for (let i = 0; i < 2; i += 1) {
+                const decoded = decodeURIComponent(candidate);
+                if (decoded === candidate) break;
+                candidate = decoded;
+                if (/\{\{\s*query\s*}}/i.test(candidate)) return true;
+                if (/\{\s*query\s*}/i.test(candidate)) return true;
+                if (/%7B%7B\s*query\s*%7D%7D/i.test(candidate)) return true;
+                if (/%7B\s*query\s*%7D/i.test(candidate)) return true;
+            }
+        } catch {
+            // Ignore decode errors; final fallback below.
+        }
+        return false;
+    };
+
+    const applyNewsSourceTemplate = (templateKey) => {
+        const nameInput = document.getElementById("news-source-name");
+        const urlInput = document.getElementById("news-source-url");
+        const topicsInput = document.getElementById("news-source-topics");
+        if (!nameInput || !urlInput || !topicsInput) return;
+
+        const template = NEWS_SOURCE_TEMPLATES[templateKey];
+        if (!template) return;
+
+        nameInput.value = template.name || "";
+        urlInput.value = template.url || "";
+        topicsInput.value = (template.topics || []).join(", ");
+    };
+
+    const renderNewsSources = (sources, options = {}) => {
+        const list = document.getElementById("news-sources-list");
+        if (!list) return;
+        list.innerHTML = "";
+
+        const selectedId = options.selectedId ?? null;
+        const onSelect = typeof options.onSelect === "function" ? options.onSelect : null;
+        const onDelete = typeof options.onDelete === "function" ? options.onDelete : null;
+
+        if (!sources || sources.length === 0) {
+            list.innerHTML = '<div class="text-sm text-slate-400">No sources configured.</div>';
+            return;
+        }
+
+        const escapeHtml = (value) => String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+
+        sources.forEach((source) => {
+            const row = document.createElement("div");
+            const isSelected = String(selectedId) === String(source.id);
+            row.className = `relative rounded-lg p-4 flex flex-wrap items-start gap-4 transition-colors cursor-pointer ${
+                isSelected
+                    ? "bg-zinc-800 border border-emerald-500"
+                    : "bg-zinc-900/70 border border-zinc-700 hover:border-zinc-500"
+            }`;
+            row.innerHTML = `
+                <div class="grow min-w-[220px] pr-20">
+                    <div class="text-sm text-slate-100 mb-1" data-view-name>${escapeHtml(source.name)}</div>
+                    <a href="${escapeHtml(source.url)}" target="_blank" rel="noopener"
+                       class="text-xs text-blue-300 hover:text-cyan-300 break-all underline" data-view-url>${escapeHtml(source.url)}</a>
+                    <div class="text-xs text-cyan-300 mt-1" data-view-topics>${(source.topics || []).length ? escapeHtml((source.topics || []).join(", ")) : "general"}</div>
+                    <div class="text-xs text-slate-400 mt-1" data-view-query>${isDynamicSourceUrl(source.url) ? "query: dynamic" : "query: static feed"}</div>
+                </div>
+                <div class="absolute top-3 right-3 flex items-center gap-2">
+                    <button type="button" class="secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0" data-action="delete" title="Delete source">
+                        <span class="material-icons">delete</span>
+                    </button>
+                </div>
+            `;
+
+            const remove = row.querySelector('[data-action="delete"]');
+            const selectSource = () => {
+                if (onSelect) onSelect(source);
+            };
+
+            row.addEventListener("click", (event) => {
+                if (event.target.closest('[data-action="delete"], a[data-view-url]')) {
+                    return;
+                }
+                selectSource();
+            });
+            if (remove) {
+                remove.addEventListener("click", async (event) => {
+                    event.stopPropagation();
+                    if (onDelete) {
+                        await onDelete(source);
+                    }
+                });
+            }
+
+            list.appendChild(row);
+        });
+    };
+
+    const loadNewsSources = async () => {
+        const res = await fetch("/news/sources");
+        const data = await res.json();
+        return data.sources || [];
+    };
+
+    const bindNewsSources = () => {
+        const showCreateBtn = document.getElementById("news-show-create-source-btn");
+        const formTitle = document.getElementById("news-source-form-title");
+        const nameInput = document.getElementById("news-source-name");
+        const urlInput = document.getElementById("news-source-url");
+        const topicsInput = document.getElementById("news-source-topics");
+        const addActions = document.getElementById("add-news-source-actions");
+        const cancelAddBtn = document.getElementById("cancel-add-news-source-btn");
+        const addBtn = document.getElementById("add-news-source-btn");
+        const addBtnIcon = document.getElementById("add-news-source-btn-icon");
+        const addBtnLabel = document.getElementById("add-news-source-btn-label");
+        if (!addBtn) return;
+        let editingSourceId = null;
+        let newsSources = [];
+
+        const setEditorState = (source = null) => {
+            editingSourceId = source?.id ?? null;
+
+            if (formTitle) {
+                formTitle.textContent = source ? "Edit News Source" : "Add News Source";
+            }
+            if (nameInput) nameInput.value = source?.name || "";
+            if (urlInput) urlInput.value = source?.url || "";
+            if (topicsInput) {
+                topicsInput.value = Array.isArray(source?.topics)
+                    ? source.topics.join(", ")
+                    : "";
+            }
+            if (addBtnIcon) {
+                addBtnIcon.textContent = source ? "save" : "add";
+            }
+            if (addBtnLabel) {
+                addBtnLabel.textContent = source ? "Save source" : "Add source";
+            }
+        };
+
+        const updateAddActionsVisibility = () => {
+            if (!addActions || !nameInput || !urlInput) return;
+            const hasRequiredValues = Boolean(nameInput.value.trim() && urlInput.value.trim());
+            if (editingSourceId) {
+                addActions.classList.remove("hidden");
+                return;
+            }
+            addActions.classList.toggle("hidden", !hasRequiredValues);
+        };
+
+        const openEditor = (source = null) => {
+            setEditorState(source);
+            updateAddActionsVisibility();
+            nameInput?.focus();
+        };
+
+        const refreshNewsSources = async () => {
+            try {
+                newsSources = await loadNewsSources();
+                const selectedSource = editingSourceId
+                    ? newsSources.find((source) => String(source.id) === String(editingSourceId))
+                    : null;
+                if (editingSourceId && !selectedSource) {
+                    setEditorState(null);
+                } else if (selectedSource) {
+                    setEditorState(selectedSource);
+                }
+                renderNewsSources(newsSources, {
+                    selectedId: editingSourceId,
+                    onSelect: openEditor,
+                    onDelete: async (source) => {
+                        const response = await fetch(`/news/sources/${source.id}`, {method: "DELETE"});
+                        if (!response.ok) {
+                            showNotification("Failed to delete source", "error", 3000);
+                            return;
+                        }
+                        if (String(editingSourceId) === String(source.id)) {
+                            setEditorState(null);
+                        }
+                        await refreshNewsSources();
+                    },
+                });
+                updateAddActionsVisibility();
+            } catch (error) {
+                console.error("Failed to load news sources:", error);
+                showNotification("Failed to load news sources", "error", 3000);
+            }
+        };
+
+        if (cancelAddBtn) {
+            cancelAddBtn.addEventListener("click", () => {
+                setEditorState(null);
+                updateAddActionsVisibility();
+            });
+        }
+
+        if (showCreateBtn) {
+            showCreateBtn.addEventListener("click", () => {
+                openEditor(null);
+            });
+        }
+
+        if (nameInput) {
+            nameInput.addEventListener("input", updateAddActionsVisibility);
+        }
+        if (urlInput) {
+            urlInput.addEventListener("input", updateAddActionsVisibility);
+        }
+
+        const toggleExamplesBtn = document.getElementById("toggle-news-examples-btn");
+        const examplesList = document.getElementById("news-examples-list");
+        const examplesToggleIcon = document.getElementById("news-examples-toggle-icon");
+        const examplesToggleLabel = document.getElementById("news-examples-toggle-label");
+        if (toggleExamplesBtn && examplesList && examplesToggleIcon) {
+            const updateExamplesToggle = () => {
+                const collapsed = examplesList.classList.contains("hidden");
+                examplesToggleIcon.textContent = collapsed ? "expand_more" : "expand_less";
+                if (examplesToggleLabel) {
+                    examplesToggleLabel.textContent = collapsed ? "Show examples" : "Hide examples";
+                }
+            };
+            updateExamplesToggle();
+            toggleExamplesBtn.addEventListener("click", () => {
+                examplesList.classList.toggle("hidden");
+                updateExamplesToggle();
+            });
+        }
+        document.querySelectorAll(".news-template-use-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const templateKey = btn.getAttribute("data-template-key");
+                if (!editingSourceId) {
+                    setEditorState(null);
+                }
+                applyNewsSourceTemplate(templateKey || "");
+                updateAddActionsVisibility();
+            });
+        });
+
+        addBtn.addEventListener("click", async () => {
+            const name = (nameInput?.value || "").trim();
+            const url = (urlInput?.value || "").trim();
+            const topics = (topicsInput?.value || "").trim();
+            const isEditing = Boolean(editingSourceId);
+
+            if (!name || !url) {
+                showNotification("Source and URL are required", "warning", 2500);
+                return;
+            }
+
+            const payload = {name, url, topics};
+            const response = await fetch(
+                isEditing ? `/news/sources/${editingSourceId}` : "/news/sources",
+                {
+                    method: isEditing ? "PATCH" : "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(payload),
+                }
+            );
+            const data = await response.json();
+            if (!response.ok) {
+                showNotification(
+                    data.error || (isEditing ? "Failed to save source" : "Failed to add source"),
+                    "error",
+                    3000
+                );
+                return;
+            }
+
+            setEditorState(null);
+            updateAddActionsVisibility();
+            showNotification(isEditing ? "Source updated" : "News source added", "success", 2500);
+            await refreshNewsSources();
+        });
+
+        setEditorState(null);
+        updateAddActionsVisibility();
+        refreshNewsSources();
+    };
+
+    const bindWiFiSection = () => {
+        const form = document.getElementById("config-form");
+        const wifiModal = document.getElementById("wifi-setup-modal");
+        const wifiModalCloseBtn = document.getElementById("close-wifi-setup-modal");
+        const wifiModalDescription = document.getElementById("wifi-setup-modal-description");
+        const scanBtn = document.getElementById("wifi-scan-btn");
+        const saveBtn = document.getElementById("wifi-save-btn");
+        const saveLabel = document.getElementById("wifi-save-label");
+        const saveIcon = document.getElementById("wifi-save-icon");
+        const editToggleBtn = document.getElementById("wifi-edit-toggle-btn");
+        const editToggleLabel = document.getElementById("wifi-edit-toggle-label");
+        const networkList = document.getElementById("wifi-network-list");
+        const ssidInput = document.getElementById("wifi-ssid");
+        const ssidField = document.getElementById("wifi-ssid-field");
+        const passwordInput = document.getElementById("wifi-password");
+        const countrySelect = document.getElementById("wifi-country-modal") || document.getElementById("WIFI_COUNTRY");
+        const countrySettingsSelect = document.getElementById("WIFI_COUNTRY");
+        const countryModalSelect = document.getElementById("wifi-country-modal");
+        const unifiedFields = document.getElementById("wifi-unified-fields");
+        const internetSection = document.getElementById("section-internet");
+        const statusEl = document.getElementById("wifi-connection-status");
+        const testResultEl = document.getElementById("wifi-test-result");
+        const errorResultEl = document.getElementById("wifi-error-result");
+        const banner = document.getElementById("wifi-onboarding-banner");
+        // Step-by-step dialog parts. All optional so an older cached template
+        // without them still gets a working (single page) dialog.
+        const wifiSteps = Array.from(wifiModal?.querySelectorAll("[data-wifi-step]") || []);
+        const wifiStepIndicators = Array.from(wifiModal?.querySelectorAll("[data-wifi-step-indicator]") || []);
+        const ssidNextBtn = document.getElementById("wifi-ssid-next");
+        const passwordBackBtn = document.getElementById("wifi-password-back");
+        const passwordNextBtn = document.getElementById("wifi-password-next");
+        const passwordHint = document.getElementById("wifi-password-hint");
+        const connectBackBtn = document.getElementById("wifi-connect-back");
+        const summaryPassword = document.getElementById("wifi-summary-password");
+        const summaryCountry = document.getElementById("wifi-summary-country");
+        const setSettingsConnectionStatus = (message, connected = null) => {
+            if (!statusEl) return;
+            statusEl.textContent = message;
+            statusEl.classList.remove(
+                "text-zinc-300",
+                "text-zinc-400",
+                "text-amber-400",
+                "text-emerald-400",
+                "text-rose-400"
+            );
+            if (connected === true) {
+                statusEl.classList.add("text-emerald-400");
+            } else if (connected === "setup") {
+                statusEl.classList.add("text-amber-400");
+            } else if (connected === false) {
+                statusEl.classList.add("text-rose-400");
+            } else {
+                statusEl.classList.add("text-zinc-300");
+            }
+        };
+        const refreshSettingsWifiStatus = async () => {
+            if (!statusEl) return;
+            try {
+                const bootstrapped = await window.BootstrapData?.take("wifi");
+                const response = bootstrapped
+                    ? {ok: true, json: async () => bootstrapped}
+                    : await fetch("/wifi/status");
+                const data = await response.json();
+                if (!response.ok) {
+                    setSettingsConnectionStatus(data.error || "Failed to load Wi-Fi status", false);
+                    return;
+                }
+                document.querySelectorAll("[data-wifi-mac-address]").forEach(el => {
+                    el.textContent = data.mac_address || "Unavailable";
+                });
+                setWifiIpAddress(data.ip_address);
+                const hotspotActiveNow = Boolean(data.hotspot_active);
+                if (hotspotActiveNow) {
+                    setSettingsConnectionStatus(
+                        "Billy setup hotspot is active. Connect Billy to your home Wi-Fi to finish setup.",
+                        "setup"
+                    );
+                } else {
+                    setSettingsConnectionStatus(
+                        data.connected
+                            ? `Connected to ${data.ssid || "Wi-Fi"}`
+                            : "Not connected",
+                        Boolean(data.connected)
+                    );
+                }
+                if (countrySettingsSelect) {
+                    const countryValue = String(data.country || countrySettingsSelect.value || "NL").trim().toUpperCase();
+                    ensureSelectHasValue(countrySettingsSelect, countryValue, "US");
+                }
+            } catch (error) {
+                setSettingsConnectionStatus(String(error), false);
+            }
+        };
+        const bindSettingsWifiEditButton = () => {
+            if (!editToggleBtn || editToggleBtn.dataset.wifiEditBound === "true") return;
+            editToggleBtn.dataset.wifiEditBound = "true";
+            editToggleBtn.addEventListener("click", () => {
+                wifiModal?.classList.remove("hidden");
+                editToggleBtn.classList.add("hidden");
+                document.documentElement.classList.add("overflow-hidden");
+                document.body.classList.add("overflow-hidden");
+            });
+        };
+        if (!wifiModal) {
+            return;
+        }
+        if (wifiModal.dataset.bound === "true") {
+            bindSettingsWifiEditButton();
+            internetSection?.classList.remove("hidden");
+            unifiedFields?.classList.remove("hidden");
+            refreshSettingsWifiStatus();
+            return;
+        }
+        if (!wifiModalCloseBtn || !wifiModalDescription || !scanBtn || !saveBtn || !saveLabel || !saveIcon || !networkList || !ssidInput || !ssidField || !passwordInput || !countrySelect || !testResultEl || !errorResultEl) {
+            refreshSettingsWifiStatus();
+            return;
+        }
+        wifiModal.dataset.bound = "true";
+
+        const configSource = form || wifiModal;
+        const onboardingActive = configSource.dataset.wifiOnboardingActive === "true";
+        const configuredMode = String(configSource.dataset.wifiOnboardingMode || "legacy").trim().toLowerCase();
+        const unifiedConfigured = configuredMode === "unified";
+        const legacyHotspotOnboarding = onboardingActive && !unifiedConfigured;
+        let hotspotActive = false;
+        let savedFingerprint = "";
+        let selectedNetworkValue = "";
+        // Unknown (manual) networks may or may not need a password.
+        let selectedNetworkSecure = true;
+        let currentStep = "network";
+        let hasLoadedNetworksOnce = false;
+        let scanning = false;
+        const MANUAL_SSID_VALUE = "__manual__";
+        const legacyOnboardingMessage = "Legacy Wi-Fi setup is active. Open billy.local:8080 to scan, test, and save Wi-Fi without disconnecting from Billy_Bassistant.";
+
+        const currentFingerprint = () => JSON.stringify({
+            ssid: ssidInput.value.trim(),
+            password: passwordInput.value,
+            country: countrySelect.value || "NL",
+        });
+
+        const setBusy = (button, busy) => {
+            button.disabled = busy;
+            button.classList.toggle("opacity-50", busy);
+            button.classList.toggle("cursor-not-allowed", busy);
+        };
+
+        const syncSaveButton = () => {
+            const enabled = Boolean(ssidInput.value.trim());
+            saveBtn.disabled = !enabled;
+            saveBtn.classList.toggle("opacity-50", !enabled);
+            saveBtn.classList.toggle("cursor-not-allowed", !enabled);
+            if (savedFingerprint && savedFingerprint === currentFingerprint()) {
+                saveLabel.textContent = "Connected";
+                saveIcon.textContent = "check_circle";
+            } else {
+                saveLabel.textContent = "Connect";
+                saveIcon.textContent = "wifi";
+            }
+        };
+
+        const isManualSelection = () => selectedNetworkValue === MANUAL_SSID_VALUE;
+
+        const updateWifiSummary = () => {
+            const ssid = ssidInput.value.trim();
+            document.querySelectorAll("[data-wifi-selected-ssid]").forEach(el => {
+                el.textContent = ssid;
+            });
+            if (summaryPassword) {
+                summaryPassword.textContent = passwordInput.value
+                    ? "Entered"
+                    : "None (open network)";
+            }
+            if (summaryCountry) {
+                const option = countrySelect.options?.[countrySelect.selectedIndex];
+                summaryCountry.textContent = option?.textContent?.trim() || countrySelect.value || "";
+            }
+            if (passwordHint) passwordHint.hidden = !isManualSelection();
+        };
+
+        const showStep = (step, {focus = true} = {}) => {
+            if (!wifiSteps.length) return;
+            const order = ["network", "password", "connect"];
+            currentStep = step;
+            updateWifiSummary();
+            wifiSteps.forEach(panel => {
+                panel.hidden = panel.dataset.wifiStep !== step;
+            });
+            // Messages belong right above the buttons that caused them.
+            const panel = wifiSteps.find(item => item.dataset.wifiStep === step);
+            const actions = panel?.querySelector?.(":scope > .wifi-step-actions");
+            if (actions?.before) actions.before(testResultEl, errorResultEl);
+            else panel?.append?.(testResultEl, errorResultEl);
+            wifiStepIndicators.forEach(indicator => {
+                const name = indicator.dataset.wifiStepIndicator;
+                if (name === step) indicator.setAttribute("aria-current", "step");
+                else indicator.removeAttribute("aria-current");
+                indicator.dataset.done = String(order.indexOf(name) < order.indexOf(step));
+            });
+            wifiModal.querySelector(".wifi-setup-panel")?.scrollTo?.(0, 0);
+            if (step === "connect") syncSaveButton();
+            // Choosing from the list needs no typing: drop focus from any text
+            // field (including one on the page behind) so a phone keeps its
+            // keyboard closed until a step actually asks for input.
+            const active = document.activeElement;
+            if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName || "")
+                && !(step === "network" && isManualSelection() && active === ssidInput)) {
+                active.blur?.();
+            }
+            if (!focus) return;
+            if (step === "password") passwordInput.focus();
+            else if (step === "network" && isManualSelection()) ssidInput.focus();
+        };
+
+        const goToPassword = () => {
+            if (!ssidInput.value.trim()) {
+                showError("Enter the network name first.");
+                ssidInput.focus();
+                return;
+            }
+            showError("");
+            showStep("password");
+        };
+
+        const goToConnect = () => {
+            if (selectedNetworkSecure && !isManualSelection() && !passwordInput.value) {
+                showError("Enter the Wi-Fi password.");
+                passwordInput.focus();
+                return;
+            }
+            showError("");
+            showStep("connect");
+        };
+
+        const openWifiModal = () => {
+            wifiModal.classList.remove("hidden");
+            editToggleBtn?.classList.add("hidden");
+            document.documentElement.classList.add("overflow-hidden");
+            document.body.classList.add("overflow-hidden");
+            showStep("network", {focus: false});
+            if (!hasLoadedNetworksOnce) {
+                loadNetworks();
+            }
+        };
+
+        const closeWifiModal = () => {
+            wifiModal.classList.add("hidden");
+            document.documentElement.classList.remove("overflow-hidden");
+            document.body.classList.remove("overflow-hidden");
+            editToggleBtn?.classList.remove("hidden");
+        };
+
+        const syncOnboardingUiState = () => {
+            const onboardingUi = shouldAutoOpenEditor();
+            const editLabel = onboardingUi ? "Connect to Wi-Fi" : "Edit connection";
+            if (editToggleLabel) editToggleLabel.textContent = editLabel;
+            // Until Billy is on a home network this is the only thing to do on
+            // the page, so it is a labelled primary action rather than an icon.
+            if (editToggleBtn) {
+                editToggleBtn.classList.toggle("primary-action", onboardingUi);
+                editToggleBtn.classList.toggle("bg-emerald-600", onboardingUi);
+                editToggleBtn.classList.toggle("text-black", onboardingUi);
+                editToggleBtn.classList.toggle("secondary-action", !onboardingUi);
+                editToggleBtn.classList.toggle("secondary-action--hover--cyan", !onboardingUi);
+                editToggleBtn.classList.toggle("button-reveal", !onboardingUi);
+                const editIcon = editToggleBtn.querySelector(".material-icons");
+                if (editIcon) editIcon.textContent = onboardingUi ? "wifi" : "edit";
+            }
+            editToggleLabel?.classList.toggle("button-reveal-label", !onboardingUi);
+            editToggleBtn?.setAttribute("aria-label", editLabel);
+            editToggleBtn?.setAttribute("title", editLabel);
+            wifiModalDescription.textContent = onboardingUi
+                ? "Connect Billy to your home Wi-Fi to finish setup. The setup hotspot will close when Billy connects. Reconnect your device to your home Wi-Fi and open Billy’s web interface again."
+                : "Choose your Wi-Fi network and save the connection for Billy. Billy will connect immediately; your browser may briefly disconnect.";
+        };
+
+        const invalidateSuccessfulTest = () => {
+            if (savedFingerprint !== currentFingerprint()) {
+                savedFingerprint = "";
+            }
+            syncSaveButton();
+        };
+
+        const updateSelectedNetworkCard = () => {
+            networkList.querySelectorAll(".wifi-network-item").forEach((item) => {
+                const isSelected = item.dataset.ssid === selectedNetworkValue;
+                item.classList.toggle("border-emerald-500", isSelected);
+                item.classList.toggle("bg-emerald-900/20", isSelected);
+                item.classList.toggle("border-zinc-700", !isSelected);
+                item.classList.toggle("bg-zinc-800", !isSelected);
+            });
+        };
+
+        const syncManualSsidVisibility = () => {
+            const showManual = isManualSelection();
+            ssidInput.disabled = !showManual;
+            ssidField.hidden = !showManual;
+            if (!showManual) {
+                ssidInput.value = selectedNetworkValue || "";
+            }
+            updateSelectedNetworkCard();
+        };
+
+        const chooseNetwork = (item) => {
+            const previousSsid = ssidInput.value.trim();
+            selectedNetworkValue = item.dataset.ssid || "";
+            showError("");
+            if (isManualSelection()) {
+                selectedNetworkSecure = true;
+                syncManualSsidVisibility();
+                ssidInput.focus();
+                return;
+            }
+            selectedNetworkSecure = item.dataset.secure !== "false";
+            syncManualSsidVisibility();
+            if (ssidInput.value.trim() !== previousSsid) passwordInput.value = "";
+            if (!selectedNetworkSecure) passwordInput.value = "";
+            invalidateSuccessfulTest();
+            showStep(selectedNetworkSecure ? "password" : "connect");
+        };
+
+        const signalIconFor = (signal) => {
+            const strength = Number(signal) || 0;
+            if (strength >= 75) return "network_wifi_3_bar";
+            if (strength >= 50) return "network_wifi_2_bar";
+            if (strength >= 25) return "network_wifi_1_bar";
+            return "network_wifi";
+        };
+
+        const createNetworkListItem = (network) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "wifi-network-item text-sm w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
+            button.dataset.ssid = network.ssid || "";
+            button.dataset.manual = "false";
+
+            const signalIcon = signalIconFor(network.signal);
+            const isSecure = Boolean(network.security && network.security !== "open");
+            button.dataset.secure = String(isSecure);
+            button.setAttribute(
+                "aria-label",
+                `${network.ssid || "Hidden network"}, ${isSecure ? "password protected" : "open network"}`
+                + (network.active ? ", connected" : ""),
+            );
+            // Network names come from anything broadcasting nearby: build the
+            // item from text nodes, never from HTML.
+            const make = (tag, className, text) => {
+                const el = document.createElement(tag);
+                el.className = className;
+                if (text !== undefined) el.textContent = text;
+                return el;
+            };
+            const row = make("span", "flex items-center justify-between gap-3");
+            const label = make("span", "min-w-0");
+            label.append(make("span", "block truncate", network.ssid || "Hidden network"));
+            if (network.active) label.append(make("span", "text-xs text-emerald-400", "Connected"));
+            const icons = make("span", "flex shrink-0 items-center gap-2");
+            icons.setAttribute("aria-hidden", "true");
+            icons.append(
+                make("span", "material-icons text-zinc-300", signalIcon),
+                make("span", `material-icons ${isSecure ? "text-zinc-300" : "text-zinc-500"}`, isSecure ? "lock" : "lock_open"),
+                make("span", "material-icons text-zinc-500", "chevron_right"),
+            );
+            row.append(label, icons);
+            button.append(row);
+            return button;
+        };
+
+        const createManualNetworkListItem = () => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "wifi-network-item text-sm w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-left text-white transition-colors hover:border-zinc-500";
+            button.dataset.ssid = MANUAL_SSID_VALUE;
+            button.dataset.manual = "true";
+            button.innerHTML = `
+                <span class="flex items-center justify-between gap-3">
+                    <span>Enter network name manually</span>
+                    <span class="material-icons text-zinc-400">edit</span>
+                </span>
+            `;
+            return button;
+        };
+
+        const renderNetworkList = (networks = []) => {
+            networkList.innerHTML = "";
+            if (!networks.length) {
+                const emptyState = document.createElement("div");
+                emptyState.className = "rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-400";
+                emptyState.textContent = scanning
+                    ? "Scanning for networks…"
+                    : "No networks found. Scan again or enter the network name manually.";
+                networkList.appendChild(emptyState);
+            } else {
+                networks.forEach((network) => {
+                    networkList.appendChild(createNetworkListItem(network));
+                });
+            }
+            networkList.appendChild(createManualNetworkListItem());
+            updateSelectedNetworkCard();
+        };
+
+        const syncSectionVisibility = () => {
+            internetSection?.classList.remove("hidden");
+            unifiedFields?.classList.remove("hidden");
+        };
+
+        const showLegacyHotspotMessage = () => {
+            showError(legacyOnboardingMessage);
+            if (banner) {
+                banner.textContent = legacyOnboardingMessage;
+                banner.classList.remove("hidden");
+            }
+        };
+
+        const showError = (message) => {
+            if (!message) {
+                errorResultEl.classList.add("hidden");
+                errorResultEl.textContent = "";
+                return;
+            }
+            errorResultEl.textContent = message;
+            errorResultEl.classList.remove("hidden");
+        };
+
+        const showTestResult = (message) => {
+            if (!message) {
+                testResultEl.classList.add("hidden");
+                testResultEl.textContent = "";
+                return;
+            }
+            testResultEl.textContent = message;
+            testResultEl.classList.remove("hidden");
+        };
+
+        const setConnectionStatus = (message, connected = null) => {
+            if (!statusEl) return;
+            statusEl.textContent = message;
+            statusEl.classList.remove(
+                "text-zinc-300",
+                "text-zinc-400",
+                "text-amber-400",
+                "text-emerald-400",
+                "text-rose-400"
+            );
+            if (connected === true) {
+                statusEl.classList.add("text-emerald-400");
+            } else if (connected === "setup") {
+                statusEl.classList.add("text-amber-400");
+            } else if (connected === false) {
+                statusEl.classList.add("text-rose-400");
+            } else {
+                statusEl.classList.add("text-zinc-300");
+            }
+        };
+
+        const applyOnboardingLock = () => {
+            if (!onboardingActive) return;
+            if (banner) {
+                banner.classList.remove("hidden");
+            }
+            [
+                "section-voice",
+                "section-wakeword",
+                "section-hardware",
+                "section-audio",
+                "section-mqtt",
+                "section-ha",
+                "section-advanced-settings",
+            ].forEach((id) => {
+                const section = document.getElementById(id);
+                if (section) {
+                    section.classList.add("hidden");
+                }
+            });
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+            }
+            syncOnboardingUiState();
+        };
+
+        const shouldAutoOpenEditor = () => onboardingActive || hotspotActive;
+
+        const forceOnboardingModalOpen = () => {
+            if (!shouldAutoOpenEditor()) return;
+            openWifiModal();
+        };
+
+        const loadStatus = async () => {
+            try {
+                const bootstrapped = await window.BootstrapData?.take("wifi");
+                const response = bootstrapped
+                    ? {ok: true, json: async () => bootstrapped}
+                    : await fetch("/wifi/status");
+                const data = await response.json();
+                if (!response.ok) {
+                    setConnectionStatus(data.error || "Failed to load Wi-Fi status", false);
+                    syncOnboardingUiState();
+                    if (shouldAutoOpenEditor()) {
+                        forceOnboardingModalOpen();
+                    }
+                    return;
+                }
+                document.querySelectorAll("[data-wifi-mac-address]").forEach(el => {
+                    el.textContent = data.mac_address || "Unavailable";
+                });
+                setWifiIpAddress(data.ip_address);
+                hotspotActive = Boolean(data.hotspot_active);
+                syncOnboardingUiState();
+                if (hotspotActive) {
+                    setConnectionStatus(
+                        "Billy setup hotspot is active. Connect Billy to your home Wi-Fi to finish setup.",
+                        "setup"
+                    );
+                } else {
+                    setConnectionStatus(
+                        data.connected
+                            ? `Connected to ${data.ssid || "Wi-Fi"}`
+                            : "Not connected",
+                        Boolean(data.connected)
+                    );
+                }
+                if (shouldAutoOpenEditor()) {
+                    forceOnboardingModalOpen();
+                } else if (editToggleBtn) {
+                    editToggleBtn.classList.toggle("hidden", !wifiModal.classList.contains("hidden"));
+                }
+                const countryValue = String(data.country || countrySelect.value || "NL").trim().toUpperCase();
+                ensureSelectHasValue(countrySelect, countryValue, "US");
+            } catch (error) {
+                setConnectionStatus(String(error), false);
+                syncOnboardingUiState();
+                if (shouldAutoOpenEditor()) {
+                    forceOnboardingModalOpen();
+                }
+            }
+        };
+
+        const loadNetworks = async () => {
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+                showNotification("Use billy.local:8080 for legacy Wi-Fi setup", "warning", 4000);
+                return;
+            }
+            setBusy(scanBtn, true);
+            showError("");
+            scanning = true;
+            try {
+                const response = await fetch("/wifi/networks");
+                const data = await response.json();
+                if (!response.ok) {
+                    showError(data.error || "Wi-Fi scan failed");
+                    return;
+                }
+                const networks = Array.isArray(data.networks) ? data.networks : [];
+                renderNetworkList(networks);
+                syncManualSsidVisibility();
+                hasLoadedNetworksOnce = true;
+            } catch (error) {
+                showError(error.message || String(error));
+            } finally {
+                scanning = false;
+                setBusy(scanBtn, false);
+                if (!hasLoadedNetworksOnce) renderNetworkList();
+            }
+        };
+
+        networkList.addEventListener("click", (event) => {
+            const item = event.target.closest(".wifi-network-item");
+            if (!item) return;
+            chooseNetwork(item);
+        });
+
+        ssidNextBtn?.addEventListener("click", goToPassword);
+        passwordNextBtn?.addEventListener("click", goToConnect);
+        passwordBackBtn?.addEventListener("click", () => {
+            showError("");
+            showStep("network");
+        });
+        connectBackBtn?.addEventListener("click", () => {
+            showError("");
+            showStep(selectedNetworkSecure || isManualSelection() ? "password" : "network");
+        });
+        if (wifiSteps.length) {
+            // The phone keyboard's Next/Go key moves on to the next step.
+            ssidInput.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                goToPassword();
+            });
+            passwordInput.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                goToConnect();
+            });
+        }
+
+        if (countrySettingsSelect && countryModalSelect) {
+            const syncCountryValue = (source, target) => {
+                if (!source || !target) return;
+                ensureSelectHasValue(target, source.value || "US", "US");
+            };
+
+            syncCountryValue(countrySettingsSelect, countryModalSelect);
+
+            countrySettingsSelect.addEventListener("change", () => {
+                syncCountryValue(countrySettingsSelect, countryModalSelect);
+            });
+
+            countryModalSelect.addEventListener("change", () => {
+                syncCountryValue(countryModalSelect, countrySettingsSelect);
+            });
+        }
+
+        [ssidInput, passwordInput, countrySelect].forEach((element) => {
+            element.addEventListener("input", invalidateSuccessfulTest);
+            element.addEventListener("change", invalidateSuccessfulTest);
+        });
+
+        if (editToggleBtn) {
+            editToggleBtn.addEventListener("click", () => {
+                showError("");
+                showTestResult("");
+                openWifiModal();
+            });
+        }
+
+        wifiModalCloseBtn.addEventListener("click", closeWifiModal);
+        wifiModal.addEventListener("click", (event) => {
+            if (event.target === wifiModal) {
+                closeWifiModal();
+            }
+        });
+
+        scanBtn.addEventListener("click", loadNetworks);
+
+        saveBtn.addEventListener("click", async () => {
+            if (legacyHotspotOnboarding) {
+                showLegacyHotspotMessage();
+                showNotification("Use billy.local:8080 for legacy Wi-Fi setup", "warning", 4000);
+                return;
+            }
+            const ssid = ssidInput.value.trim();
+            const password = passwordInput.value;
+            const country = countrySelect.value;
+            if (!ssid) {
+                showNotification("Enter a network name first", "warning", 2500);
+                return;
+            }
+
+            setBusy(saveBtn, true);
+            showError("");
+            if (onboardingActive && unifiedConfigured) {
+                showTestResult(`Trying to connect Billy to ${ssid}. If it fails, setup mode will come back automatically.`);
+            }
+
+            let rebooting = false;
+            try {
+                const response = await fetch("/wifi/save", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ssid, password, country}),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    const errorMessage = data.error || "Failed to save Wi-Fi";
+                    if (/password/i.test(errorMessage)) showStep("password");
+                    showError(errorMessage);
+                    showNotification(errorMessage, "error", 4000);
+                    return;
+                }
+                if (data.rebooting) {
+                    // Billy joins the new network after a restart; the page
+                    // loses its connection, so don't reload or redirect.
+                    showTestResult(`Saved Wi-Fi for ${ssid}. Billy restarts now to connect to it. Connect your device to ${ssid} and open Billy’s web interface again in about a minute.`);
+                    showNotification("Wi-Fi saved. Billy is restarting…", "success", 8000);
+                    savedFingerprint = currentFingerprint();
+                    rebooting = true;
+                    return;
+                }
+                showTestResult(`Saved Wi-Fi for ${ssid}. Billy is connected. If you were using the setup hotspot, reconnect your device to your home Wi-Fi and open Billy’s web interface again.`);
+                showNotification("Wi-Fi saved and connected", "success", 4500);
+                savedFingerprint = currentFingerprint();
+                syncSaveButton();
+                await loadStatus();
+                if (!shouldAutoOpenEditor()) {
+                    closeWifiModal();
+                }
+                if (onboardingActive) {
+                    setTimeout(() => {
+                        window.location.href = `http://${window.location.hostname}:${window.location.port || 80}/`;
+                    }, 2500);
+                }
+            } catch (error) {
+                showError(error.message || String(error));
+                showNotification(error.message || String(error), "error", 4000);
+            } finally {
+                // Billy is going away; keep the button off until he is back.
+                if (!rebooting) setBusy(saveBtn, false);
+            }
+        });
+
+        applyOnboardingLock();
+        forceOnboardingModalOpen();
+        syncSectionVisibility();
+        renderNetworkList();
+        syncManualSsidVisibility();
+        syncSaveButton();
+        syncOnboardingUiState();
+        if (editToggleBtn) {
+            editToggleBtn.classList.toggle("hidden", !wifiModal.classList.contains("hidden"));
+        }
+        loadStatus();
+    };
+
+    return {
+        handleSettingsSave,
+        populateDropdowns,
+        saveDropdownSelections,
+        initBooleanToggles,
+        initStepSliders,
+        initShowTooltipsToggle,
+        initMouthArticulationSlider,
+        initStatusLedBrightnessSlider,
+        initMouthBoostSlider,
+        refreshFromConfig,
+        populateCameraHardwareDropdown,
+        bindCameraPreview,
+        bindFactoryReset,
+        bindEnvEditorCard,
+        bindNewsSources,
+        bindWakeWordKeywordUpload,
+        bindWiFiSection,
+        bindApiProviderFields,
+        initHostFields,
+        initHomeAssistantAgents,
+    };
+})();
+
+// Make SettingsForm globally available
+window.SettingsForm = SettingsForm;

@@ -1,0 +1,158 @@
+<!-- Wi-Fi Setup Modal -->
+<div id="wifi-setup-modal"
+     class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden"
+     data-wifi-onboarding-active="{{ 'true' if WIFI_ONBOARDING_ACTIVE else 'false' }}"
+     data-wifi-onboarding-mode="{{ config.get('WIFI_ONBOARDING_MODE', 'legacy') }}">
+    <div class="wifi-setup-panel bg-zinc-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="wifi-setup-title">
+        <div class="wifi-setup-header flex justify-between items-center mb-4">
+            <h3 id="wifi-setup-title" class="text-lg text-white flex items-center gap-2">
+                <span class="material-icons text-emerald-400">wifi</span>
+                Wi-Fi Setup
+            </h3>
+            <button id="close-wifi-setup-modal" type="button" aria-label="Close Wi-Fi setup" class="secondary-action secondary-action--hover--cyan button-small button-icon">
+                <span class="material-icons">close</span>
+            </button>
+        </div>
+
+
+        {% set wifi_countries = [
+        ('AE', 'United Arab Emirates'), ('AU', 'Australia'), ('AT', 'Austria'),
+        ('BE', 'Belgium'), ('BR', 'Brazil'), ('CA', 'Canada'),
+        ('CH', 'Switzerland'), ('CN', 'China'), ('CZ', 'Czech Republic'),
+        ('DE', 'Germany'), ('DK', 'Denmark'), ('ES', 'Spain'),
+        ('FI', 'Finland'), ('FR', 'France'), ('GB', 'United Kingdom'),
+        ('HK', 'Hong Kong'), ('IN', 'India'), ('IE', 'Ireland'),
+        ('IT', 'Italy'), ('JP', 'Japan'), ('KR', 'South Korea'),
+        ('MX', 'Mexico'), ('MY', 'Malaysia'), ('NL', 'Netherlands'),
+        ('NO', 'Norway'), ('NZ', 'New Zealand'), ('PL', 'Poland'),
+        ('PT', 'Portugal'), ('SE', 'Sweden'), ('SG', 'Singapore'),
+        ('TH', 'Thailand'), ('TW', 'Taiwan'), ('US', 'United States'),
+        ('ZA', 'South Africa')
+        ] %}
+
+        <ol class="wifi-stepper" aria-label="Wi-Fi setup steps">
+            <li data-wifi-step-indicator="network" aria-current="step"><span class="wifi-stepper-number">1</span><span>Network</span></li>
+            <li data-wifi-step-indicator="password"><span class="wifi-stepper-number">2</span><span>Password</span></li>
+            <li data-wifi-step-indicator="connect"><span class="wifi-stepper-number">3</span><span>Connect</span></li>
+        </ol>
+
+        <!-- Step 1: choose a network -->
+        <section id="wifi-step-network" class="wifi-step" data-wifi-step="network" aria-labelledby="wifi-step-network-title">
+            <h4 id="wifi-step-network-title" class="sr-only">Choose a network</h4>
+            <p id="wifi-setup-modal-description" class="text-sm text-zinc-400">
+                Choose your Wi-Fi network and save the connection for Billy.
+            </p>
+            <div class="wifi-step-toolbar">
+                <span class="text-sm text-slate-300">Nearby networks</span>
+                <button type="button"
+                        id="wifi-scan-btn"
+                        class="secondary-action secondary-action--hover--cyan button-small">
+                    <span class="material-icons text-sm" aria-hidden="true">wifi_find</span>
+                    Scan again
+                </button>
+            </div>
+            <div id="wifi-network-list" class="wifi-network-list" aria-label="Nearby networks">
+                <div class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-400">Scanning for networks…</div>
+            </div>
+
+            <div id="wifi-ssid-field" class="wifi-manual-ssid" hidden>
+                <label for="wifi-ssid" class="block text-sm text-slate-300">Network name (SSID)</label>
+                <input id="wifi-ssid"
+                       type="text"
+                       autocomplete="off"
+                       autocapitalize="none"
+                       spellcheck="false"
+                       enterkeyhint="next"
+                       class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                       placeholder="My Wi-Fi">
+                <div class="wifi-step-actions">
+                    <button type="button" id="wifi-ssid-next" class="primary-action bg-emerald-600 text-black">
+                        Next
+                        <span class="material-icons" aria-hidden="true">arrow_forward</span>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label for="wifi-country-modal" class="block text-sm text-slate-300">Wi-Fi country</label>
+                <select id="wifi-country-modal"
+                        data-wifi-country-select
+                        class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                {% for code, label in wifi_countries %}
+                <option value="{{ code }}" {% if config.get('WIFI_COUNTRY', 'NL') == code %}selected{% endif %}>
+                    {{ label }} ({{ code }})
+                </option>
+                {% endfor %}
+                </select>
+            </div>
+            <div class="wifi-device-details">
+                <p>Device MAC Address: <span data-wifi-mac-address class="font-mono select-all">Checking...</span></p>
+                <p data-wifi-ip-row class="hidden">Local IP Address: <span data-wifi-ip-address class="font-mono select-all"></span></p>
+            </div>
+        </section>
+
+        <!-- Step 2: password -->
+        <section id="wifi-step-password" class="wifi-step" data-wifi-step="password" aria-labelledby="wifi-step-password-title" hidden>
+            <h4 id="wifi-step-password-title" class="text-white text-base">
+                Password for <span data-wifi-selected-ssid class="break-all"></span>
+            </h4>
+            <div>
+                <label for="wifi-password" class="block text-sm text-slate-300">Password</label>
+                <div class="relative">
+                    <input id="wifi-password"
+                           type="password"
+                           autocomplete="current-password"
+                           autocapitalize="none"
+                           spellcheck="false"
+                           enterkeyhint="next"
+                           class="w-full p-3 mt-1 pr-10 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                           placeholder="Wi-Fi password">
+                    <button type="button"
+                            onclick="toggleInputVisibility('wifi-password', this)"
+                            aria-label="Show password"
+                            class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white">
+                        <span class="material-icons" id="wifi-password_icon">visibility</span>
+                    </button>
+                </div>
+                <p id="wifi-password-hint" class="text-xs text-zinc-400 mt-1" hidden>Leave this empty if the network has no password.</p>
+            </div>
+            <div class="wifi-step-actions">
+                <button type="button" id="wifi-password-back" class="secondary-action secondary-action--hover--cyan">
+                    <span class="material-icons" aria-hidden="true">arrow_back</span>
+                    Back
+                </button>
+                <button type="button" id="wifi-password-next" class="primary-action bg-emerald-600 text-black">
+                    Next
+                    <span class="material-icons" aria-hidden="true">arrow_forward</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Step 3: connect -->
+        <section id="wifi-step-connect" class="wifi-step" data-wifi-step="connect" aria-labelledby="wifi-step-connect-title" hidden>
+            <h4 id="wifi-step-connect-title" class="text-white text-base">Ready to connect</h4>
+            <dl class="wifi-summary">
+                <div><dt>Network</dt><dd data-wifi-selected-ssid class="break-all"></dd></div>
+                <div><dt>Password</dt><dd id="wifi-summary-password"></dd></div>
+                <div><dt>Country</dt><dd id="wifi-summary-country"></dd></div>
+            </dl>
+            <div class="wifi-step-actions">
+                <button type="button" id="wifi-connect-back" class="secondary-action secondary-action--hover--cyan">
+                    <span class="material-icons" aria-hidden="true">arrow_back</span>
+                    Back
+                </button>
+                <button type="button"
+                        id="wifi-save-btn"
+                        class="primary-action bg-emerald-600 text-black">
+                    <span id="wifi-save-icon" class="material-icons text-sm" aria-hidden="true">wifi</span>
+                    <span id="wifi-save-label">Connect</span>
+                </button>
+            </div>
+        </section>
+
+        <div id="wifi-test-result" role="status" aria-live="polite"
+             class="hidden p-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-sm text-emerald-100"></div>
+        <div id="wifi-error-result" role="alert"
+             class="hidden p-3 rounded border border-rose-500/40 bg-rose-500/10 text-sm text-rose-100"></div>
+    </div>
+</div>

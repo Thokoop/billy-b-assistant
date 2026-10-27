@@ -1,0 +1,575 @@
+import contextlib
+import getpass
+import os
+import subprocess
+import threading
+import time
+import uuid
+
+from core.logger import logger
+from flask import Blueprint, jsonify, request
+
+
+bp = Blueprint("misc", __name__)
+_service_restart_lock = threading.Lock()
+WEBCONFIG_INSTANCE_ID = uuid.uuid4().hex
+
+
+def _restart_units(*units: str) -> None:
+    """Hand the restarts to systemd and return immediately.
+
+    Previously this stopped billy.service, polled up to 25 seconds for it to go
+    inactive, started it again, and only then restarted the web interface. The
+    interface therefore could not come back until Billy already had, which is
+    most of the wait after pressing Restart. "systemctl restart" performs the
+    same stop-then-start and orders it correctly by itself - the hand-rolled
+    sequence existed only to work around starting mid stop-job - and
+    --no-block hands the job to systemd rather than holding this thread (and,
+    for the web interface, its own process) until the job finishes.
+    """
+    for unit in units:
+        result = subprocess.run(
+            ["sudo", "systemctl", "restart", "--no-block", unit],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            logger.error(f"Restarting {unit} failed: {detail}")
+            # --no-block is refused by very old systemd. A blocking restart is
+            # slower but must never be skipped: the browser is sitting on
+            # "waiting for reconnect" until the unit comes back.
+            subprocess.run(
+                ["sudo", "systemctl", "restart", unit],
+                check=False,
+            )
+
+
+def _restart_billy_service_gracefully():
+    """Restart Billy alone, letting systemd sequence the stop and start."""
+    _restart_units("billy.service")
+
+
+def _restart_billy_services_in_background():
+    if not _service_restart_lock.acquire(blocking=False):
+        return
+    try:
+        # Let the HTTP response flush before either unit goes down.
+        time.sleep(0.25)
+        logger.info("Restarting Billy and the web interface...", "🔄")
+        # Both jobs are queued back to back and run in parallel. The web
+        # interface no longer waits for Billy, and queueing its own restart
+        # last means this thread's process is the one that goes away.
+        _restart_units("billy.service", "billy-webconfig.service")
+    finally:
+        _service_restart_lock.release()
+
+
+def _restart_billy_only_in_background():
+    if not _service_restart_lock.acquire(blocking=False):
+        return
+    try:
+        time.sleep(0.25)
+        _restart_billy_service_gracefully()
+    finally:
+        _service_restart_lock.release()
+
+
+@bp.route("/logs")
+def logs():
+    from ..journal import read_logs
+
+    try:
+        response = jsonify(read_logs(request.args.get("source", "billy")))
+    except ValueError:
+        return jsonify({"error": "Unknown log source"}), 400
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.route("/logs/clear", methods=["POST"])
+def clear_logs():
+    units = ["billy.service", "billy-webconfig.service"]
+    errors: list[str] = []
+
+    try:
+        rotate_result = subprocess.run(
+            ["sudo", "journalctl", "--rotate"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if rotate_result.returncode != 0:
+            stderr = rotate_result.stderr.strip() or rotate_result.stdout.strip()
+            errors.append(f"journalctl --rotate failed: {stderr}")
+    except FileNotFoundError:
+        return jsonify({"status": "error", "errors": ["journalctl not available"]}), 500
+    except Exception as e:
+        errors.append(f"journalctl --rotate failed: {e}")
+
+    for unit in units:
+        args = ["sudo", "journalctl", "--vacuum-time=1s", "--unit", unit]
+        try:
+            result = subprocess.run(args, check=False, capture_output=True, text=True)
+            if result.returncode != 0:
+                stderr = result.stderr.strip() or result.stdout.strip()
+                errors.append(f"{unit}: {' '.join(args[1:])} failed: {stderr}")
+        except FileNotFoundError:
+            errors.append("journalctl not available")
+            break
+        except Exception as e:
+            errors.append(f"{unit}: {' '.join(args[1:])} failed: {e}")
+
+    if errors:
+        return jsonify({"status": "error", "errors": errors}), 500
+
+    return jsonify({"status": "ok"})
+
+
+@bp.route("/service/<action>")
+def control_service(action):
+    if action not in ["start", "stop", "restart"]:
+        return jsonify({"error": "Invalid action"}), 400
+    try:
+        if action == "restart":
+            _restart_billy_service_gracefully()
+        elif action == "start":
+            subprocess.check_call(["sudo", "systemctl", "start", "billy.service"])
+        else:
+            subprocess.check_call(["sudo", "systemctl", "stop", "billy.service"])
+        return jsonify({"status": "success", "action": action})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route('/restart', methods=['POST'])
+def restart_billy_services():
+    try:
+        # Taken before the units are touched, so a readiness marker written by
+        # the run that is about to be stopped cannot be mistaken for the new
+        # one. Both clocks are this machine's, so they compare directly.
+        requested_at = time.time()
+        threading.Thread(
+            target=_restart_billy_services_in_background,
+            daemon=True,
+        ).start()
+        return jsonify({
+            "status": "ok",
+            "message": "Restarting...",
+            "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+            "restart_requested_at": requested_at,
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@bp.route('/restart-billy', methods=['POST'])
+def restart_billy_only():
+    """Restart only billy.service (not the webconfig), used for persona changes."""
+    try:
+        threading.Thread(
+            target=_restart_billy_only_in_background,
+            daemon=True,
+        ).start()
+        return jsonify({"status": "ok", "message": "Restarting Billy..."})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@bp.route('/stop-billy', methods=['POST'])
+def stop_billy_only():
+    """Stop only billy.service (not the webconfig), used for audio tests."""
+    try:
+        subprocess.Popen(["sudo", "systemctl", "stop", "billy.service"])
+        return jsonify({"status": "ok", "message": "Stopping Billy service..."})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+_BILLY_STATE_CACHE: dict[str, object] = {"value": None, "checked_at": 0.0}
+_BILLY_STATE_TTL_SECONDS = 0.75
+
+
+def _billy_service_state() -> str:
+    """systemctl state of billy.service, cached so polling stays cheap."""
+    now = time.monotonic()
+    checked_at = float(_BILLY_STATE_CACHE.get("checked_at") or 0.0)
+    cached = _BILLY_STATE_CACHE.get("value")
+    if cached and now - checked_at < _BILLY_STATE_TTL_SECONDS:
+        return str(cached)
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "billy.service"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        state = (result.stdout or "").strip() or "unknown"
+    except FileNotFoundError:
+        # No systemd (running Billy by hand): nothing to wait for.
+        state = "active"
+    except Exception:
+        state = "unknown"
+    _BILLY_STATE_CACHE["value"] = state
+    _BILLY_STATE_CACHE["checked_at"] = now
+    return state
+
+
+@bp.route("/service/status")
+def service_status():
+    from billy_runtime.recovery import Recovery
+    from billy_runtime.worker import read_activity
+
+    recovery = Recovery().notice()
+    try:
+        # Get service status without raising on non-zero exit codes.
+        # systemctl returns exit code 3 for inactive/failed units, which is expected.
+        result = subprocess.run(
+            ["systemctl", "is-active", "billy.service"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+        service_status = (result.stdout or "").strip() or "unknown"
+    except FileNotFoundError:
+        # systemctl not available (running manually), assume active
+        service_status = "active"
+
+    # Get comprehensive status including profiles and configuration
+    try:
+        import time
+
+        from core.mood import mood_manager
+        from core.persona_manager import persona_manager
+        from core.profile_manager import user_manager
+
+        # Get project root and .env path
+        from billy_runtime.paths import INSTALL_ROOT
+
+        project_root = str(INSTALL_ROOT)
+        env_path = os.path.join(project_root, ".env")
+
+        # load_dotenv() never overrides a value this process already has, so
+        # it kept reporting the first user. Billy's core switches user itself.
+        from ..websocket import saved_current_user
+
+        current_user_name = saved_current_user()
+        current_user = user_manager.get_current_user()
+
+        # Get .env file status
+        env_exists = os.path.exists(env_path)
+        env_modified = os.path.getmtime(env_path) if env_exists else 0
+
+        # Get memory count for current user
+        memory_count = 0
+        if current_user:
+            try:
+                memories = current_user.get_memories(
+                    100
+                )  # Get up to 100 memories to count
+                memory_count = len(memories)
+            except Exception as e:
+                logger.warning(f"Failed to get memory count: {e}")
+
+        # Get config hash to detect config changes
+        config_hash = None
+        try:
+            import hashlib
+
+            from ..core_imports import core_config
+
+            # Create a hash of key config values to detect changes
+            config_values = [
+                str(getattr(core_config, k, ""))
+                for k in [
+                    "SILENCE_THRESHOLD",
+                    "MIC_TIMEOUT_SECONDS",
+                    "DEFAULT_USER",
+                    "CURRENT_USER",
+                    "MOUTH_ARTICULATION",
+                ]
+            ]
+            config_string = "|".join(config_values)
+            config_hash = hashlib.md5(config_string.encode()).hexdigest()
+        except Exception as e:
+            logger.warning(f"Failed to get config hash: {e}")
+
+        # Get current personality traits
+        current_personality = None
+        try:
+            # Reload personality from disk to get latest changes from Billy
+            from core.persona import load_traits_from_ini
+
+            # Get current persona file path
+            current_persona = persona_manager.current_persona
+            if current_persona == "default":
+                persona_ini_path = os.path.join(project_root, "persona.ini")
+            else:
+                persona_ini_path = os.path.join(
+                    project_root, "personas", current_persona, "persona.ini"
+                )
+                if not os.path.exists(persona_ini_path):
+                    # Fall back to old structure
+                    persona_ini_path = os.path.join(
+                        project_root, "personas", f"{current_persona}.ini"
+                    )
+
+            # Load fresh traits from the file
+            traits = load_traits_from_ini(persona_ini_path)
+
+            current_personality = {
+                "humor": traits.get("humor", 50),
+                "sarcasm": traits.get("sarcasm", 50),
+                "honesty": traits.get("honesty", 50),
+                "respectfulness": traits.get("respectfulness", 50),
+                "optimism": traits.get("optimism", 50),
+                "confidence": traits.get("confidence", 50),
+                "warmth": traits.get("warmth", 50),
+                "curiosity": traits.get("curiosity", 50),
+                "verbosity": traits.get("verbosity", 50),
+                "formality": traits.get("formality", 50),
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get current personality: {e}")
+
+        current_mood = None
+        try:
+            current_mood = mood_manager.snapshot()
+        except Exception as e:
+            logger.warning(f"Failed to get current mood: {e}")
+
+        return jsonify({
+            "status": service_status,
+            "billy_state": read_activity(),
+            "recovery": recovery,
+            "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+            "mood": current_mood,
+            "current_user": current_user_name,
+            "current_user_loaded": current_user.name if current_user else None,
+            "current_persona": persona_manager.current_persona,
+            "current_personality": current_personality,
+            "available_profiles": user_manager.list_all_users(),
+            "available_personas": persona_manager.get_available_personas(),
+            "memory_count": memory_count,
+            "config_hash": config_hash,
+            "env_file": {"exists": env_exists, "modified": env_modified},
+            "timestamp": time.time(),
+        })
+    except subprocess.CalledProcessError as e:
+        return jsonify({"status": e.output.decode("utf-8").strip()})
+    except Exception as e:
+        # Fallback to basic service status if profile loading fails
+        return jsonify({
+            "status": service_status,
+            "billy_state": read_activity(),
+            "recovery": recovery,
+            "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+            "error": f"Failed to load profile status: {str(e)}",
+        })
+
+
+@bp.route("/health")
+def health():
+    """Process identity and Billy's state, polled while the web UI reconnects."""
+    from core.readiness import ready_at
+
+    return jsonify({
+        "status": "ok",
+        "webconfig_instance": WEBCONFIG_INSTANCE_ID,
+        "billy_service": _billy_service_state(),
+        # billy.service is Type=simple, so "active" arrives well before Billy
+        # can do anything. This says when he last reported himself ready, and
+        # is null while he is down or still starting.
+        "billy_ready_at": ready_at(),
+    })
+
+
+@bp.route("/reboot", methods=["POST"])
+def reboot_billy():
+    try:
+        subprocess.call(["sudo", "shutdown", "-r", "now"])
+        return jsonify({"status": "ok", "message": "Billy rebooting"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@bp.route("/shutdown", methods=["POST"])
+def shutdown_billy():
+    try:
+        subprocess.call(["sudo", "shutdown", "-h", "now"])
+        return jsonify({"status": "ok", "message": "Billy shutting down"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@bp.route("/change-password", methods=["POST"])
+def change_password():
+    """Change the password for the current user (typically 'billy' on Raspberry Pi)."""
+    try:
+        data = request.get_json()
+        new_password = data.get("new_password")
+        confirm_password = data.get("confirm_password")
+
+        if not all([new_password, confirm_password]):
+            return jsonify({"status": "error", "error": "All fields are required"}), 400
+
+        if new_password != confirm_password:
+            return jsonify({
+                "status": "error",
+                "error": "New passwords do not match",
+            }), 400
+
+        if len(new_password) < 8:
+            return jsonify({
+                "status": "error",
+                "error": "New password must be at least 8 characters long",
+            }), 400
+
+        # Get current username
+        current_user = getpass.getuser()
+
+        # Change the password using chpasswd command (more reliable than passwd)
+        try:
+            # Use chpasswd which accepts username:password pairs via stdin
+            process = subprocess.Popen(
+                ["sudo", "chpasswd"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Send username:newpassword to chpasswd
+            stdout, stderr = process.communicate(
+                input=f"{current_user}:{new_password}\n"
+            )
+
+            if process.returncode == 0:
+                # Set FORCE_PASS_CHANGE=false in .env file
+                try:
+                    # Get the project root directory (two levels up from webconfig/app/routes/)
+                    from billy_runtime.paths import INSTALL_ROOT
+
+                    project_root = str(INSTALL_ROOT)
+                    env_file_path = os.path.join(project_root, ".env")
+                    from billy_runtime.configuration import load_environment, patch_env
+
+                    patch_env(env_file_path, {"FORCE_PASS_CHANGE": "false"})
+                    load_environment(env_file_path, override=True)
+
+                    # Also reload the core config module to pick up the new setting
+                    import importlib
+                    import sys
+
+                    if 'core.config' in sys.modules:
+                        importlib.reload(sys.modules['core.config'])
+
+                except Exception as e:
+                    logger.warning(f"Warning: Could not update .env file: {e}")
+
+                return jsonify({
+                    "status": "ok",
+                    "message": "Password changed successfully",
+                })
+            error_msg = stderr.strip() if stderr else "Password change failed"
+            return jsonify({"status": "error", "error": error_msg}), 400
+
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "error": f"Failed to change password: {str(e)}",
+            }), 500
+
+    except Exception as e:
+        return jsonify({"status": "error", "error": f"Unexpected error: {str(e)}"}), 500
+
+
+@bp.route("/test-motor", methods=["POST"])
+def test_motor():
+    """Test individual motors (mouth, head, or tail)."""
+    movements = None
+    try:
+        import importlib
+        import sys
+        import time
+
+        # Stop Billy service if running (to release GPIO)
+        was_active = False
+        try:
+            output = subprocess.check_output(
+                ["systemctl", "is-active", "billy.service"], stderr=subprocess.STDOUT
+            )
+            was_active = output.decode().strip() == "active"
+        except subprocess.CalledProcessError:
+            was_active = False
+
+        if was_active:
+            subprocess.check_call(["sudo", "systemctl", "stop", "billy.service"])
+            time.sleep(0.5)
+
+        data = request.get_json()
+        motor = data.get("motor")
+
+        existing_movements = sys.modules.get("core.movements")
+        if existing_movements is not None:
+            with contextlib.suppress(Exception):
+                existing_movements.stop_all_motors()
+            with contextlib.suppress(Exception):
+                existing_movements.cleanup_gpio()
+            movements = importlib.reload(existing_movements)
+        else:
+            import core.movements as movements
+
+        # Perform the requested test
+        if motor == "mouth":
+            movements.move_mouth(100, 1, brake=True)
+            time.sleep(1.1)
+        elif motor == "head":
+            movements.move_head("on")
+            time.sleep(1)
+            movements.move_head("off")
+        elif motor == "tail":
+            movements.move_tail(duration=1)
+            time.sleep(1.1)
+        else:
+            return jsonify({"error": "Invalid motor"}), 400
+
+        return jsonify({"status": f"{motor} tested", "service_was_active": was_active})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if movements is not None:
+            with contextlib.suppress(Exception):
+                movements.stop_all_motors()
+            with contextlib.suppress(Exception):
+                movements.cleanup_gpio()
+
+
+@bp.route("/test-led", methods=["POST"])
+def test_led():
+    """Run a short WS2812B status LED test."""
+    try:
+        # Stop Billy service if running so the LED test can control the pixel cleanly.
+        was_active = False
+        try:
+            output = subprocess.check_output(
+                ["systemctl", "is-active", "billy.service"], stderr=subprocess.STDOUT
+            )
+            was_active = output.decode().strip() == "active"
+        except subprocess.CalledProcessError:
+            was_active = False
+
+        if was_active:
+            subprocess.check_call(["sudo", "systemctl", "stop", "billy.service"])
+
+        from core.status_led import run_status_led_test
+
+        ok, message = run_status_led_test()
+        if not ok:
+            return jsonify({"error": message, "service_was_active": was_active}), 400
+
+        return jsonify({"status": message, "service_was_active": was_active})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

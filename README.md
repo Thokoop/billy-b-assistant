@@ -302,9 +302,13 @@ pip install --no-deps --upgrade openwakeword==0.6.0
 
 Run `pip show openwakeword` again to confirm that version `0.6.0` is installed.
 
-Billy's Web UI software update flow automatically reapplies this workaround
-after reinstalling `requirements.txt`, so later updates should not revert the
-package to `0.4.x`.
+Managed software updates install openWakeWord `0.6.0` from the release lock.
+When upgrading directly from an older version whose updater predates this
+workaround, the baseline assistant supervisor repairs an installed older
+openWakeWord to `0.6.0` before starting Billy. It installs the hashed package
+without resolving TFLite dependencies and skips the repair when `0.6.0` is
+already installed. If the repair fails, the web interface remains available;
+check the connection and storage, then restart Billy to retry.
 
 ---
 
@@ -438,6 +442,8 @@ http://billy.local
 ### Example `.env` File
 
 This file is used to configure your environment, including the [OpenAI API key](https://platform.openai.com/api-keys) and (optional) mqtt settings. It can also be used to overwrite some of the default config settings (like the voice of billy) that you can find in `config.py`.
+
+**GPT-Live (optional):** Select **OpenAI GPT-Live** in API Settings to try continuous voice conversations with a separate model for reasoning and tools. It uses your existing OpenAI API key; your OpenAI project needs access to the selected models. Voice time and backend work are billed separately. Enable echo cancellation for speaking while Billy talks. Without it, Billy mutes microphone audio during his own speech to avoid hearing himself. Wake-up clips and MQTT `say` announcements use the selected GPT-Live voice. This is experimental: wording or endings may vary, so listen to generated wake-up clips before using them. Live recordings are limited to 30 seconds of output audio; longer recordings fail without playing a partial clip. Voice changes apply to the next conversation. OpenAI Realtime and xAI remain available.
 
 Note that you **must** establish billing for your API account with an available credit. In the [billing panel](https://platform.openai.com/account/billing/overview), add a payment method (under Payment Methods). After adding a payment method, add credits to your organization by clicking 'Buy credits'. You will see an API error: `The model gpt-4o-mini-realtime-preview does not exist or you do not have access to it.` otherwise.
 
@@ -751,6 +757,82 @@ Reconnect your phone or computer to your home Wi-Fi to open Billy’s web interf
 Saved network credentials remain available until you change them in setup.
 Short presses retain their normal session controls.
 
+If Billy's normal web interface cannot open, the setup page can show a recovery
+screen instead. You can also open `/repair/` at the same address shown by the setup
+page. Opening recovery does not require internet access or a recovery code;
+downloading software or missing components does require an internet connection.
+
+The ten-second button action works while Billy is running. With the built-in
+Wi-Fi setup enabled, Billy also opens its setup hotspot at startup if it has no
+active Wi-Fi connection, even if the assistant cannot start. If the connection is
+lost later and setup does not appear, restart Billy to run the connection check again.
+
+---
+
+# Software updates and recovery
+
+Open [Billy's settings](http://billy.local/settings) while connected to the same
+network as Billy. If you chose a different hostname, use that address instead.
+The options below are available on versions that include the recovery features.
+
+### Update Billy
+
+Under **Settings → Software Version**, you can see the installed version, read
+release notes and install an available update. Billy checks the components it
+needs before switching to the new version. Audio and conversations may pause
+during installation. Keep Billy powered on and connected to the internet until
+the update finishes.
+
+In **Settings → Advanced Settings → Software updates**, choose **Stable
+(recommended)**, **Release Candidate**, or **Beta**. Release Candidate also includes
+stable releases; Beta includes all three. **Release Candidate and Beta are for
+advanced users only** and may contain bugs or unfinished features. Changing this
+choice affects future update offers; it does not install or downgrade software.
+Your previous Release Candidate preference is kept when upgrading.
+
+### Check system components
+
+Go to **Settings → Advanced Settings → System components**. If everything is
+ready, you will see **All system components are installed.** No action is needed.
+
+If components need attention, use the suggested **Install**, **Update**, **Repair**
+or **Set up components** button. Follow the progress and result in the interface. This repairs components Billy
+needs without resetting your settings or selecting a different Billy version.
+It does not upgrade Raspberry Pi OS.
+
+### Reinstall or restore a previous version
+
+Go to **Settings → Advanced Settings → Recovery & reset → Open recovery**.
+The recovery options show which software versions are available:
+
+- **Reinstall** installs the current version again.
+- **Restore** returns to a previously saved version, when one is available.
+
+These software actions preserve your settings, profiles and memories. Restoring
+Billy's software does not roll back system-component changes. Resetting settings
+is a separate action in the same window; select only the items you want to reset.
+
+### If Billy cannot start
+
+The web interface can remain available even when the assistant cannot start.
+In **Debug**, choose **Bluetooth** to follow connection and audio logs
+(including PipeWire and WirePlumber) without SSH. **All services** combines them
+with Billy and the web interface. Logs update while the panel is open;
+**Clear view** clears only the display. For detailed Billy audio timing, choose
+**Verbose** and apply it (Billy restarts). Return to **Info** after testing.
+This setting does not change the logging level of the system audio services.
+
+Follow the notification: **Open Debug** shows startup errors, while
+**Open .env editor** helps with configuration problems. The editor lets you inspect
+available backups or a preserved damaged configuration before saving any changes.
+
+If the normal interface also fails to start, open
+[Billy's recovery screen](http://billy.local/repair/). It provides software recovery,
+configuration recovery and system-component repair without needing to log in to
+the Raspberry Pi. It is also accessible through Billy's setup hotspot as described
+above. If recovery reports a problem it cannot fix, keep the error message and
+contact support before resetting your settings or reflashing the SD card.
+
 ---
 
 # Future Ideas & Bug report
@@ -798,6 +880,6 @@ Pull requests are welcome! If you have an idea for a new feature, bug fix, or im
 
 Enjoying the project? Feel free to leave a small tip, totally optional, but much appreciated!
 
-![Paypal](./webconfig/static/images/qrcode.png)
+![Paypal](./application/webconfig/static/images/qrcode.png)
 
 https://paypal.me/thomkoopman050

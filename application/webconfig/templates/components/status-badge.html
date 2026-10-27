@@ -1,0 +1,16 @@
+{% macro status_badge(id, label, kind='beta', release=false) -%}
+<button type="button" id="{{ id }}-badge"
+        class="status-badge status-badge--{{ kind }}{% if release %} hidden{% endif %}"
+        data-disclosure-target="{{ id }}-info"{% if release %} data-release-badge{% endif %}
+        aria-expanded="false" aria-controls="{{ id }}-info">
+    <span>{{ label }}</span>
+    <span class="material-icons" aria-hidden="true">expand_more</span>
+</button>
+{%- endmacro %}
+
+{% macro badge_info(id, kind='beta') -%}
+<div id="{{ id }}-info" class="status-badge-info status-badge--{{ kind }}"
+     data-disclosure-panel role="region" aria-labelledby="{{ id }}-badge" hidden>
+    {{ caller() }}
+</div>
+{%- endmacro %}

@@ -176,17 +176,26 @@ def handle_connection():
     password = wifi_request.get("password")
     country = wifi_request.get("country")
 
-    success = save_wifi_credentials(ssid, password, country)
+    # Let the "connecting" page reach the phone before the hotspot goes away.
+    time.sleep(3)
+    # hostapd owns wlan0 in AP mode; NetworkManager cannot join a network
+    # through it, so the hotspot has to be gone before connecting.
+    stop_hotspot_services()
 
-    if success:
+    if save_wifi_credentials(ssid, password, country):
         print(f"✅ Connected to {ssid}")
     else:
-        print(f"❌ Failed to connect to {ssid}")
+        print(f"❌ Failed to connect to {ssid}; reopening Wi-Fi setup")
+        # The startup check finds no connection and opens the hotspot again.
+        subprocess.run(
+            ["sudo", "systemctl", "restart", "--no-block", "billy-wifi-check.service"],
+            check=False,
+        )
 
-    time.sleep(5)
-    stop_hotspot_services()
+    # Stopping this unit ends this process, so it must be the last step. It
+    # used to run inside save_wifi_credentials, which killed the setup before
+    # the hotspot was stopped and left Billy unreachable until a reboot.
     subprocess.run(["sudo", "systemctl", "stop", "billy-wifi-setup.service"])
-    shutdown_flask_soon()
 
 
 def save_wifi_credentials(ssid, password, country):
@@ -195,6 +204,9 @@ def save_wifi_credentials(ssid, password, country):
         subprocess.run(["iw", "reg", "set", country], check=True)
 
         subprocess.run(["sudo", "systemctl", "start", "NetworkManager"], check=True)
+        subprocess.run(
+            ["sudo", "nmcli", "device", "set", "wlan0", "managed", "yes"], check=False
+        )
 
         subprocess.run(["nmcli", "radio", "wifi", "off"], check=False)
         time.sleep(2)
@@ -208,6 +220,8 @@ def save_wifi_credentials(ssid, password, country):
             [
                 "sudo",
                 "nmcli",
+                "--wait",
+                "60",
                 "dev",
                 "wifi",
                 "connect",
@@ -221,42 +235,29 @@ def save_wifi_credentials(ssid, password, country):
             ],
             check=True,
         )
-
-        subprocess.run(
-            ["sudo", "systemctl", "stop", "billy-wifi-setup.service"], check=False
-        )
-
-        time.sleep(5)
-        result = subprocess.run(
-            ["ping", "-c", "1", "-W", "3", "8.8.8.8"], stdout=subprocess.DEVNULL
-        )
-        return result.returncode == 0
-
     except subprocess.CalledProcessError as e:
         print(f"❌ Connection failed: {e}")
         return False
+
+    # Joined: some networks block ping, so this only informs the log.
+    time.sleep(5)
+    result = subprocess.run(
+        ["ping", "-c", "1", "-W", "3", "8.8.8.8"], stdout=subprocess.DEVNULL
+    )
+    if result.returncode != 0:
+        print("⚠️ Connected, but 8.8.8.8 did not answer a ping")
+    return True
 
 
 def stop_hotspot_services():
     subprocess.call(["sudo", "systemctl", "stop", "hostapd"])
     subprocess.call(["sudo", "systemctl", "stop", "dnsmasq"])
+    subprocess.call(["sudo", "rm", "-f", "/etc/dnsmasq.d/billy-captive-portal.conf"])
+    # wifi_check.sh gave wlan0 the hotspot address by hand.
+    subprocess.call(["sudo", "ip", "addr", "del", "192.168.4.1/24", "dev", "wlan0"])
     if ONBOARDING_FLAG.exists():
         ONBOARDING_FLAG.unlink()
     print("🛑 Stopped hotspot services")
-
-
-def shutdown_flask_soon():
-    # Delay shutdown so user sees message
-    def delayed_exit():
-        time.sleep(3)
-        print("🌀 Shutting down Flask app...")
-        func = request.environ.get('werkzeug.server.shutdown')
-        if func:
-            func()
-
-    import threading
-
-    threading.Thread(target=delayed_exit, daemon=True).start()
 
 
 if __name__ == "__main__":

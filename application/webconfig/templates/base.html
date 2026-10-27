@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>{% block title %}Billy Bassistant{% endblock %}</title>
+    <link href="../static/css/styles.css" rel="stylesheet">
+    <link rel="icon" href="../static/favicon.ico" type="image/x-icon">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="text-white font-sans">
+    {% set notice = recovery_notice|default({}) %}
+    {% block header %}{% endblock %}
+    {% block main_content %}{% endblock %}
+
+    {% block footer %}
+    <footer class="fixed bottom-2 justify-self-center">
+        <div class="flex w-max flex-nowrap items-center justify-start gap-1.5 md:gap-2 rounded-[1.75rem] md:rounded-[2rem] border border-white/20 bg-zinc-800/45 p-1.5 md:p-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-md">
+            {% set nav_item_base = "bg-transparent border border-transparent hover:bg-white/12 hover:border-white/18 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_10px_24px_rgba(0,0,0,0.18)] transition-all text-white text-sm py-2 px-3 md:py-3 md:px-5 rounded-[1.35rem] md:rounded-[1.6rem] flex flex-col gap-1.5 md:gap-2 items-center justify-center cursor-pointer min-w-20 md:min-w-28 shrink-0" %}
+            {% set nav_item_active = "bg-white/12 !text-emerald-400" %}
+
+            <a href="/personas"
+               data-page-link
+               data-page="personas"
+               class="{{ nav_item_base }} {% if current_page == 'personas' %}{{ nav_item_active }}{% endif %}"
+               title="Personas">
+                <span class="material-icons text-[30px] md:!text-4xl">set_meal</span>
+                <span class="text-xs">Personas</span>
+            </a>
+
+            <a href="/profiles"
+               data-page-link
+               data-page="profiles"
+               class="{{ nav_item_base }} {% if current_page == 'profiles' %}{{ nav_item_active }}{% endif %}"
+               title="Profiles">
+                <span class="material-icons text-[30px] md:!text-4xl">person</span>
+                <span class="text-xs">Profiles</span>
+            </a>
+
+            <a href="/songs-page"
+               data-page-link
+               data-page="songs"
+               class="{{ nav_item_base }} {% if current_page == 'songs' %}{{ nav_item_active }}{% endif %}"
+               title="Songs">
+                <span class="material-icons text-[30px] md:!text-4xl">library_music</span>
+                <span class="text-xs">Songs</span>
+            </a>
+
+            <a href="/library"
+               data-page-link
+               data-page="library"
+               class="{{ nav_item_base }} {% if current_page == 'library' %}{{ nav_item_active }}{% endif %}"
+               title="Library">
+                <span class="material-icons text-[30px] md:!text-4xl">library_books</span>
+                <span class="text-xs">Library</span>
+            </a>
+
+        </div>
+    </footer>
+    {% endblock %}
+
+    {% include "components/password-modal.html" %}
+
+    <dialog id="live-captions-dialog" class="live-captions-dialog" aria-label="Session transcript"></dialog>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" role="dialog" aria-modal="true" aria-label="Billy maintenance" tabindex="-1"
+        class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center p-6"
+        style="z-index: 2147483000;">
+        <div class="flex flex-1 min-h-0 w-full flex-col items-center justify-center">
+            <img src="{{ url_for('static', filename='images/status-reloading.gif') }}"
+                 alt="Billy is working on it"
+                 class="w-full max-w-[300px] min-h-0 h-auto object-contain select-none"
+                 draggable="false">
+            <p id="loading-overlay-text" role="status" aria-live="polite" aria-atomic="true" class="shrink-0 bg-zinc-900/80 border border-zinc-700 rounded-lg px-6 py-5 shadow-2xl w-full max-w-2xl text-sm text-zinc-200 text-center">
+                Restarting Billy... reconnecting interface.
+            </p>
+        </div>
+        <p id="loading-overlay-hint" hidden class="shrink-0 mt-4 text-sm text-zinc-200 text-center">
+            Billy is taking care of it. Please keep the power connected.
+            You can change settings again when this is finished.
+        </p>
+    </div>
+
+    {% block scripts %}
+    {% include "components/script-recovery.html" %}
+    <script src="{{ url_for('static', filename='js/marked-min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ui-helpers.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/searchable-select.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap-data.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/config-service.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app-config.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/log-panel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/service-status.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/live-captions.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/websocket.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/pin-profile.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/settings-form.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/settings-navigation.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/knowledge-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/persona-form.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/mood-panel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/settings-panel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/wakeup-clips.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/audio-panel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/motor-panel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sections.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/songs-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/version-release.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bluetooth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/page-router.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/init.js') }}"></script>
+    <script>window.ScriptLoadRecovery.complete();</script>
+    {% endblock %}
+</body>
+</html>

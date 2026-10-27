@@ -1,0 +1,80 @@
+<!-- Inline so recovery also works when a required script cannot be downloaded. -->
+<script>
+window.ScriptLoadRecovery = (() => {
+    const key = "billy:script-load-recovery";
+    let timer;
+    let failed = false;
+    let finished = false;
+
+    const recover = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        // Cancel the stalled download before reloading; do not leave the
+        // browser waiting for its much longer connection timeout.
+        window.stop();
+        let retry = false;
+        try {
+            const saved = JSON.parse(sessionStorage.getItem(key) || "null");
+            const now = Date.now();
+            const state = saved && now - saved.startedAt < 120000
+                ? saved : {startedAt: now, attempts: 0};
+            if (state.attempts < 2) {
+                state.attempts += 1;
+                sessionStorage.setItem(key, JSON.stringify(state));
+                retry = true;
+            }
+        } catch (_) {
+            // Without persistent retry state, use manual recovery to avoid
+            // trapping a browser with storage disabled in a reload loop.
+        }
+        if (retry) {
+            window.location.reload();
+            return;
+        }
+        const overlay = document.getElementById("loading-overlay");
+        const text = document.getElementById("loading-overlay-text");
+        if (text) {
+            text.textContent = "The interface could not finish loading. Check your connection to Billy and try again. ";
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = "Reload interface";
+            button.style.textDecoration = "underline";
+            button.onclick = () => {
+                try { sessionStorage.removeItem(key); } catch (_) {}
+                window.location.reload();
+            };
+            text.appendChild(button);
+        }
+        overlay?.classList.remove("hidden");
+    };
+
+    // Bound time with no script progress, rather than total page load time.
+    // Slow but progressing connections do not need a reload.
+    const arm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(recover, 10000);
+    };
+    const isScript = event => event.target?.tagName === "SCRIPT" && event.target.src;
+    const onLoad = event => { if (isScript(event) && !failed) arm(); };
+    const onError = event => {
+        if (!isScript(event)) return;
+        failed = true;
+        clearTimeout(timer);
+        timer = setTimeout(recover, 0);
+    };
+    window.addEventListener("load", onLoad, true);
+    window.addEventListener("error", onError, true);
+    arm();
+
+    return {complete() {
+        // A failed earlier dependency must not be hidden by init.js loading.
+        if (failed) return;
+        finished = true;
+        clearTimeout(timer);
+        window.removeEventListener("load", onLoad, true);
+        window.removeEventListener("error", onError, true);
+        try { sessionStorage.removeItem(key); } catch (_) {}
+    }};
+})();
+</script>

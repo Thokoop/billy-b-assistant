@@ -1,0 +1,90 @@
+name: Billy regression tests
+
+on: [pull_request, push, workflow_dispatch]
+
+# Tests never publish releases, use API keys or contact a Billy device.
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} / ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: tests/requirements.txt
+      - name: Install locked test dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r tests/requirements.txt
+      - name: Check Python syntax
+        run: python -m compileall -q application billy_runtime webconfig main.py
+      - name: Run hardware-free regressions and recovery process tests
+        run: python -m pytest -q --junitxml=.ci-results/pytest.xml
+      - name: Preserve test report
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (Node 24)
+        with:
+          name: regressions-${{ matrix.python }}-${{ matrix.runner }}
+          # Files beneath .ci-results also count as hidden.
+          include-hidden-files: true
+          path: .ci-results/pytest.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  javascript:
+    name: UI regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install locked frontend build dependencies
+        working-directory: application/webconfig
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Build CSS
+        working-directory: application/webconfig
+        run: npm run build:css
+      - name: Check JavaScript syntax
+        run: |
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(git ls-files -z 'application/webconfig/static/js/*.js')
+      - name: Test Bluetooth, voice settings and restart/recovery UI
+        run: node --test tests/bluetooth/test_ui.cjs tests/webconfig/test_restart.cjs tests/webconfig/test_updates.cjs tests/webconfig/test_release_channels.cjs tests/webconfig/test_logs.cjs tests/webconfig/test_live.cjs tests/webconfig/test_badges.cjs tests/webconfig/test_settings_navigation.cjs tests/webconfig/test_wifi_onboarding_button.cjs
+
+  regression-gate:
+    # Use this stable name as the required status check in repository rules.
+    name: Regression gate
+    needs: [python, javascript]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every matrix job and UI test to succeed
+        env:
+          PYTHON_RESULT: ${{ needs.python.result }}
+          JAVASCRIPT_RESULT: ${{ needs.javascript.result }}
+        run: |
+          test "$PYTHON_RESULT" = success
+          test "$JAVASCRIPT_RESULT" = success

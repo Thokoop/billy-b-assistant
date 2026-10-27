@@ -82,6 +82,7 @@ persona.ini
 versions.ini
 venv
 webconfig/node_modules
+application/webconfig/node_modules
 personas/
 !persona_presets/*/persona.ini
 profiles/
@@ -92,5 +93,50 @@ models/
 wakewords/*.ppn
 !wakewords/hey-billy.ppn
 knowledge/
+AGENTS.md
+# Local development tests and experiments
 test/
+.pytest_cache/
+.venv-tests/
 /docs/plans
+
+# CI regressions are shared; ad hoc browser experiments remain local.
+/tests/*
+!/tests/conftest.py
+!/tests/requirements.in
+!/tests/requirements.txt
+!/tests/test_*.py
+!/tests/bluetooth/
+/tests/bluetooth/*
+!/tests/bluetooth/test_*.py
+!/tests/bluetooth/test_ui.cjs
+!/tests/recovery/
+/tests/recovery/*
+!/tests/recovery/test_*.py
+!/tests/recovery/probe_worker.py
+!/tests/webconfig/
+/tests/webconfig/*
+!/tests/webconfig/test_*.py
+!/tests/webconfig/test_restart.cjs
+!/tests/webconfig/test_updates.cjs
+!/tests/webconfig/test_release_channels.cjs
+!/tests/webconfig/test_logs.cjs
+!/tests/webconfig/test_live.cjs
+!/tests/webconfig/test_badges.cjs
+!/tests/webconfig/test_settings_navigation.cjs
+!/tests/webconfig/test_wifi_onboarding_button.cjs
+/.ci-results/
+
+!/tests/deployment/
+/tests/deployment/*
+!/tests/deployment/test_*.py
+!/tests/deployment/install-container.sh
+!/tests/deployment/packages-container.py
+
+# Local test documentation
+/docs/bluetooth-audio-testing.md
+/docs/core-regression-testing.md
+
+# Local navigation into the selected software release
+/current-source
+/.current-source-*

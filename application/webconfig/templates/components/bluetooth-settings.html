@@ -1,0 +1,34 @@
+<div id="section-bluetooth" class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4" data-settings-panel aria-labelledby="title-section-bluetooth" {% if settings_category|default('voice', true) != 'bluetooth' %}hidden{% endif %}>
+    <h3 id="title-section-bluetooth" class="settings-panel-title" tabindex="-1">
+        <span class="material-icons" aria-hidden="true">bluetooth</span><span>Bluetooth</span>
+    </h3>
+    <div id="bluetooth-settings" data-token="{{ bluetooth_token }}" class="bt-panel">
+        <p id="bt-setup" role="status" aria-live="polite">Checking Bluetooth installation…</p>
+        <button type="button" id="bt-setup-retry" data-action="setup-retry" class="secondary-action secondary-action--hover--cyan" hidden>
+            <span class="material-icons text-base" aria-hidden="true">refresh</span>
+            Repair system components
+        </button>
+        <a id="bt-components-help" hidden href="/settings/software" data-page-link data-page="settings" class="text-sm text-cyan-400">Open System components</a>
+        <p id="bt-audio" role="status" aria-live="polite" class="text-slate-400">Checking Bluetooth…</p>
+        <ul id="bt-devices" class="bt-devices" aria-label="Devices"></ul>
+        <div class="bt-pairing-toolbar">
+            <button type="button" data-action="pair" id="bt-pair" class="secondary-action secondary-action--hover--cyan">
+                <span class="material-icons text-base" aria-hidden="true">bluetooth_searching</span>
+                Pair new device
+            </button>
+            <button type="button" id="bt-pair-stop" data-action="pair-stop" class="secondary-action secondary-action--hover--amber" hidden>
+                <span class="material-icons text-base" aria-hidden="true">close</span>
+                Stop pairing
+            </button>
+            <span id="bt-pair-status" class="bt-pair-status" hidden></span>
+        </div>
+        <p id="bt-pair-hint" class="bt-pair-hint" hidden>Select this device in your Bluetooth settings, then confirm pairing on your device.</p>
+        <div id="bt-pending" hidden class="bt-pending" role="group" aria-labelledby="bt-request">
+            <div class="bt-request-heading"><span class="material-icons" aria-hidden="true">verified_user</span>Pairing request</div>
+            <p id="bt-request"></p>
+            <p id="bt-code" class="bt-code" aria-label="Pairing code" hidden></p>
+            <p id="bt-confirm-hint" class="bt-confirm-hint">Check the code and select Pair on your device.</p>
+        </div>
+        <p id="bt-error" role="alert" class="text-rose-400"></p>
+    </div>
+</div>
