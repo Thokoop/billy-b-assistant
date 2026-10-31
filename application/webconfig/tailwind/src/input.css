@@ -1352,7 +1352,8 @@ button {
 .settings-help-panel { position: absolute; top: calc(100% - .25rem); right: .75rem; z-index: 30; width: min(22rem, calc(100% - 1.5rem)); padding: .875rem; border: 1px solid #ffffff30; border-radius: .5rem; background: #142e3b; color: #e2e8f0; font-size: .75rem; line-height: 1.6; box-shadow: 0 .5rem 1.5rem #0005; }
 .settings-warning-help .settings-help-panel { border-color: #fbbf2466; }
 .settings-warning-help strong { color: #fcd34d; }
-.settings-card:has(.settings-inline-help[open]:not([hidden])) { position: relative; z-index: 30; }
+.settings-card:has(.settings-inline-help[open]:not([hidden])),
+.settings-card:has([data-tooltip][data-visible="true"]) { position: relative; z-index: 30; }
 .tooltips-hidden .settings-mode-help, .tooltips-hidden .api-provider-help { display: none; }
 .api-provider-help > summary { width: 1.5rem; height: 1.5rem; }
 .api-provider-help .settings-help-panel { top: calc(100% + .375rem); right: 0; width: min(22rem, 100%); }

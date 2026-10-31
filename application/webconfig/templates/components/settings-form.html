@@ -514,8 +514,7 @@
                     </div>
                 </div>
 
-                <div class="api-toggle-setting api-provider-only" data-api-provider="openai xai"
-                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                <div class="api-toggle-setting api-provider-only" data-api-provider="openai xai gpt-live">
                     <label for="AEC_ENABLED"
                            class="flex justify-between items-center text-sm text-slate-300 relative">
                         Voice interruption
@@ -527,6 +526,8 @@
                             Lets you speak while Billy is talking. Echo cancellation reduces
                             Billy's own voice in the microphone; compatible audio support is required.
                             Interruption sensitivity controls how much speech is needed before Billy stops talking.
+                            GPT-Live has no sensitivity setting; without echo cancellation Billy cannot hear you
+                            while he talks, so only the button can interrupt him.
                         </div>
                         <select id="AEC_ENABLED" name="AEC_ENABLED" class="hidden">
                             <option value="false" {% if config.get('AEC_ENABLED', 'false') == 'false' %}selected{% endif %}>Disabled</option>
@@ -1090,7 +1091,8 @@
                     </div>
                 </div>
 
-                <div class="flex-1/3 flex flex-col">
+                <div class="flex-1/3 flex flex-col api-provider-only" data-api-provider="openai xai"
+                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
                     <label for="MIC_TIMEOUT_TAIL_FLAP"
                            class="flex justify-between items-center text-sm text-slate-300">
                         Tail flap

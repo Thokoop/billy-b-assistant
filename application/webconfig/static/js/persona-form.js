@@ -1224,6 +1224,14 @@ const PersonaForm = (() => {
         modal.dataset.bound = 'true';
     };
 
+    // The voice list differs per provider, so only that provider's docs link shows.
+    const syncVoiceDocsLink = (provider) => {
+        const active = String(provider || 'openai').trim().toLowerCase();
+        document.querySelectorAll('[data-voice-docs]').forEach((link) => {
+            link.toggleAttribute('hidden', link.dataset.voiceDocs !== active);
+        });
+    };
+
     // Populate voice options dynamically from config
     const populateVoiceOptions = async () => {
         const voiceSelect = document.getElementById('VOICE');
@@ -1234,6 +1242,7 @@ const PersonaForm = (() => {
             // not reuse its short-lived config cache when rebuilding this list.
             const configData = await ConfigService.fetchConfig(true);
             if (configData && configData.VOICE_OPTIONS) {
+                syncVoiceDocsLink(configData.REALTIME_AI_PROVIDER);
                 const currentValue = voiceSelect.value;
                 // Clear existing options
                 voiceSelect.innerHTML = '';

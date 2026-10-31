@@ -6,16 +6,17 @@ const NotificationBar = (() => {
     let expiryTimer = null;
     let hideTimer = null;
 
-    function render(notice) {
-        const bar = document.getElementById('notification');
-        if (!bar) return;
-        clearTimeout(hideTimer);
-        if (!notice) {
-            bar.classList.remove('opacity-100');
-            bar.classList.add('opacity-0');
-            hideTimer = setTimeout(() => bar.classList.add('hidden'), 300);
-            return;
-        }
+    const COLORS = ['bg-cyan-500/80', 'bg-emerald-500/80', 'bg-amber-500/80', 'bg-rose-500/80'];
+
+    // The header bar sits inside the sticky header's stacking context, so a
+    // modal overlay (z-50) always covers it. While a modal is open the notice
+    // is shown on a root-level bar instead, above every overlay.
+    function modalOpen() {
+        return typeof document.querySelector === 'function'
+            && !!document.querySelector('.fixed.inset-0.z-50:not(.hidden):not([hidden])');
+    }
+
+    function paint(bar, notice) {
         bar.textContent = notice.message;
         if (notice.action) {
             const button = document.createElement('button');
@@ -25,12 +26,31 @@ const NotificationBar = (() => {
             button.onclick = notice.action.run;
             bar.append(button);
         }
-        bar.classList.remove('hidden', 'opacity-0', 'bg-cyan-500/80',
-            'bg-emerald-500/80', 'bg-amber-500/80', 'bg-rose-500/80');
+        bar.classList.remove('hidden', 'opacity-0', ...COLORS);
         bar.classList.add({
             info: 'bg-cyan-500/80', success: 'bg-emerald-500/80',
             warning: 'bg-amber-500/80', error: 'bg-rose-500/80',
         }[notice.type] || 'bg-cyan-500/80', 'opacity-100');
+    }
+
+    function render(notice) {
+        const header = document.getElementById('notification');
+        const overlay = document.getElementById('notification-overlay');
+        if (!header) return;
+        clearTimeout(hideTimer);
+        if (!notice) {
+            const bars = [header, overlay].filter(Boolean);
+            bars.forEach((bar) => {
+                bar.classList.remove('opacity-100');
+                bar.classList.add('opacity-0');
+            });
+            hideTimer = setTimeout(() => bars.forEach((bar) => bar.classList.add('hidden')), 300);
+            return;
+        }
+        const onTop = !!overlay && modalOpen();
+        if (onTop) header.classList.add('hidden');
+        else if (overlay) overlay.classList.add('hidden');
+        paint(onTop ? overlay : header, notice);
     }
 
     return {

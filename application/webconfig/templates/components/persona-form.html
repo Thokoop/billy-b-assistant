@@ -76,13 +76,35 @@
 
                         <!-- Voice -->
                         <div>
-                            <label for="VOICE" class="block text-sm text-slate-300 mb-2">Voice</label>
-                            <select id="VOICE" name="VOICE"
-                                    class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                                {% for voice in config.get('VOICE_OPTIONS', []) %}
-                                    <option value="{{ voice }}">{{ voice | capitalize }}</option>
-                                {% endfor %}
-                            </select>
+                            {% set voice_provider = config.get('REALTIME_AI_PROVIDER', 'openai') %}
+                            <label for="VOICE" class="flex justify-between items-center text-sm text-slate-300 mb-2">
+                                Voice
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                      onclick="toggleTooltip(this)" role="button" tabindex="0"
+                                      onkeydown="if (event.key === 'Enter' || event.key === ' ') toggleTooltip(this, event)"
+                                      aria-label="About voices">help_outline</span>
+                            </label>
+                            <div class="relative">
+                                <div data-tooltip>
+                                    The voices depend on the selected AI provider. Switching provider changes this list.
+                                    A voice cannot change during a conversation.<br><br>
+                                    <a data-voice-docs="openai" href="https://developers.openai.com/api/docs/guides/realtime-conversations#voice-options"
+                                       target="_blank" rel="noopener noreferrer" class="underline font-medium"
+                                       {% if voice_provider != 'openai' %}hidden{% endif %}>OpenAI Realtime voices &#8599;</a>
+                                    <a data-voice-docs="gpt-live" href="https://developers.openai.com/api/reference/resources/live/methods/create"
+                                       target="_blank" rel="noopener noreferrer" class="underline font-medium"
+                                       {% if voice_provider != 'gpt-live' %}hidden{% endif %}>GPT-Live voices (see the voice parameter) &#8599;</a>
+                                    <a data-voice-docs="xai" href="https://docs.x.ai/docs/guides/voice"
+                                       target="_blank" rel="noopener noreferrer" class="underline font-medium"
+                                       {% if voice_provider != 'xai' %}hidden{% endif %}>xAI voices &#8599;</a>
+                                </div>
+                                <select id="VOICE" name="VOICE"
+                                        class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                    {% for voice in config.get('VOICE_OPTIONS', []) %}
+                                        <option value="{{ voice }}">{{ voice | capitalize }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </div>
 
                         <!-- Mouth Articulation Slider -->

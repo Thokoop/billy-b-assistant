@@ -272,3 +272,20 @@ test('older full response cannot replace more recent mood data', async () => {
     replies[0]({ok: true, json: async () => ({status: 'active', mood: {label: 'grumpy'}})});
     assert.equal((await first).mood.label, 'calm');
 });
+test('notifications move above modal overlays while one is open', async()=>{
+    const h=setup();h.run(helper);
+    const bars={notification:h.context.document.getElementById('notification'),overlay:h.context.document.getElementById('notification-overlay')};
+    for(const bar of Object.values(bars)){const state=new Set(['hidden']);bar.state=state;bar.classList={add(...c){c.forEach(x=>state.add(x));},remove(...c){c.forEach(x=>state.delete(x));},toggle(){},contains:c=>state.has(c)};}
+    h.context.document.querySelector=()=>null;
+    h.context.showNotification('Saved','success',1000);
+    assert.equal(bars.notification.textContent,'Saved');
+    assert.ok(!bars.notification.state.has('hidden'));
+    assert.ok(bars.overlay.state.has('hidden'));
+    h.context.document.querySelector=()=>({});
+    h.context.showNotification('Duplicate entry','error',1000);
+    assert.equal(bars.overlay.textContent,'Duplicate entry');
+    assert.ok(!bars.overlay.state.has('hidden'));
+    assert.ok(bars.notification.state.has('hidden'));
+    await h.advance(1300);
+    assert.ok(bars.overlay.state.has('hidden'));
+});

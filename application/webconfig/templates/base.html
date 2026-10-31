@@ -61,6 +61,11 @@
 
     {% include "components/password-modal.html" %}
 
+    <!-- Notifications while a modal is open: the header bar sits under modal overlays. -->
+    <div id="notification-overlay" role="status" aria-live="polite" aria-atomic="true"
+         class="hidden fixed inset-x-0 top-0 text-center text-white py-2 px-4 shadow-lg transition-opacity duration-300"
+         style="z-index: 2147483001;"></div>
+
     <dialog id="live-captions-dialog" class="live-captions-dialog" aria-label="Session transcript"></dialog>
 
     <!-- Loading Overlay -->
