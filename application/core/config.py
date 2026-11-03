@@ -234,6 +234,15 @@ BLUETOOTH_CALL_AEC = os.getenv("BLUETOOTH_CALL_AEC", "true").lower() == "true"
 # takes a call pre-empts whatever Billy was doing, and Billy returns to idle
 # when it stops. Off leaves Bluetooth to the manual audio test alone.
 BLUETOOTH_AUTO_SWITCH = os.getenv("BLUETOOTH_AUTO_SWITCH", "true").lower() == "true"
+# What Billy plays while a paired phone has an incoming call (a button press
+# answers it): "billy" a random tone from his ringtone list, "phone" the
+# phone's own ringtone (sent over Bluetooth), "off" nothing. Only Billy the
+# fish rings. Without PipeWire's Telephony service (before PipeWire 1.4) Billy
+# cannot tell a ringing call from an answered one, so the phone's ringtone is
+# all he can play there.
+BLUETOOTH_RINGTONE = (os.getenv("BLUETOOTH_RINGTONE", "billy") or "").strip().lower()
+if BLUETOOTH_RINGTONE not in {"billy", "phone", "off"}:
+    BLUETOOTH_RINGTONE = "billy"
 try:
     AEC_BARGE_IN_SNR_DB = max(
         3.0, min(20.0, float(os.getenv("AEC_BARGE_IN_SNR_DB", "9")))

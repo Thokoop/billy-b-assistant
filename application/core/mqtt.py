@@ -67,6 +67,7 @@ def on_connect(client, userdata, flags, rc):
         client.subscribe(mqtt_wire_topic("billy/say"))  # single endpoint
         client.subscribe(mqtt_wire_topic("billy/song"))
         client.subscribe(mqtt_wire_topic("billy/wakeup/play"))
+        client.subscribe(mqtt_wire_topic("billy/ringtone/play"))
         with _extra_topics_lock:
             extra = list(_extra_topics)
         for topic in extra:
@@ -306,6 +307,30 @@ def _discovery_device():
         "model": model,
         "manufacturer": "ThingsFromThom",
     }
+
+
+def _play_ringtone_preview(payload: bytes):
+    """Play one ringtone from the Bluetooth settings (the Play button)."""
+    try:
+        from .audio import enqueue_wav_to_playback, ensure_playback_worker_started
+        from .bluetooth import mode as bluetooth_mode
+        from .bluetooth import ringtones
+
+        ringtone_id = str(json.loads(payload.decode() or "{}").get("id") or "")
+        entry = ringtones.find(ringtone_id)
+        if entry is None or not ringtones.path_for(entry).is_file():
+            logger.warning(f"Ringtone preview not found: {ringtone_id}", "⚠️")
+            return
+        if bluetooth_mode.active():
+            logger.info(
+                "Ignoring ringtone preview: Bluetooth audio owns the speaker.", "🔕"
+            )
+            return
+        ensure_playback_worker_started(CHUNK_MS)
+        enqueue_wav_to_playback(str(ringtones.path_for(entry)))
+        logger.info(f"Playing ringtone preview: {entry.get('name')}", "🔔")
+    except Exception as exc:
+        logger.error(f"Failed to play the ringtone preview: {exc}")
 
 
 def mqtt_send_discovery():
@@ -759,6 +784,10 @@ def on_message(client, userdata, msg):
                 logger.warning("SONG command received, but song name was empty")
         except Exception as e:
             logger.error(f"Failed to run play_song(): {e}")
+        return
+
+    if topic == "billy/ringtone/play":
+        _play_ringtone_preview(msg.payload)
         return
 
     if topic == "billy/wakeup/play":

@@ -67,7 +67,7 @@ const SettingsForm = (() => {
     // Same idea for the few selects drawn as a stepped slider: the select is
     // the form control, the slider is the picture of it, and population and
     // refresh set the select without firing 'change'.
-    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB', 'UPDATE_CHANNEL']);
+    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB', 'UPDATE_CHANNEL', 'BLUETOOTH_RINGTONE']);
 
     const syncStepSlider = (selectElement) => {
         if (!selectElement || !STEP_SLIDER_SELECT_IDS.has(selectElement.id)) return;
@@ -324,6 +324,7 @@ const SettingsForm = (() => {
             { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
             { id: 'MIC_TIMEOUT_TAIL_FLAP', key: 'MIC_TIMEOUT_TAIL_FLAP' },
             { id: 'MOOD_INSTRUCTIONS_ENABLED', key: 'MOOD_INSTRUCTIONS_ENABLED' },
+            { id: 'BLUETOOTH_RINGTONE', key: 'BLUETOOTH_RINGTONE' },
             { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
             { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
@@ -1148,7 +1149,7 @@ const SettingsForm = (() => {
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED', 'WEB_SEARCH_ENABLED',
-            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED', 'BLUETOOTH_RINGTONE'
         ];
         dropdowns.forEach(id => {
             const element = document.getElementById(id);

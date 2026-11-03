@@ -114,6 +114,7 @@ const MainPageRouter = (() => {
                 SettingsForm.bindCameraPreview();
                 SettingsForm.bindWiFiSection();
                 SettingsForm.bindApiProviderFields();
+                window.Ringtones?.bind();
                 if (window.AudioPanel) {
                     window.AudioPanel.bindUI?.();
                     window.AudioPanel.loadMicGain?.();

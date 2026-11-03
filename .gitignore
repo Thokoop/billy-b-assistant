@@ -6,6 +6,10 @@ __pycache__/
 # Response history audio files
 sounds/response-history/
 
+# Ringtones the user added (the built-in ones are tracked)
+sounds/ringtones/ringtones.json
+sounds/ringtones/tone-*.wav
+
 # Grok AI
 .grok
 

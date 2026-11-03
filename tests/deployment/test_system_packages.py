@@ -610,3 +610,188 @@ def test_invalid_device_component_is_rejected(env):
     (setup / 'component.json').write_text(json.dumps({'script': '../evil.sh'}))
     with pytest.raises(ValueError):
         packages.device_component(env.source, env.root)
+
+
+OPTIONAL = {
+    'id': 'bluetooth-calls',
+    'name': 'Bluetooth calls',
+    'description': 'Newer PipeWire',
+    'distribution': 'bookworm',
+    'repository': {
+        'uri': 'http://deb.debian.org/debian',
+        'suite': 'bookworm-backports',
+        'components': ['main'],
+    },
+    'packages': ['pipewire', 'libspa-0.2-bluetooth'],
+    'allow': ['pipewire', 'libpipewire-', 'libspa-'],
+    'satisfied': {'package': 'pipewire', 'version': '1.4'},
+    'reboot': True,
+}
+BACKPORT_PLAN = (
+    'Inst pipewire [1.2.7-1] (1.4.2-1~bpo12+1 Debian-backports [arm64])\n'
+    'Inst libspa-0.2-bluetooth [1.2.7-1] (1.4.2-1~bpo12+1 Debian-backports [arm64])\n'
+)
+
+
+@pytest.fixture
+def optional(env, monkeypatch):
+    env.manifest['optional'] = [OPTIONAL]
+    (env.source / 'dependencies/system-packages.json').write_text(
+        json.dumps(env.manifest)
+    )
+    env.installed.update({
+        'hello': {'version': '2', 'status': 'installed'},
+        'pipewire': {'version': '1.2.7-1', 'status': 'installed'},
+        'libspa-0.2-bluetooth:arm64': {'version': '1.2.7-1', 'status': 'installed'},
+    })
+    env.plan = BACKPORT_PLAN
+
+    def run(args, **kw):
+        env.calls.append((args, kw))
+        if '--simulate' in args:
+            return env.plan
+        if '--no-download' in args:
+            for name in ('pipewire', 'libspa-0.2-bluetooth:arm64'):
+                env.installed[name] = {
+                    'version': '1.4.2-1~bpo12+1',
+                    'status': 'installed',
+                }
+        return ''
+
+    monkeypatch.setattr(packages, 'run', run)
+    # dpkg --compare-versions NEW lt OLD: false (1) for an upgrade.
+    monkeypatch.setattr(
+        packages.subprocess,
+        'run',
+        Mock(
+            side_effect=lambda args, **_: SimpleNamespace(
+                returncode=1 if args[0] == 'dpkg' else 0
+            )
+        ),
+    )
+    return env
+
+
+def test_optional_component_is_offered_but_never_needed(optional):
+    state = packages.check(optional.source, optional.root)
+    assert state['state'] == 'ready' and not state['repairable']
+    assert state['optional'] == [
+        {
+            'id': 'bluetooth-calls',
+            'name': 'Bluetooth calls',
+            'description': 'Newer PipeWire',
+            'state': 'available',
+        }
+    ]
+    assert {'name': 'Bluetooth calls', 'state': 'optional'} in state['components']
+    # A regular repair or update never installs it.
+    packages.ensure(optional.source, optional.root, Mock())
+    assert optional.calls == []
+
+
+def test_optional_component_is_not_offered_on_another_os(optional, monkeypatch):
+    monkeypatch.setattr(packages, 'host', lambda: {**MACHINE, 'distribution': 'trixie'})
+    optional.manifest['platforms'].append({**MACHINE, 'distribution': 'trixie'})
+    (optional.source / 'dependencies/system-packages.json').write_text(
+        json.dumps(optional.manifest)
+    )
+    assert packages.check(optional.source, optional.root)['optional'] == []
+    with pytest.raises(RuntimeError, match='not available'):
+        packages.install_optional(
+            optional.source, optional.root, 'bluetooth-calls', Mock()
+        )
+
+
+def test_optional_install_adds_its_source_pins_the_plan_and_restarts(optional):
+    assert (
+        packages.install_optional(
+            optional.source, optional.root, 'bluetooth-calls', Mock()
+        )
+        is True
+    )
+    commands = [args for args, _ in optional.calls]
+    source = next(c for c in commands if c[0] == 'sh')
+    assert source[-1] == (
+        "printf '%s\\n' 'deb http://deb.debian.org/debian bookworm-backports main'"
+        ' > /etc/apt/sources.list.d/billy-bluetooth-calls.list'
+    )
+    resolve = next(c for c in commands if '--simulate' in c)
+    assert resolve[resolve.index('-t') + 1] == 'bookworm-backports'
+    stop = commands.index(['systemctl', 'stop', 'billy.service'])
+    apply = next(i for i, c in enumerate(commands) if '--no-download' in c)
+    assert stop < apply
+    assert commands[-1][0] == 'systemd-run' and commands[-1][-2:] == [
+        'systemctl',
+        'reboot',
+    ]
+    receipt = packages.pending_transaction(optional.root)
+    assert receipt['state'] == 'complete' and receipt['optional'] == 'bluetooth-calls'
+    assert (
+        packages.check(optional.source, optional.root)['optional'][0]['state']
+        == 'installed'
+    )
+    # Installed already: a second request changes nothing.
+    optional.calls.clear()
+    assert (
+        packages.install_optional(
+            optional.source, optional.root, 'bluetooth-calls', Mock()
+        )
+        is False
+    )
+    assert optional.calls == []
+
+
+@pytest.mark.parametrize(
+    'plan',
+    [
+        BACKPORT_PLAN + 'Inst libc6 [2.36-9] (2.40-1 Debian-backports [arm64])\n',
+        BACKPORT_PLAN + 'Inst network-manager (1.50 Debian-backports [arm64])\n',
+        BACKPORT_PLAN + 'Remv pipewire-pulse [1.2.7-1]\n',
+    ],
+)
+def test_optional_install_never_touches_anything_else(optional, plan):
+    optional.plan = plan
+    with pytest.raises(RuntimeError):
+        packages.install_optional(
+            optional.source, optional.root, 'bluetooth-calls', Mock()
+        )
+    assert not any('--no-download' in args for args, _ in optional.calls)
+    assert ['systemctl', 'stop', 'billy.service'] not in [a for a, _ in optional.calls]
+
+
+@pytest.mark.parametrize(
+    'field, value',
+    [
+        (
+            'repository',
+            {'uri': "http://x/'; rm -rf /", 'suite': 'a', 'components': ['main']},
+        ),
+        (
+            'repository',
+            {
+                'uri': 'http://deb.debian.org/debian',
+                'suite': 'a b',
+                'components': ['main'],
+            },
+        ),
+        ('id', '../evil'),
+        ('packages', ['ok', 'bad name']),
+    ],
+)
+def test_optional_component_fields_are_validated(env, field, value):
+    env.manifest['optional'] = [{**OPTIONAL, field: value}]
+    (env.source / 'dependencies/system-packages.json').write_text(
+        json.dumps(env.manifest)
+    )
+    with pytest.raises(ValueError):
+        packages.load_manifest(env.source)
+
+
+def test_the_shipped_manifest_offers_bluetooth_calls_on_bookworm_only():
+    manifest = packages.load_manifest(Path(__file__).parents[2])
+    offered = packages.optional_components(manifest, MACHINE)
+    assert [item['id'] for item in offered] == ['bluetooth-calls']
+    assert (
+        packages.optional_components(manifest, {**MACHINE, 'distribution': 'trixie'})
+        == []
+    )

@@ -55,7 +55,10 @@ def guard_audio_tests():
     }
     # Asked of the audio path rather than of systemd: Bluetooth audio is a mode
     # inside billy.service now, so there is no separate unit to be active.
-    if request.path in protected and audio_status().get('state') in PLAYING_STATES:
+    previews = request.path.startswith('/ringtones/') and request.path.endswith('/play')
+    if (request.path in protected or previews) and audio_status().get(
+        'state'
+    ) in PLAYING_STATES:
         return jsonify(
             error='Bluetooth audio is in use. Stop playback or end the call first.'
         ), 409
@@ -64,7 +67,14 @@ def guard_audio_tests():
 
 @bp.app_context_processor
 def template_context():
-    return {'bluetooth_token': _csrf}
+    # Only Billy the fish rings for calls; other devices handle them themselves.
+    try:
+        from core import config as core_config
+
+        ringtones = getattr(core_config, 'BILLY_DEVICE', 'fish') == 'fish'
+    except Exception:
+        ringtones = False
+    return {'bluetooth_token': _csrf, 'ringtones_enabled': ringtones}
 
 
 @bp.get('/bluetooth')

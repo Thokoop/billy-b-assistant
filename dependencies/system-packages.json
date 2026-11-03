@@ -12,6 +12,19 @@
     "unified": ["network-manager", "dnsmasq-base", "iw"]
   },
   "build": ["build-essential", "python3-dev", "liblgpio-dev", "swig", "pkg-config"],
+  "optional": [
+    {
+      "id": "bluetooth-calls",
+      "name": "Bluetooth calls",
+      "description": "Answer calls with Billy's button and use Billy's own ringtones. Installs a newer PipeWire (Bluetooth audio) from Debian bookworm-backports; the Raspberry Pi restarts when it is done.",
+      "distribution": "bookworm",
+      "repository": {"uri": "http://deb.debian.org/debian", "suite": "bookworm-backports", "components": ["main"]},
+      "packages": ["pipewire", "pipewire-bin", "libpipewire-0.3-0", "libpipewire-0.3-modules", "libspa-0.2-modules", "libspa-0.2-bluetooth", "wireplumber"],
+      "allow": ["pipewire", "libpipewire-", "libspa-", "wireplumber", "libwireplumber-", "gir1.2-wp-"],
+      "satisfied": {"package": "pipewire", "version": "1.4"},
+      "reboot": true
+    }
+  ],
   "policy": {
     "upgrade_os_during_app_update": false,
     "record_exact_installed_versions": true,

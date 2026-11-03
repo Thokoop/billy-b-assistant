@@ -132,7 +132,7 @@ def setup_call(c, monkeypatch, states=("active", "held", "waiting")):
             return_value=Variant("s", states[0] if states else "disconnected")
         )
     )
-    call = SimpleNamespace(call_hangup=AsyncMock())
+    call = SimpleNamespace(call_hangup=AsyncMock(), call_answer=AsyncMock())
 
     async def interface(bus, service, path, name):
         assert service == c.TELEPHONY
@@ -153,13 +153,24 @@ def test_hangup_targets_active_call_not_held_or_waiting(controls, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "states", [(), ("held",), ("waiting",), ("incoming",), ("active", "active")]
+    "states",
+    [(), ("held",), ("waiting",), ("incoming", "incoming"), ("active", "active")],
 )
 def test_no_ambiguous_or_unrelated_call_is_ended(controls, monkeypatch, states):
     c = controls
     call, _ = setup_call(c, monkeypatch, states)
     with pytest.raises(RuntimeError, match="single active"):
         asyncio.run(c._hangup(None, ADDRESS, lambda: True))
+    call.call_hangup.assert_not_awaited()
+
+
+def test_a_press_while_the_call_still_rings_answers_it(controls, monkeypatch):
+    # The phone's own ringtone plays through Billy: the call audio is already
+    # open, so the press goes to the call - and answers it.
+    c = controls
+    call, _ = setup_call(c, monkeypatch, ("incoming",))
+    assert asyncio.run(c._hangup(None, ADDRESS, lambda: True)) == "answer"
+    call.call_answer.assert_awaited_once()
     call.call_hangup.assert_not_awaited()
 
 

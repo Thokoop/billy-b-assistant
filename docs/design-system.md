@@ -259,8 +259,8 @@ both look the same.
   inside the first card, never on its own above the cards. A device panel
   template renders `{{ panel_heading }}` at the top of its first section; it
   holds the title for the first device panel and is empty otherwise. The Device panel
-  (device-profile sections plus a "General" card) and the Software panel work
-  this way.
+  (device-profile sections plus a "General" card), the Software panel and the
+  Bluetooth panel (devices, plus a Ringtones card on the fish) work this way.
 - A small subgroup inside a card (the GPT-Live model choice, the wake-word file
   upload) is separated by a hairline: `.card-divider` (a zinc-700 top border
   with 16px above and below), or `.api-model-panel` for the bottom border
@@ -269,8 +269,10 @@ both look the same.
   that stays visible; any other child is hidden while `.collapsed`, except
   elements marked `data-disclosure-panel`. Heading:
   `flex items-center justify-between gap-2 mb-4 text-lg text-zinc-200 hover:text-emerald-400 cursor-pointer transition-colors`.
-- **List row** (memories, moods): `p-3 bg-zinc-800/50 rounded-lg border border-zinc-700`.
-  Rows are list items, not cards, so they may sit inside a card.
+- **List row** (memories, moods, ringtones): `p-3 bg-zinc-800/50 rounded-lg border border-zinc-700`.
+  Rows are list items, not cards, so they may sit inside a card. Row actions
+  are icon buttons (`button-icon`, see 3.2); when a row lacks an action its
+  neighbours have, a `w-11` spacer keeps the columns aligned.
 
 Exceptions:
 
@@ -508,7 +510,11 @@ and rotates its chevron.
 
 - Status rows: `.system-component-row`, a two-column grid (name | state) with
   `white/7` hairlines between rows; the state colour is set by `data-state`
-  (installed = emerald, missing/damaged/outdated/configuration_needed = amber).
+  (installed = emerald, missing/damaged/outdated/configuration_needed = amber,
+  optional = muted: an opt-in component that is not installed).
+- Opt-in system components: a `.card-divider` group below the component list,
+  one row per component (white name, muted `text-xs` description) with a
+  secondary emerald Install button. Never a warning colour: nothing is wrong.
 - Definition summary: `.wifi-summary` (`dt` muted, `dd` white).
 - Stepper: `.wifi-stepper`, numbered steps with an emerald underline for the
   current step.

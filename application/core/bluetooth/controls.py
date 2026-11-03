@@ -58,6 +58,15 @@ def _address(route):
 def handle_button(*, ai_active=False):
     """Consume a Bluetooth press without blocking GPIO or an audio thread."""
     global _busy, _paused, _tap
+    from . import ringer
+
+    if ringer.call_ringing():
+        # The phone rings: a press answers it. Billy takes the call over once
+        # it is answered (watcher.py), the same as answering on the phone.
+        ringer.stop()
+        logger.info("Bluetooth button: answering the incoming call.", "📞")
+        answer_call()
+        return True
     state, route, generation = snapshot = mode.snapshot()
     exit_media = False
     with _lock:
@@ -261,8 +270,8 @@ async def _control(snapshot, paused, epoch):
     try:
         await bus.connect()
         if is_call:
-            await _hangup(bus, address, guard)
-            logger.info("Bluetooth button: hang-up requested.", "📞")
+            action = await _hangup(bus, address, guard)
+            logger.info(f"Bluetooth button: {action} requested.", "📞")
             return None
         remembered_player = paused[1] if state == mode.IDLE else None
         action, player = await _toggle_media(bus, address, remembered_player, guard)
@@ -341,11 +350,24 @@ async def _hangup(bus, address, guard):
     gateway = gateways[0]
     # Calls are listed under the gateway or at the root, depending on the
     # PipeWire version: _calls() looks in both.
+    calls = {
+        path: state
+        for path, state in (await _calls(bus)).items()
+        if path.startswith(gateway + "/")
+    }
     candidates = [
         path
-        for path, state in (await _calls(bus)).items()
-        if path.startswith(gateway + "/") and state in {"active", "dialing", "alerting"}
+        for path, state in calls.items()
+        if state in {"active", "dialing", "alerting"}
     ]
+    ringing = [path for path, state in calls.items() if state == "incoming"]
+    if not candidates and len(ringing) == 1:
+        # The phone's own ringtone plays through Billy (the call audio is
+        # already open while it rings): this press answers the call.
+        interface = await _interface(bus, TELEPHONY, ringing[0], CALL)
+        _check(guard)
+        await interface.call_answer()
+        return "answer"
     # Never answer/reject a waiting call or end unrelated held calls.
     if len(candidates) != 1:
         raise RuntimeError("No single active phone call to hang up")
@@ -360,6 +382,7 @@ async def _hangup(bus, address, guard):
     interface = await _interface(bus, TELEPHONY, path, CALL)
     _check(guard)
     await interface.call_hangup()
+    return "hang-up"
 
 
 # --- for extension devices (core.devices.DeviceControls) -----------------

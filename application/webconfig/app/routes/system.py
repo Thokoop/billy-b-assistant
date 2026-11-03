@@ -113,6 +113,7 @@ CONFIG_KEYS = [
     "STATUS_LED_BRIGHTNESS",
     "WIFI_COUNTRY",
     "WIFI_ONBOARDING_MODE",
+    "BLUETOOTH_RINGTONE",
 ]
 # Keys saved by an extension device's settings panel (app/device_panels.py).
 DEVICE_CONFIG_KEYS: set[str] = set()
@@ -1228,6 +1229,11 @@ def simulate_update():
 @bp.post('/software/packages')
 def repair_system_packages():
     return _software_action('packages')
+
+
+@bp.post('/software/optional/<identity>')
+def install_optional_component(identity):
+    return _software_action('optional', identity)
 
 
 @bp.post('/software/rollback')

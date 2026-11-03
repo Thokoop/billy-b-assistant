@@ -42,6 +42,8 @@ def load_device_panels(monkeypatch, panel):
 @pytest.fixture
 def app_with_panel(monkeypatch, tmp_path):
     (tmp_path / 'demo_panel.html').write_text(
+        # A device panel shows the page title in its first section.
+        '{{ panel_heading }}'
         '<input name="DEMO_DELAY" value="{{ panel_context.delay }}">'
         '<script data-device-panel>window.demo = 1;</script>'
     )

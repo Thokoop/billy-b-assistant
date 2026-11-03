@@ -255,14 +255,18 @@ def dispatch(root, identity):
 
 def queue(action, version=None, root=INSTALL_ROOT):
     root = Path(root).resolve()
-    if action not in {'update', 'reinstall', 'rollback', 'packages'}:
+    if action not in {'update', 'reinstall', 'rollback', 'packages', 'optional'}:
         raise ValueError('Unknown software action')
+    if action == 'optional' and not re.fullmatch(
+        r'[a-z0-9][a-z0-9-]{0,40}', version or ''
+    ):
+        raise ValueError('No valid optional component selected')
     if action == 'update' and not re.fullmatch(r'v?\d+[A-Za-z0-9._+-]*', version or ''):
         raise ValueError('No valid release selected')
     if action == 'rollback' and not state(root).get('previous'):
         raise ValueError('No previous installation is available')
     if (
-        action == 'packages'
+        action in {'packages', 'optional'}
         and not (root / 'billy_runtime/system_packages.py').is_file()
     ):
         raise RuntimeError(
@@ -388,6 +392,15 @@ def install_components(source, root, *, repair=False):
         state='preparing',
         message='System components checked. Preparing software…',
     )
+
+
+def install_optional_component(source, root, identity):
+    from .system_packages import install_optional
+
+    def progress(message):
+        save_job(root, state='installing_packages', message=message)
+
+    return install_optional(source, root, identity, progress)
 
 
 def prepare_candidate(root, work):
@@ -582,6 +595,21 @@ def execute(root, identity):
                 message='Preparing and checking software; Billy remains available…',
             )
             work = job(root)
+            if work['action'] == 'optional':
+                restart = install_optional_component(
+                    selection(root)[1], root, work['version']
+                )
+                save_job(
+                    root,
+                    state='complete',
+                    message=(
+                        'Installed. The Raspberry Pi restarts in a moment to finish; '
+                        'settings and software version preserved.'
+                        if restart
+                        else 'Already installed. Settings and software version preserved.'
+                    ),
+                )
+                return
             if work['action'] == 'packages':
                 install_components(selection(root)[1], root, repair=True)
                 save_job(

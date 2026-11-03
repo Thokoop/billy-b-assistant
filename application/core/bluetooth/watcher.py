@@ -31,9 +31,10 @@ transport back.
 """
 
 import threading
+import time
 
 from ..logger import logger
-from . import mode, runtime
+from . import mode, ringer, runtime
 from .transport import discover, select_route
 
 
@@ -50,12 +51,17 @@ SETTLE_SECONDS = 0.3
 # A transport that keeps dropping is a broken link, not a session to restart
 # forever. Shares the prototype's budget.
 RESTART_BACKOFF_SECONDS = 0.5
+# How often the paired phone is asked whether a call rings. A ringing call is
+# not taken over until it is answered (see _run), so this is what lets Billy
+# ring and a button press answer it.
+RING_CHECK_SECONDS = 1.0
 
 _stop = threading.Event()
 _thread = None
 _connect_thread = None
 _session_stop = None
 _session_lock = threading.Lock()
+_next_ring_check = 0.0
 
 
 def start():
@@ -90,6 +96,7 @@ def stop():
     if thread is not None and thread.is_alive():
         thread.join(timeout=3.0)
     _thread = None
+    ringer.stop()
     if _connect_thread is not None:
         _connect_thread.join(timeout=2)
     _connect_thread = None
@@ -123,23 +130,28 @@ def exit_media(snapshot, address):
 def _run():
     dismissed = None
     restarts = 0
+    ring_takeover_failed = False
     while not _stop.is_set():
+        _check_ringing()
         route = active_route()
         if route is None:
             # The phone stopped streaming or hung up: whatever went wrong with
             # the last session is history once the transport is gone.
             dismissed = None
             restarts = 0
+            ring_takeover_failed = False
             _stop.wait(POLL_SECONDS)
             continue
         if route == dismissed:
             _stop.wait(POLL_SECONDS)
             continue
-        if route[1] and _only_ringing():
+        ringing = bool(route[1]) and _only_ringing()
+        if ringing and (ringer.ringtone_mode() != "phone" or ring_takeover_failed):
             # A ringing call opens its audio early (in-band ringtone), but
-            # the phone does not take audio back until the call is answered:
-            # taking over now fails at once and five failures dismiss the
-            # route for the whole call. Wait until it is answered.
+            # the phone may not take audio back until the call is answered:
+            # taking over then fails at once, and five failures would dismiss
+            # the route for the whole call. Wait until it is answered - unless
+            # the user wants the phone's own ringtone played through Billy.
             _stop.wait(POLL_SECONDS)
             continue
         _stop.wait(SETTLE_SECONDS)
@@ -150,26 +162,64 @@ def _run():
             restarts = 0
         except mode.MediaDismissed:
             continue
-        except runtime.StreamRestart as exc:
-            restarts += 1
-            if restarts < runtime.MAX_CONSECUTIVE_RESTARTS:
-                # The first attach may race AVDTP Open/Start. Repeated drops
-                # deserve a warning even when a later retry succeeds.
-                report = logger.verbose if restarts == 1 else logger.warning
-                report(
-                    f"Bluetooth transport interrupted; retry {restarts}/{runtime.MAX_CONSECUTIVE_RESTARTS}: {exc}"
-                )
-            if restarts >= runtime.MAX_CONSECUTIVE_RESTARTS:
-                logger.error(f"Bluetooth audio kept dropping, giving up: {exc}")
-                dismissed = route
-                restarts = 0
-            _stop.wait(RESTART_BACKOFF_SECONDS)
         except Exception as exc:
-            # Latch the route so a session that cannot run does not restart on
-            # every poll for as long as the phone stays connected. Unplugging
-            # or reconnecting clears it.
-            logger.error(f"Bluetooth session failed: {exc}")
+            if not ringing:
+                restarts, dismissed = _session_failed(exc, route, restarts, dismissed)
+                continue
+            # The phone would not send its ringtone: never let that count
+            # against the call itself. Take the call once it is answered.
+            ring_takeover_failed = True
+            logger.info(
+                f"The phone's ringtone is not available over Bluetooth ({exc}); "
+                "Billy takes the call once it is answered.",
+                "📞",
+            )
+            _stop.wait(RESTART_BACKOFF_SECONDS)
+
+
+def _session_failed(exc, route, restarts, dismissed):
+    """A session that ended in an error: retry, or give the route up.
+
+    Returns the new (restarts, dismissed).
+    """
+    if isinstance(exc, runtime.StreamRestart):
+        restarts += 1
+        if restarts < runtime.MAX_CONSECUTIVE_RESTARTS:
+            # The first attach may race AVDTP Open/Start. Repeated drops
+            # deserve a warning even when a later retry succeeds.
+            report = logger.verbose if restarts == 1 else logger.warning
+            report(
+                f"Bluetooth transport interrupted; retry {restarts}/{runtime.MAX_CONSECUTIVE_RESTARTS}: {exc}"
+            )
+        if restarts >= runtime.MAX_CONSECUTIVE_RESTARTS:
+            logger.error(f"Bluetooth audio kept dropping, giving up: {exc}")
             dismissed = route
+            restarts = 0
+        _stop.wait(RESTART_BACKOFF_SECONDS)
+        return restarts, dismissed
+    # Latch the route so a session that cannot run does not restart on every
+    # poll for as long as the phone stays connected. Unplugging or
+    # reconnecting clears it.
+    logger.error(f"Bluetooth session failed: {exc}")
+    return restarts, route
+
+
+def _check_ringing():
+    """Tell the ringer, at most every RING_CHECK_SECONDS, whether a call rings."""
+    global _next_ring_check
+    now = time.monotonic()
+    if now < _next_ring_check:
+        return
+    _next_ring_check = now + RING_CHECK_SECONDS
+    from .controls import ACTIVE_CALL_STATES, RINGING_CALL_STATES, call_states
+
+    try:
+        states = set(call_states(timeout=0.5) or ())
+        ringer.update(
+            bool(states & RINGING_CALL_STATES) and not states & ACTIVE_CALL_STATES
+        )
+    except Exception as exc:
+        logger.verbose(f"Bluetooth ring check skipped: {exc}", "ℹ️")
 
 
 def _only_ringing():
@@ -190,6 +240,8 @@ def _run_session(route):
     global _session_stop
 
     source, sink = route
+    # An answered call (or media) takes over now: stop ringing first.
+    ringer.stop()
     with mode.claim(route) as running:
         session_stop = threading.Event()
         with _session_lock:

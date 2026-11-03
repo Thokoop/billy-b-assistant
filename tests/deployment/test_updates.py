@@ -477,6 +477,28 @@ def test_package_repair_uses_existing_selection_without_activation(root, monkeyp
     assert (root / '.env').read_text() == 'FLASK_PORT=8080\n'
 
 
+def test_optional_component_install_keeps_the_software_and_reports_restart(
+    root, monkeypatch
+):
+    queued(root, action='optional', version='bluetooth-calls')
+    install = Mock(return_value=True)
+    monkeypatch.setattr(updates, 'install_optional_component', install)
+    activate = Mock()
+    monkeypatch.setattr(updates, 'activate', activate)
+    updates.execute(root, 'job1')
+    install.assert_called_once_with(root, root, 'bluetooth-calls')
+    activate.assert_not_called()
+    assert updates.job(root)['state'] == 'complete'
+    assert 'restarts' in updates.job(root)['message']
+
+
+def test_optional_component_names_are_not_shell_or_path_text(root, monkeypatch):
+    monkeypatch.setattr(updates, 'dispatch', Mock())
+    for name in ['', '../x', 'a b', '--help', None]:
+        with pytest.raises(ValueError):
+            updates.queue('optional', name, root)
+
+
 def test_reboot_during_package_apply_requires_repair_without_activating(
     root, monkeypatch
 ):

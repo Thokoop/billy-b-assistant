@@ -124,7 +124,63 @@ def load_manifest(source):
             raise ValueError('Invalid system-component package list')
     if not isinstance(manifest.get('platforms'), list):
         raise ValueError('Missing supported platforms')
+    for item in manifest.get('optional', []):
+        validate_optional(item)
     return manifest
+
+
+# An opt-in component: the only path that adds a package source. Every field is
+# validated because it ends up in an apt source list and an apt command line.
+OPTIONAL_ID = re.compile(r'[a-z0-9][a-z0-9-]{0,40}\Z')
+REPOSITORY_URI = re.compile(r'https?://[A-Za-z0-9.-]+(?:/[A-Za-z0-9._~/-]*)?\Z')
+REPOSITORY_WORD = re.compile(r'[a-z0-9][a-z0-9.-]{0,40}\Z')
+
+
+def validate_optional(item):
+    if not isinstance(item, dict):
+        raise ValueError('Invalid optional system component')
+    repository = item.get('repository') or {}
+    satisfied = item.get('satisfied') or {}
+    if (
+        not OPTIONAL_ID.fullmatch(str(item.get('id', '')))
+        or not isinstance(item.get('name'), str)
+        or not isinstance(item.get('description', ''), str)
+        or not isinstance(item.get('distribution'), str)
+        or not REPOSITORY_URI.fullmatch(str(repository.get('uri', '')))
+        or not REPOSITORY_WORD.fullmatch(str(repository.get('suite', '')))
+        or not repository.get('components')
+        or any(not REPOSITORY_WORD.fullmatch(str(c)) for c in repository['components'])
+        or not item.get('packages')
+        or any(not NAME.fullmatch(str(n)) for n in item['packages'])
+        or not item.get('allow')
+        or any(not NAME.fullmatch(str(n).rstrip('-')) for n in item['allow'])
+        or not NAME.fullmatch(str(satisfied.get('package', '')))
+        or not VERSION.fullmatch(str(satisfied.get('version', '')))
+    ):
+        raise ValueError('Invalid optional system component')
+
+
+def optional_components(manifest, machine):
+    """Opt-in components offered on this OS (never installed automatically)."""
+    return [
+        item
+        for item in manifest.get('optional', [])
+        if item['distribution'] == machine['distribution']
+    ]
+
+
+def _upstream(version):
+    """Numeric parts of a Debian version's upstream part: '1:1.4.2-1' -> (1, 4, 2)."""
+    upstream = version.partition(':')[2] or version
+    upstream = re.split(r'[-~+]', upstream)[0]
+    return tuple(int(part) for part in re.findall(r'\d+', upstream))
+
+
+def optional_satisfied(item, installed):
+    info = lookup(installed, item['satisfied']['package'])
+    return bool(info) and _upstream(info['version']) >= _upstream(
+        item['satisfied']['version']
+    )
 
 
 def host():
@@ -422,6 +478,19 @@ def check(source, root):
             'name': device['name'],
             'state': 'configuration_needed' if device_needed else 'installed',
         })
+    optional = []
+    for item in optional_components(manifest, machine):
+        ready = optional_satisfied(item, installed)
+        optional.append({
+            'id': item['id'],
+            'name': item['name'],
+            'description': item.get('description', ''),
+            'state': 'installed' if ready else 'available',
+        })
+        components.append({
+            'name': item['name'],
+            'state': 'installed' if ready else 'optional',
+        })
     needs = bool(missing or damaged or outdated or configure or unfinished)
     return {
         'state': 'attention' if needs else 'ready',
@@ -436,6 +505,7 @@ def check(source, root):
             else 'All system components are installed.'
         ),
         'repairable': needs,
+        'optional': optional,
         'platform': machine,
     }
 
@@ -774,3 +844,154 @@ def ensure(source, root, progress, *, repair=False):
         invalidate(root)
         if active:
             run(['systemctl', 'start', '--no-block', 'billy.service'], mutate=True)
+
+
+def install_optional(source, root, identity, progress):
+    """Install one opt-in component the user asked for (Software settings).
+
+    Adds the component's package source, then runs the same guarded
+    transaction as ensure(): a simulated plan that may only touch the
+    component's own package families, a download before Billy pauses, exact
+    version pins, and a receipt that the regular repair can finish if the
+    power drops midway. Returns True when the Pi must restart to finish.
+    """
+    source, root = Path(source).resolve(), Path(root).resolve()
+    manifest = load_manifest(source)
+    machine = host()
+    item = next(
+        (i for i in optional_components(manifest, machine) if i['id'] == identity),
+        None,
+    )
+    if item is None:
+        raise RuntimeError('This optional component is not available for this system.')
+    installed = inventory()
+    if any(info['status'] != 'installed' for info in installed.values()):
+        raise RuntimeError(
+            'An interrupted package installation needs repair first: use Repair components.'
+        )
+    if optional_satisfied(item, installed):
+        return False
+    if shutil.disk_usage(root).free < 512 * 1024**2:
+        raise RuntimeError(
+            'At least 512 MiB free space is required for system components.'
+        )
+    run(['true'], mutate=True)
+    repository = item['repository']
+    suite = repository['suite']
+    line = f"deb {repository['uri']} {suite} {' '.join(repository['components'])}"
+    progress(f"Adding the package source for {item['name']}…")
+    run(
+        [
+            'sh',
+            '-c',
+            f"printf '%s\\n' '{line}' > /etc/apt/sources.list.d/billy-{item['id']}.list",
+        ],
+        mutate=True,
+    )
+    progress(f"Checking and downloading {item['name']}…")
+    run([*apt_args(), 'update'], mutate=True, timeout=180)
+    plan = parse_plan(
+        run(
+            [
+                *apt_args(),
+                '--simulate',
+                '--no-remove',
+                '--no-install-recommends',
+                '-t',
+                suite,
+                'install',
+                *item['packages'],
+            ],
+            mutate=True,
+        )
+    )
+    if not plan:
+        raise RuntimeError(f"{item['name']} could not be resolved; nothing installed.")
+    allowed = tuple(item['allow'])
+    for name, version in plan.items():
+        base = name.partition(':')[0]
+        if not base.startswith(allowed) or base.startswith(FOUNDATION):
+            raise RuntimeError(
+                f'Installing {item["name"]} would change {name}; nothing installed.'
+            )
+        before = lookup(installed, name)
+        if before and before['version'] != version:
+            result = subprocess.run(
+                ['dpkg', '--compare-versions', version, 'lt', before['version']],
+                check=False,
+            )
+            if result.returncode == 0:
+                raise RuntimeError('System-package downgrades are not supported.')
+            if result.returncode != 1:
+                raise RuntimeError('Could not compare package versions.')
+    folder = root / 'state/software/packages'
+    folder.mkdir(parents=True, exist_ok=True)
+    receipt = folder / 'transaction.json'
+    record = {
+        'schema': 1,
+        'platform': machine,
+        'before': installed,
+        'plan': plan,
+        'state': 'planned',
+        'source': str(source),
+        'optional': item['id'],
+        'created': time.time(),
+    }
+    save_receipt(receipt, record)
+    (folder / 'empty-preferences').mkdir(exist_ok=True)
+    pref = folder / 'preferences'
+    atomic_write(pref, pins(installed, plan))
+    packages = [f'{name}={version}' for name, version in sorted(plan.items())]
+    args = [*apt_args(pref), '--yes', '--no-remove', '--no-install-recommends']
+    run([*args, '--download-only', 'install', *packages], mutate=True, timeout=600)
+    if inventory() != installed:
+        raise RuntimeError(
+            'System packages changed during preparation; retry the operation.'
+        )
+    if (
+        parse_plan(run([*args, '--simulate', 'install', *packages], mutate=True))
+        != plan
+    ):
+        raise RuntimeError('Package plan changed during download; nothing installed.')
+    active = (
+        subprocess.run(
+            ['systemctl', 'is-active', '--quiet', 'billy.service'], check=False
+        ).returncode
+        == 0
+    )
+    record.update(state='applying', restart_core=active)
+    save_receipt(receipt, record)
+    try:
+        progress(
+            f"Installing {item['name']}; Billy pauses briefly. Keep the power connected…"
+        )
+        if active:
+            run(['systemctl', 'stop', 'billy.service'], mutate=True)
+        run([*args, '--no-download', 'install', *packages], mutate=True, timeout=None)
+        after = inventory()
+        if any(
+            not lookup(after, name)
+            or lookup(after, name)['status'] != 'installed'
+            or lookup(after, name)['version'] != version
+            for name, version in plan.items()
+        ):
+            raise RuntimeError(f"{item['name']} installation is incomplete.")
+        record.update(state='complete', after=after, finished=time.time())
+        save_receipt(receipt, record)
+    except BaseException:
+        record['state'] = 'interrupted'
+        save_receipt(receipt, record)
+        raise
+    finally:
+        invalidate(root)
+        if active:
+            run(['systemctl', 'start', '--no-block', 'billy.service'], mutate=True)
+    if item.get('reboot'):
+        # The audio services of the Billy user only pick up the new version
+        # after a restart; give the web interface time to report success.
+        run(
+            ['systemd-run', '--on-active=15', 'systemctl', 'reboot'],
+            mutate=True,
+        )
+        return True
+    return False
