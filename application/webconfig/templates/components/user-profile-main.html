@@ -6,7 +6,7 @@
                 <!-- Profile Selector -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 xl:mb-0">
                     <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg text-slate-200 flex items-center">
+                        <h3 class="text-lg text-zinc-200 flex items-center">
                             <span class="material-icons mr-2 text-emerald-400">person</span>
                             User Profiles
                         </h3>
@@ -28,13 +28,13 @@
                         data-mobile-split-back
                         type="button"
                         class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white mb-4 md:hidden">
-                    <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+                    <span class="material-icons text-lg transition-transform group-hover:-translate-x-0.5">arrow_back</span>
                     <span>Back</span>
                 </button>
                 <!-- Profile Settings (Collapsible) -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-profile-settings-main">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">manage_accounts</span>
                         Profile Settings
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -44,7 +44,7 @@
                         <!-- Display Name / Profile ID -->
                         <div id="profile-name-row-main" class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="flex justify-between items-center text-sm text-slate-300 relative mb-3">
+                                <label class="flex justify-between items-center text-sm text-zinc-300 relative">
                                     Display Name
                                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                                           onclick="toggleTooltip(this)">
@@ -55,11 +55,11 @@
                                     <div data-tooltip>
                                         How your name appears in the interface. Useful if Billy mispronounces your name (e.g., "Tom" instead of "Thom").
                                     </div>
-                                    <input type="text" id="display-name-input-main" class="w-full bg-zinc-800 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Enter display name">
+                                    <input type="text" id="display-name-input-main" class="field mt-1" placeholder="Enter display name">
                                 </div>
                             </div>
                             <div>
-                                <label class="flex justify-between items-center text-sm text-slate-300 relative mb-3">
+                                <label class="flex justify-between items-center text-sm text-zinc-300 relative">
                                     Profile ID
                                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                                           onclick="toggleTooltip(this)">
@@ -70,11 +70,11 @@
                                     <div data-tooltip>
                                         The internal ID Billy stores this profile under. Renaming it here renames the stored file too - the Display Name above is what's actually shown in the interface.
                                     </div>
-                                    <div class="flex items-center gap-2">
+                                    <div class="flex items-center gap-2 mt-1">
                                         <div id="profile-id-display-main"
-                                             class="flex-1 min-w-0 px-3 py-2 bg-zinc-800/50 border border-zinc-600 rounded text-zinc-400 truncate"></div>
+                                             class="field-static flex-1 min-w-0"></div>
                                         <button type="button" id="profile-id-rename-btn-main"
-                                                class="icon-action-btn icon-action-btn--edit"
+                                                class="secondary-action secondary-action--hover--amber button-icon"
                                                 title="Rename profile">
                                             <span class="material-icons">edit</span>
                                         </button>
@@ -87,7 +87,7 @@
                         <div>
                             <h4 class="text-sm text-zinc-300 mb-3">Preferred Persona</h4>
                             <div>
-                                <select id="persona-select-main" class="w-full bg-zinc-800 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                <select id="persona-select-main" class="field mt-1">
                                     <!-- Options will be populated dynamically -->
                                 </select>
                             </div>
@@ -98,7 +98,7 @@
                 <!-- Stats Section (Collapsible) -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-stats-main">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">analytics</span>
                         Stats
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -112,7 +112,7 @@
                 <!-- Mood Section (Collapsible) -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-mood-main">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">sentiment_satisfied</span>
                         Mood
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -126,7 +126,7 @@
                 <!-- Memories Section (Collapsible) -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-memories-main">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">psychology</span>
                         Memories
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -139,27 +139,28 @@
                 <div class="relative pt-0 md:py-4">
                     <div class="flex justify-end">
                         <div class="relative inline-block">
-                            <div class="flex rounded shadow overflow-hidden border border-emerald-500">
+                            <div class="split-action">
                                 <button id="update-persona-btn-main" 
-                                        class="bg-emerald-600 hover:bg-emerald-500  text-black py-2 px-4 flex items-center gap-1 focus:outline-none"
+                                        class="primary-action bg-emerald-600 text-white"
                                         type="button">
                                     <span class="material-icons align-middle">save</span>
                                     Save User Profile
                                 </button>
                                 <button id="dropdown-btn-main"
+                                        aria-label="More options"
                                         type="button"
-                                        class="dropdown-toggle bg-emerald-600 hover:bg-emerald-500  text-black px-2 flex items-center"
+                                        class="primary-action bg-emerald-600 text-white button-icon dropdown-toggle"
                                         onclick="toggleDropdown(this)">
                                     <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
                                 </button>
                             </div>
-                            <div class="dropdown-menu absolute bottom-0 right-0 w-full text-black border border-emerald-500 backdrop-blur-xs rounded z-20 hidden">
+                            <div class="dropdown-menu menu-panel absolute bottom-full right-0 mb-1 w-full z-20 hidden">
                                 <button onclick="downloadUserProfile()"
-                                        class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500  cursor-pointer">
+                                        class="secondary-action secondary-action--hover--cyan">
                                     <span class="material-icons">file_download</span>
                                     Download Profile
                                 </button>
-                                <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500  cursor-pointer">
+                                <label class="secondary-action secondary-action--hover--cyan">
                                     <span class="material-icons">file_upload</span>
                                     <span>Upload Profile</span>
                                     <input type="file" accept=".ini" onchange="uploadUserProfile(this)" class="hidden"/>

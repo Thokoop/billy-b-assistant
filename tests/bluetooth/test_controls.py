@@ -124,7 +124,9 @@ def setup_call(c, monkeypatch, states=("active", "held", "waiting")):
         AG + f"/call{i}": {c.CALL: {"State": Variant("s", s)}}
         for i, s in enumerate(states)
     }
-    c._objects = AsyncMock(side_effect=[objects, calls])
+    c._objects = AsyncMock(
+        side_effect=lambda bus, service, path: calls if path == AG else objects
+    )
     props = SimpleNamespace(
         call_get=AsyncMock(
             return_value=Variant("s", states[0] if states else "disconnected")
@@ -146,7 +148,8 @@ def test_hangup_targets_active_call_not_held_or_waiting(controls, monkeypatch):
     call, _ = setup_call(c, monkeypatch)
     asyncio.run(c._hangup(None, ADDRESS, lambda: True))
     call.call_hangup.assert_awaited_once()
-    assert c._objects.await_args_list[1].args[2] == AG
+    # The gateway's own calls are looked up (they may also be at the root).
+    assert AG in [call.args[2] for call in c._objects.await_args_list]
 
 
 @pytest.mark.parametrize(

@@ -82,7 +82,7 @@ window.MoodPanel = (() => {
         const lastEvent = mood.last_event ? mood.last_event.split('_').join(' ') : 'none';
 
         moodContent.innerHTML = `
-            <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-600">
+            <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
                 <div class="flex items-center justify-between gap-3 mb-4">
                     <div class="flex items-center gap-3">
                         <span class="material-icons ${meta.color}">${meta.icon}</span>

@@ -156,6 +156,22 @@ def test_device_order_does_not_probe_unrelated_inputs(audio_module, reverse):
     a.sd.check_output_settings.assert_called_once()
 
 
+@pytest.mark.parametrize('first', ['loose', 'exact'])
+def test_exact_device_name_wins_over_a_looser_match(audio_module, first):
+    a = audio_module
+    loose = [device('mic', 2), device('speaker', outputs=2)]
+    exact = [device('billy_phone_mic', 2), device('billy_phone_speaker', outputs=2)]
+    devices = loose + exact if first == 'loose' else exact + loose
+    a.MIC_PREFERENCE = 'billy_phone_mic'
+    a.SPEAKER_PREFERENCE = 'billy_phone_speaker'
+    a.sd.query_devices = lambda: devices
+    a.sd.check_output_settings = Mock()
+    a._pick_mic_rate = Mock(return_value=24000)
+    a.detect_devices()
+    assert devices[a.MIC_DEVICE_INDEX]['name'] == 'billy_phone_mic'
+    assert devices[a.OUTPUT_DEVICE_INDEX]['name'] == 'billy_phone_speaker'
+
+
 @pytest.mark.parametrize(
     'failure',
     ['missing_mic', 'missing_speaker', 'unsupported_mic', 'unsupported_output'],

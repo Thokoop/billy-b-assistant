@@ -63,22 +63,22 @@ function renderWakeupRow(index, phrase = "", moods = [], hasAudio = false) {
     return `
         <div class="flex flex-col gap-2 rounded-lg border border-zinc-700 bg-zinc-900/40 p-2" data-index="${index}">
             <div class="flex items-center gap-2">
-                <input type="text" class="wakeup-phrase-input text-input w-full rounded bg-zinc-800 border border-zinc-700 p-2" value="${escapeWakeupHtml(phrase)}" placeholder="word or phrase">
+                <input type="text" class="wakeup-phrase-input text-input field" value="${escapeWakeupHtml(phrase)}" placeholder="word or phrase">
                 <button type="button" class="wakeup-mood-toggle wakeup-action-button secondary-action secondary-action--hover--cyan h-11 shrink-0 relative" title="Edit mood tags: ${escapeWakeupHtml(moodSummary)}" aria-label="Edit moods">
-                    <i class="material-icons text-[20px] leading-none">mood</i>
+                    <i class="material-icons text-xl leading-none">mood</i>
                     <span class="wakeup-action-label">Moods</span>
                     <span class="wakeup-mood-summary absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-cyan-500 text-[10px] leading-4 text-zinc-950 ${moods.length ? '' : 'hidden'}">${escapeWakeupHtml(renderWakeupMoodBadge(moods))}</span>
                 </button>
                 <button type="button" class="wakeup-generate-btn wakeup-action-button secondary-action secondary-action--hover--amber h-11 shrink-0" title="Generate .wav" aria-label="Generate audio">
-                    <i class="material-icons text-[22px] leading-none">auto_fix_high</i>
+                    <i class="material-icons text-xl leading-none">auto_fix_high</i>
                     <span class="wakeup-action-label">Generate</span>
                 </button>
                 <button type="button" class="wakeup-play-btn wakeup-action-button secondary-action secondary-action--hover--emerald h-11 shrink-0 ${!hasAudio ? 'invisible' : ''}" title="Play .wav" aria-label="Play audio">
-                    <i class="material-icons text-[22px] leading-none">play_arrow</i>
+                    <i class="material-icons text-xl leading-none">play_arrow</i>
                     <span class="wakeup-action-label">Play</span>
                 </button>
                 <button type="button" class="remove-wakeup-row wakeup-action-button secondary-action secondary-action--hover--rose h-11 shrink-0" title="Remove" aria-label="Remove wake-up phrase">
-                    <i class="material-icons text-[22px] leading-none">delete</i>
+                    <i class="material-icons text-xl leading-none">delete</i>
                     <span class="wakeup-action-label">Remove</span>
                 </button>
             </div>
@@ -164,7 +164,7 @@ async function loadWakeupClips(personaName = null) {
             return;
         } else {
             const label = document.createElement("label");
-            label.className = "flex items-center justify-between text-sm text-slate-300 mb-1";
+            label.className = "flex items-center justify-between text-sm text-zinc-300 mb-1";
             label.textContent = "Words or phrases that Billy will randomly say on activation:";
             container.appendChild(label);
         }

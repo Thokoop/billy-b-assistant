@@ -58,7 +58,7 @@
                 <div class="grid gap-4 md:grid-cols-2">
                     <div class="min-w-0 relative">
                         <label for="timezone"
-                               class="flex justify-between items-center text-sm text-slate-300 relative">
+                               class="flex justify-between items-center text-sm text-zinc-300 relative">
                             Timezone
                             <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                                   onclick="toggleTooltip(this)">
@@ -83,7 +83,7 @@
                                     spellcheck="false"
                                     data-original=""
                                     placeholder="Europe/Amsterdam"
-                                    class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                    class="field"
                                     value=""
                             >
                             <!-- Keeps this field the same width as the hostname
@@ -94,13 +94,8 @@
                         </div>
                     </div>
                     <div class="min-w-0">
-                        <!-- The invisible icon keeps this label the same height as
-                             the Timezone label, so both fields start on one line. -->
-                        <span class="flex justify-between items-center text-sm text-slate-300">
-                            Device Time
-                            <span class="material-icons invisible ml-1" aria-hidden="true">help_outline</span>
-                        </span>
-                        <div class="w-full p-3 mt-1 bg-zinc-800/60 rounded font-mono text-white truncate"
+                        <span class="block text-sm text-zinc-300">Device Time</span>
+                        <div class="field-static mt-1 font-mono text-white"
                              id="device-time">--:--:--</div>
                         <div id="device-time-date" class="text-zinc-400 mt-1 truncate"
                              style="font-size: 12px;">Checking...</div>
@@ -109,7 +104,7 @@
 
                 <div class="grid gap-4 md:grid-cols-2">
                     <div class="min-w-0">
-                        <label for="hostname" class="block text-sm text-slate-300">Device
+                        <label for="hostname" class="block text-sm text-zinc-300">Device
                             Hostname</label>
                         <div class="flex items-center mt-1 gap-2">
                             <input
@@ -118,14 +113,14 @@
                                     type="text"
                                     data-original=""
                                     data-default="raspberrypi"
-                                    class="w-full p-3  bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                    class="field"
                                     value=""
                             >
                             <span>.local</span>
                         </div>
                     </div>
                     <div class="min-w-0">
-                        <label for="FLASK_PORT" class="block text-sm text-slate-300">Web UI
+                        <label for="FLASK_PORT" class="block text-sm text-zinc-300">Web UI
                             Port</label>
                         <input
                                 id="FLASK_PORT"
@@ -134,7 +129,7 @@
                                 min="1"
                                 max="65535"
                                 data-default="80"
-                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                class="field mt-1"
                                 value="{{ config.get('FLASK_PORT', '80') }}"
                         >
                     </div>
@@ -154,7 +149,7 @@
 
             <div class="grid gap-4 md:grid-cols-2 mb-4">
             <div class="relative">
-                <div class="flex justify-between items-center text-sm text-slate-300">
+                <div class="flex justify-between items-center text-sm text-zinc-300">
                     <label for="REALTIME_AI_PROVIDER">Voice provider</label>
                     <details class="settings-inline-help api-provider-help"
                              onkeydown="if (event.key === 'Escape') { this.open = false; this.querySelector('summary').focus(); }">
@@ -181,7 +176,7 @@
                     </details>
                 </div>
                 <select id="REALTIME_AI_PROVIDER" name="REALTIME_AI_PROVIDER"
-                        class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        class="field mt-1">
                     <option value="openai" {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'openai' %}selected{% endif %}>
                         OpenAI Realtime
                     </option>
@@ -197,7 +192,7 @@
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}style="display:none"{% endif %}>
                 <label for="OPENAI_API_KEY"
-                       class="flex justify-between items-center text-sm text-slate-300 relative">
+                       class="flex justify-between items-center text-sm text-zinc-300 relative">
                     OpenAI API Key
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -216,7 +211,7 @@
                     </div>
                     <input
                             type="password"
-                            class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            class="field mt-1 pr-10"
                             id="OPENAI_API_KEY"
                             name="OPENAI_API_KEY"
                             value="{{ config.get('OPENAI_API_KEY', '') }}"
@@ -225,7 +220,7 @@
                     <button
                             type="button"
                             onclick="toggleInputVisibility('OPENAI_API_KEY', this)"
-                            class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
+                            class="input-reveal-button absolute inset-y-0 right-0 text-zinc-400 hover:text-white"
                     >
                         <span class="material-icons" id="OPENAI_API_KEY_icon">visibility</span>
                     </button>
@@ -237,7 +232,7 @@
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}style="display:none"{% endif %}>
                 <label for="XAI_API_KEY"
-                       class="flex justify-between items-center text-sm text-slate-300 relative">
+                       class="flex justify-between items-center text-sm text-zinc-300 relative">
                     xAI API Key
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -250,7 +245,7 @@
                     </div>
                     <input
                             type="password"
-                            class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            class="field mt-1 pr-10"
                             id="XAI_API_KEY"
                             name="XAI_API_KEY"
                             value="{{ config.get('XAI_API_KEY', '') }}"
@@ -259,7 +254,7 @@
                     <button
                             type="button"
                             onclick="toggleInputVisibility('XAI_API_KEY', this)"
-                            class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
+                            class="input-reveal-button absolute inset-y-0 right-0 text-zinc-400 hover:text-white"
                     >
                         <span class="material-icons" id="XAI_API_KEY_icon">visibility</span>
                     </button>
@@ -271,7 +266,7 @@
                  data-api-provider="xai"
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}style="display:none"{% endif %}>
-                <label for="XAI_MODEL" class="flex justify-between items-center text-sm text-slate-300 relative">
+                <label for="XAI_MODEL" class="flex justify-between items-center text-sm text-zinc-300 relative">
                     xAI Realtime API Model
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -284,7 +279,7 @@
                     </div>
 
                     <select id="XAI_MODEL" name="XAI_MODEL"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            class="field mt-1">
                         <option value="grok-voice-latest"
                                 {% if config.get('XAI_MODEL', 'grok-voice-latest') == 'grok-voice-latest' %}selected{% endif %}>
                             grok-voice-latest
@@ -305,7 +300,7 @@
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'gpt-live' %}hidden style="display:none"{% endif %}>
                 <div class="api-model-grid">
                     <div class="relative">
-                        <label for="OPENAI_LIVE_MODEL" class="flex justify-between items-center text-sm text-slate-300">
+                        <label for="OPENAI_LIVE_MODEL" class="flex justify-between items-center text-sm text-zinc-300">
                             Voice model
                             <span class="material-icons hover:text-cyan-400 cursor-pointer ml-1"
                                   onclick="toggleTooltip(this)" role="button" tabindex="0"
@@ -315,12 +310,15 @@
                         <div class="relative">
                             <div data-tooltip>
                                 GPT-Live handles listening, speaking and interruptions automatically.
-                                Voice changes apply to the next conversation.<br><br>
+                                Voice changes apply to the next conversation.
+                                See <a href="https://developers.openai.com/api/docs/guides/live-conversations#voice-options"
+                                       target="_blank" rel="noopener" class="underline hover:text-cyan-400">GPT-Live voice options</a>
+                                for the available voices.<br><br>
                                 Wake-up clips and announcements use your selected Live voice
                                 (experimental). Wording or endings may vary.
                                 Listen to generated wake-up clips before using them.
                             </div>
-                            <select id="OPENAI_LIVE_MODEL" name="OPENAI_LIVE_MODEL" class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <select id="OPENAI_LIVE_MODEL" name="OPENAI_LIVE_MODEL" class="field mt-1">
                                 <option value="gpt-live-1" {% if config.get('OPENAI_LIVE_MODEL', 'gpt-live-1') == 'gpt-live-1' %}selected{% endif %}>GPT-Live 1</option>
                                 {% if config.get('OPENAI_LIVE_MODEL') and config.get('OPENAI_LIVE_MODEL') != 'gpt-live-1' %}
                                 <option value="{{ config.get('OPENAI_LIVE_MODEL') }}" selected>{{ config.get('OPENAI_LIVE_MODEL') }}</option>
@@ -330,7 +328,7 @@
                         <p class="api-field-hint">Listens and speaks</p>
                     </div>
                     <div class="relative">
-                        <label for="OPENAI_LIVE_BACKEND_MODEL" class="flex justify-between items-center text-sm text-slate-300">
+                        <label for="OPENAI_LIVE_BACKEND_MODEL" class="flex justify-between items-center text-sm text-zinc-300">
                             Reasoning model
                             <span class="material-icons hover:text-cyan-400 cursor-pointer ml-1"
                                   onclick="toggleTooltip(this)" role="button" tabindex="0"
@@ -343,7 +341,7 @@
                                 such as looking up information or controlling your smart home.
                                 Voice and reasoning use the same OpenAI API key and are billed separately.
                             </div>
-                            <select id="OPENAI_LIVE_BACKEND_MODEL" name="OPENAI_LIVE_BACKEND_MODEL" class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <select id="OPENAI_LIVE_BACKEND_MODEL" name="OPENAI_LIVE_BACKEND_MODEL" class="field mt-1">
                                 <option value="gpt-6-luna" {% if config.get('OPENAI_LIVE_BACKEND_MODEL', 'gpt-6-luna') == 'gpt-6-luna' %}selected{% endif %}>GPT-6 Luna</option>
                                 <option value="gpt-6-sol" {% if config.get('OPENAI_LIVE_BACKEND_MODEL') == 'gpt-6-sol' %}selected{% endif %}>GPT-6 Sol</option>
                                 {% if config.get('OPENAI_LIVE_BACKEND_MODEL') and config.get('OPENAI_LIVE_BACKEND_MODEL') not in ['gpt-6-luna', 'gpt-6-sol'] %}
@@ -361,7 +359,7 @@
                  data-api-provider="openai"
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'openai' %}hidden{% endif %}
                  {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'openai' %}style="display:none"{% endif %}>
-                <label for="OPENAI_MODEL" class="flex justify-between items-center text-sm text-slate-300 relative">
+                <label for="OPENAI_MODEL" class="flex justify-between items-center text-sm text-zinc-300 relative">
                     OpenAI Realtime API Model
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -386,7 +384,7 @@
                     </div>
 
                     <select id="OPENAI_MODEL" name="OPENAI_MODEL"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            class="field mt-1">
                         <option value="gpt-realtime-2.1"
                                 {% if config.get(
                         'OPENAI_MODEL') == 'gpt-realtime-2.1' %}selected{% endif %}>
@@ -435,7 +433,7 @@
                 <div class="api-provider-only" data-api-provider="openai xai"
                      {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
                     <label for="TURN_EAGERNESS"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Turn Detection Eagerness
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -450,7 +448,7 @@
                         </div>
 
                         <select id="TURN_EAGERNESS" name="TURN_EAGERNESS"
-                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                class="field mt-1">
                             <option value="low" {% if config.get('TURN_EAGERNESS', 'medium') == 'low' %}selected{% endif %}>Low (patient)</option>
                             <option value="medium" {% if config.get('TURN_EAGERNESS', 'medium') == 'medium' %}selected{% endif %}>Medium (balanced)</option>
                             <option value="high" {% if config.get('TURN_EAGERNESS', 'medium') == 'high' %}selected{% endif %}>High (snappy)</option>
@@ -461,7 +459,7 @@
                 <div class="api-provider-only" data-api-provider="openai xai"
                      {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
                     <label for="FOLLOW_UP_RETRY_LIMIT"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Follow-up Retry Limit
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -480,16 +478,44 @@
                                 step="1"
                                 id="FOLLOW_UP_RETRY_LIMIT"
                                 name="FOLLOW_UP_RETRY_LIMIT"
-                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                class="field mt-1"
                                 value="{{ config.get('FOLLOW_UP_RETRY_LIMIT', '2') }}"
                         >
+                    </div>
+                </div>
+
+                <div class="api-provider-only" data-api-provider="openai xai"
+                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                    <label for="AEC_BARGE_IN_SNR_DB-bar"
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
+                        Interruption sensitivity
+                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                              onclick="toggleTooltip(this)">help_outline</span>
+                    </label>
+                    <div class="relative">
+                        <div data-tooltip>
+                            Controls how much sustained post-AEC voice and energy is required before
+                            Billy accepts the provider's speech detection as an interruption.<br>
+                            <b>High</b> = reacts to quieter speech, but may trigger more easily.<br>
+                            <b>Balanced</b> = recommended default.<br>
+                            <b>Conservative</b> = strongest protection against false interruptions.
+                        </div>
+                        <!-- The select stays the real form control (saved and
+                             refreshed like every other setting); the three-stop
+                             slider below is a proxy for it, same as the toggles. -->
+                        <select id="AEC_BARGE_IN_SNR_DB" name="AEC_BARGE_IN_SNR_DB" class="hidden">
+                            <option value="12" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '12' %}selected{% endif %}>Conservative</option>
+                            <option value="9" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '9' %}selected{% endif %}>Balanced</option>
+                            <option value="6" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '6' %}selected{% endif %}>High</option>
+                        </select>
+                        {{ step_slider('AEC_BARGE_IN_SNR_DB', 'Interruption sensitivity', 'Balanced', 50) }}
                     </div>
                 </div>
 
                 <div class="api-toggle-setting api-provider-only" data-api-provider="openai"
                      {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'openai' %}hidden style="display:none"{% endif %}>
                     <label for="WEB_SEARCH_ENABLED"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Web search
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -514,9 +540,9 @@
                     </div>
                 </div>
 
-                <div class="api-toggle-setting api-provider-only" data-api-provider="openai xai gpt-live">
+                <div class="api-toggle-setting">
                     <label for="AEC_ENABLED"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Voice interruption
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -525,9 +551,13 @@
                         <div data-tooltip>
                             Lets you speak while Billy is talking. Echo cancellation reduces
                             Billy's own voice in the microphone; compatible audio support is required.
-                            Interruption sensitivity controls how much speech is needed before Billy stops talking.
-                            GPT-Live has no sensitivity setting; without echo cancellation Billy cannot hear you
-                            while he talks, so only the button can interrupt him.
+                            <span data-api-provider="openai xai" {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                                Interruption sensitivity controls how much speech is needed before Billy stops talking.
+                            </span>
+                            <span data-api-provider="gpt-live" {% if config.get('REALTIME_AI_PROVIDER') != 'gpt-live' %}hidden style="display:none"{% endif %}>
+                                With GPT-Live the microphone stays open while Billy talks, so the model
+                                hears what you say. When off, the microphone is muted while Billy talks.
+                            </span>
                         </div>
                         <select id="AEC_ENABLED" name="AEC_ENABLED" class="hidden">
                             <option value="false" {% if config.get('AEC_ENABLED', 'false') == 'false' %}selected{% endif %}>Disabled</option>
@@ -543,7 +573,7 @@
 
                 <div class="api-toggle-setting">
                     <label for="MOOD_INSTRUCTIONS_ENABLED" id="mood-setting-label"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         <span id="mood-live-label" data-api-provider="gpt-live" {% if config.get('REALTIME_AI_PROVIDER') != 'gpt-live' %}hidden style="display:none"{% endif %}>Mood at conversation start</span>
                         <span id="mood-realtime-label" data-api-provider="openai xai" {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>Mood in responses</span>
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
@@ -574,39 +604,13 @@
                     </div>
                 </div>
 
-                <div class="api-provider-only" data-api-provider="openai xai"
-                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
-                    <label for="AEC_BARGE_IN_SNR_DB-bar"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
-                        Interruption sensitivity
-                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
-                              onclick="toggleTooltip(this)">help_outline</span>
-                    </label>
-                    <div class="relative">
-                        <div data-tooltip>
-                            Controls how much sustained post-AEC voice and energy is required before
-                            Billy accepts the provider's speech detection as an interruption.<br>
-                            <b>High</b> = reacts to quieter speech, but may trigger more easily.<br>
-                            <b>Balanced</b> = recommended default.<br>
-                            <b>Conservative</b> = strongest protection against false interruptions.
-                        </div>
-                        <!-- The select stays the real form control (saved and
-                             refreshed like every other setting); the three-stop
-                             slider below is a proxy for it, same as the toggles. -->
-                        <select id="AEC_BARGE_IN_SNR_DB" name="AEC_BARGE_IN_SNR_DB" class="hidden">
-                            <option value="12" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '12' %}selected{% endif %}>Conservative</option>
-                            <option value="9" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '9' %}selected{% endif %}>Balanced</option>
-                            <option value="6" {% if config.get('AEC_BARGE_IN_SNR_DB', '9') == '6' %}selected{% endif %}>High</option>
-                        </select>
-                        {{ step_slider('AEC_BARGE_IN_SNR_DB', 'Interruption sensitivity', 'Balanced', 50) }}
-                    </div>
-                </div>
             </div>
 
         </div>
 
         <!-- Wake-word Settings -->
-        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
+        {#- class "hidden" also hides its menu item (settings-navigation.js). #}
+        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4{% if "wakeword" in device_hidden %} hidden{% endif %}"
              id="section-wakeword" data-settings-panel aria-labelledby="title-section-wakeword" {% if settings_category|default('voice', true) != 'wakeword' %}hidden{% endif %}>
             <h3 id="title-section-wakeword" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">hearing</span>
@@ -615,7 +619,7 @@
 
             <div class="grid gap-4 md:grid-cols-2">
                 <div class="flex flex-col">
-                    <label for="WAKE_WORD_ENABLED" class="block text-sm text-slate-300">Wake-word enabled</label>
+                    <label for="WAKE_WORD_ENABLED" class="block text-sm text-zinc-300">Wake-word enabled</label>
                     <select id="WAKE_WORD_ENABLED" name="WAKE_WORD_ENABLED" class="hidden">
                         <option value="false" {% if config.get('WAKE_WORD_ENABLED', 'false') == 'false' %}selected{% endif %}>Disabled</option>
                         <option value="true" {% if config.get('WAKE_WORD_ENABLED', 'false') == 'true' %}selected{% endif %}>Enabled</option>
@@ -630,9 +634,9 @@
                 </div>
 
                 <div>
-                    <label for="WAKE_WORD_BACKEND" class="block text-sm text-slate-300">Backend</label>
+                    <label for="WAKE_WORD_BACKEND" class="block text-sm text-zinc-300">Backend</label>
                     <select id="WAKE_WORD_BACKEND" name="WAKE_WORD_BACKEND"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            class="field mt-1">
                         <option value="porcupine" {% if config.get('WAKE_WORD_BACKEND', 'porcupine') == 'porcupine' %}selected{% endif %}>Porcupine</option>
                         <option value="openwakeword" {% if config.get('WAKE_WORD_BACKEND', 'porcupine') == 'openwakeword' %}selected{% endif %}>openWakeWord</option>
                     </select>
@@ -640,7 +644,7 @@
 
                 <div class="relative wakeword-provider-only" data-wakeword-provider="porcupine" style="grid-column: 1 / -1;">
                     <label for="PORCUPINE_ACCESS_KEY"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Porcupine AccessKey
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               data-tooltip-target="porcupine-accesskey-tooltip"
@@ -656,13 +660,13 @@
                             Sign in, open the AccessKey section, create a key, then paste it here.
                         </div>
                         <input type="password" id="PORCUPINE_ACCESS_KEY" name="PORCUPINE_ACCESS_KEY"
-                               class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                               class="field mt-1 pr-10"
                                value="{{ config.get('PORCUPINE_ACCESS_KEY', '') }}"
                                placeholder="Required for Porcupine">
                         <button
                                 type="button"
                                 onclick="toggleInputVisibility('PORCUPINE_ACCESS_KEY', this)"
-                                class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
+                                class="input-reveal-button absolute inset-y-0 right-0 text-zinc-400 hover:text-white"
                         >
                             <span class="material-icons" id="PORCUPINE_ACCESS_KEY_icon">visibility</span>
                         </button>
@@ -671,7 +675,7 @@
 
                 <div class="wakeword-provider-only" data-wakeword-provider="porcupine">
                     <label for="WAKE_WORD_PORCUPINE_KEYWORD_PATH"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Porcupine keyword (.ppn) path
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -686,14 +690,14 @@
                     {% set current_keyword_path = config.get('WAKE_WORD_PORCUPINE_KEYWORD_PATH', 'hey-billy.ppn') %}
                     <select id="WAKE_WORD_PORCUPINE_KEYWORD_PATH" name="WAKE_WORD_PORCUPINE_KEYWORD_PATH"
                             data-current="{{ current_keyword_path }}"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            class="field mt-1">
                         <option value="{{ current_keyword_path }}" selected>{{ current_keyword_path }}</option>
                     </select>
                 </div>
 
                 <div class="wakeword-provider-only" data-wakeword-provider="porcupine">
                     <label for="WAKE_WORD_PORCUPINE_SENSITIVITY"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Porcupine sensitivity (0-1)
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -706,14 +710,14 @@
                             Recommended default: <b>0.20</b>.
                         </div>
                         <input type="number" min="0" max="1" step="0.01" id="WAKE_WORD_PORCUPINE_SENSITIVITY" name="WAKE_WORD_PORCUPINE_SENSITIVITY"
-                               class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                               class="field mt-1"
                                value="{{ config.get('WAKE_WORD_PORCUPINE_SENSITIVITY', '0.20') }}">
                     </div>
                 </div>
 
                 <div class="wakeword-provider-only" data-wakeword-provider="openwakeword">
                     <label for="WAKE_WORD_OPENWAKEWORD_MODEL_PATH"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         openWakeWord model (.onnx)
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -728,14 +732,14 @@
                     {% set current_openwakeword_model_path = config.get('WAKE_WORD_OPENWAKEWORD_MODEL_PATH', 'hey_billy.onnx') %}
                     <select id="WAKE_WORD_OPENWAKEWORD_MODEL_PATH" name="WAKE_WORD_OPENWAKEWORD_MODEL_PATH"
                             data-current="{{ current_openwakeword_model_path }}"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            class="field mt-1">
                         <option value="{{ current_openwakeword_model_path }}" selected>{{ current_openwakeword_model_path }}</option>
                     </select>
                 </div>
 
                 <div class="wakeword-provider-only" data-wakeword-provider="openwakeword">
                     <label for="WAKE_WORD_OPENWAKEWORD_THRESHOLD"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         openWakeWord threshold (0-1)
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -747,44 +751,62 @@
                             Recommended starting point: <b>0.50</b>.
                         </div>
                         <input type="number" min="0" max="1" step="0.01" id="WAKE_WORD_OPENWAKEWORD_THRESHOLD" name="WAKE_WORD_OPENWAKEWORD_THRESHOLD"
-                               class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                               class="field mt-1"
                                value="{{ config.get('WAKE_WORD_OPENWAKEWORD_THRESHOLD', '0.50') }}">
                     </div>
                 </div>
             </div>
 
-            <div class="mt-3 p-3 rounded border border-zinc-700 bg-zinc-900/40">
-                <label for="wakeword-keyword-file" class="block text-sm text-slate-300 mb-1">Wake-word file upload (.ppn or .onnx)</label>
+            <div class="card-divider">
+                <label for="wakeword-keyword-file" class="block text-sm text-zinc-300 mb-1">Wake-word file upload (.ppn or .onnx)</label>
                 <div class="flex flex-wrap gap-2 items-center">
                     <input type="file" id="wakeword-keyword-file" accept=".ppn,.onnx"
-                           class="w-full min-w-0 max-w-full text-sm text-slate-300">
+                           class="w-full min-w-0 max-w-full text-sm text-zinc-300">
                     <button type="button" id="wakeword-upload-keyword-btn"
                             class="secondary-action secondary-action--hover--cyan">
                         <span class="material-icons align-middle">upload_file</span>
                         Upload File
                     </button>
                 </div>
-                <div id="wakeword-keyword-status" class="text-xs text-slate-400 mt-2">
+                <div id="wakeword-keyword-status" class="text-xs text-zinc-400 mt-2">
                     Upload either a Porcupine <code>.ppn</code> keyword or an openWakeWord <code>.onnx</code> model. Files are stored in <code>./wakewords</code>.
                 </div>
             </div>
         </div>
 
         <!-- Hardware Settings -->
-        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
+        <div class="settings-card settings-card--sections mb-4"
              id="section-hardware" data-settings-panel aria-labelledby="title-section-hardware" {% if settings_category|default('voice', true) != 'hardware' %}hidden{% endif %}>
+            {#- The panel title sits in the first card: the first device panel's
+                first section ({{ panel_heading }}), or the General card. #}
+            {% set device_heading %}
             <h3 id="title-section-hardware" class="settings-panel-title" tabindex="-1">
-                <span class="material-icons" aria-hidden="true">build</span>
-                <span>Hardware</span>
+                <span class="material-icons" aria-hidden="true">{{ device_panels[0].icon if device_panels else 'build' }}</span>
+                <span>Device</span>
             </h3>
+            {% endset %}
 
+            {% for panel in device_panels %}
+            <!-- Extension device: {{ panel.title }} -->
+            <div class="space-y-4 mb-4" id="device-panel-{{ panel.id }}" data-device-panel-root>
+                {% with panel_context = panel.load_context(), panel_heading = device_heading if loop.first else "" %}
+                {% include panel.template %}
+                {% endwith %}
+            </div>
+            {% endfor %}
+
+            {#- Hidden, not left out: its hidden fields stay in the form. #}
+            {% set general_features = ["motors", "camera", "led", "audio-devices"] | reject("in", device_hidden) | list %}
+            <section class="card" {% if not general_features %}hidden{% endif %}>
+            {% if device_panels %}<h4 class="card-title mb-4">General</h4>{% else %}{{ device_heading }}{% endif %}
+            <div data-hardware-feature="motors" {% if "motors" in device_hidden %}hidden{% endif %}>
             <div class="grid gap-4 md:grid-cols-2 mb-4">
                 <div class="flex flex-col" id="hardware-version-row">
-                    <label for="BILLY_MODEL" class="block text-sm text-slate-300">
+                    <label for="BILLY_MODEL" class="block text-sm text-zinc-300">
                         Billy Version
                     </label>
                     <select id="BILLY_MODEL" name="BILLY_MODEL"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            class="field mt-1">
                         <option value="modern" {% if config.get(
                         'BILLY_MODEL', 'modern') == 'modern' %}selected{% endif %}>
                         Modern (2 motors)
@@ -798,13 +820,13 @@
 
                 <div class="flex flex-col" id="pin-layout-row">
                     <label for="BILLY_PINS_SELECT"
-                           class="flex justify-between items-center text-sm text-slate-300">
+                           class="flex justify-between items-center text-sm text-zinc-300">
                         Pin Layout
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
                     </label>
 
-                    <div class="relative flex-1 flex items-center">
+                    <div class="relative">
                         <div data-tooltip>
                             Choose which GPIO pin layout your unit is wired for.
                             <b>New</b> is the default (quieter pins, mouth single-direction).
@@ -813,37 +835,45 @@
                         </div>
 
                         <select id="BILLY_PINS_SELECT" name="BILLY_PINS"
-                                class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                class="field mt-1">
                             <option value="new">New (default)</option>
                             <option value="legacy">Legacy (old wiring)</option>
                         </select>
                     </div>
                 </div>
             </div>
+            </div>
 
+            {% for key, value in (device_fixed_settings or {}).items() %}
+            {#- Fixed by the device; /save keeps these values anyway. #}
+            <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endfor %}
+            {% if "audio-devices" not in device_hidden %}
             <div class="mb-4">
-                <label for="MIC_PREFERENCE" class="block text-sm text-slate-300 mb-1">
+                <label for="MIC_PREFERENCE" class="block text-sm text-zinc-300">
                     Microphone Device
                 </label>
                 <select id="MIC_PREFERENCE" name="MIC_PREFERENCE"
-                        class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        class="field mt-1">
                     <option value="">Auto detect</option>
                 </select>
             </div>
 
             <div class="mb-4">
-                <label for="SPEAKER_PREFERENCE" class="block text-sm text-slate-300 mb-1">
+                <label for="SPEAKER_PREFERENCE" class="block text-sm text-zinc-300">
                     Speaker Device
                 </label>
                 <select id="SPEAKER_PREFERENCE" name="SPEAKER_PREFERENCE"
-                        class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        class="field mt-1">
                     <option value="">Auto detect</option>
                 </select>
             </div>
+            {% endif %}
 
+            <div data-hardware-feature="camera" {% if "camera" in device_hidden %}hidden{% endif %}>
             <div class="mb-4 relative">
                 <label for="CAMERA_HARDWARE"
-                       class="flex justify-between items-center text-sm text-slate-300">
+                       class="flex justify-between items-center text-sm text-zinc-300">
                     Camera Device
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">help_outline</span>
@@ -860,7 +890,7 @@
 
                     <div class="flex flex-wrap items-center gap-3 mt-1">
                         <select id="CAMERA_HARDWARE" name="CAMERA_HARDWARE"
-                                class="w-full min-w-0 flex-[1_1_18rem] p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                class="field min-w-0 flex-[1_1_18rem]">
                             <option value="none" {% if config.get(
                             'CAMERA_HARDWARE', 'none') == 'none' %}selected{% endif %}>
                             None
@@ -894,7 +924,7 @@
                         </div>
                     </div>
                     <div class="mt-2">
-                        <span id="camera-preview-status" class="text-xs text-slate-400">No preview yet.</span>
+                        <span id="camera-preview-status" class="text-xs text-zinc-400">No preview yet.</span>
                     </div>
                     <div class="mt-3">
                         <img id="camera-preview-image"
@@ -904,7 +934,9 @@
                     </div>
                 </div>
             </div>
+            </div>
 
+            <div data-hardware-feature="led" {% if "led" in device_hidden %}hidden{% endif %}>
             <div class="mb-4">
                 <div class="relative">
                     <div data-tooltip>
@@ -916,7 +948,7 @@
                     </div>
 
                     <div class="mt-1 mb-3">
-                        <label for="STATUS_LED_BRIGHTNESS" class="flex justify-between items-center text-sm text-slate-300 mb-1 relative">
+                        <label for="STATUS_LED_BRIGHTNESS" class="flex justify-between items-center text-sm text-zinc-300 mb-1 relative">
                             LED brightness
                             <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                                   onclick="toggleTooltip(this)">help_outline</span>
@@ -927,7 +959,7 @@
                             </div>
                             <div class="flex flex-wrap items-center gap-3 mt-1">
                                 <div class="flex gap-2 items-center flex-1 min-w-0">
-                                    <div class="w-20 text-sm text-gray-200 shrink-0">
+                                    <div class="w-20 text-sm text-zinc-200 shrink-0">
                                         <span id="status-led-brightness-value">{{ ((config.get('STATUS_LED_BRIGHTNESS', '0.2')|float) * 100)|round|int }}%</span>
                                     </div>
                                     <label for="STATUS_LED_BRIGHTNESS" class="sr-only">LED brightness</label>
@@ -962,10 +994,12 @@
                     </div>
                 </div>
             </div>
+            </div>
 
+            <div data-hardware-feature="motors" {% if "motors" in device_hidden %}hidden{% endif %}>
             <div class="grid gap-4 md:grid-cols-2 mb-4">
                 <div class="flex flex-col">
-                    <label for="MOUTH_BOOST" class="flex justify-between items-center text-sm text-slate-300 relative">
+                    <label for="MOUTH_BOOST" class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Mouth Boost
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -978,7 +1012,7 @@
                             default (no boost).
                         </div>
                         <div class="flex gap-2 items-center w-full">
-                            <div class="w-16 text-sm text-gray-200 shrink-0">
+                            <div class="w-16 text-sm text-zinc-200 shrink-0">
                                 <span id="mouth-boost-value">{{ "%.2f"|format(config.get('MOUTH_BOOST', '1.0')|float) }}x</span>
                             </div>
                             <label for="MOUTH_BOOST" class="sr-only">Mouth boost</label>
@@ -1008,7 +1042,7 @@
 
                 <div class="flex flex-col">
                     <label for="RUN_MODE"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Motor test
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -1036,11 +1070,16 @@
                     </div>
                 </div>
             </div>
+            </div>
+            </section>
         </div>
 
         <!-- Audio -->
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
-             id="section-audio" data-settings-panel aria-labelledby="title-section-audio" {% if settings_category|default('voice', true) != 'audio' %}hidden{% endif %}>
+             id="section-audio" data-settings-panel aria-labelledby="title-section-audio"
+             {% if device_audio_test and device_audio_test.hint %}data-audio-test-hint="{{ device_audio_test.hint }}"{% endif %}
+             {% if device_audio_test and device_audio_test.mic_label %}data-mic-label="{{ device_audio_test.mic_label }}"{% endif %}
+             {% if device_audio_test and device_audio_test.speaker_label %}data-speaker-label="{{ device_audio_test.speaker_label }}"{% endif %} {% if settings_category|default('voice', true) != 'audio' %}hidden{% endif %}>
             <h3 id="title-section-audio" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">volume_up</span>
                 <span>Audio</span>
@@ -1053,7 +1092,7 @@
 
             <div class="flex mb-4 gap-4">
                 <div class="flex-1/3 flex flex-col justify-between">
-                    <label for="MIC_TIMEOUT_SECONDS" class="flex justify-between items-center text-sm text-slate-300">
+                    <label for="MIC_TIMEOUT_SECONDS" class="flex justify-between items-center text-sm text-zinc-300">
                         Mic Timeout (s)
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">
@@ -1066,14 +1105,14 @@
                             Lower = ends quicker, higher = more forgiving.
                         </div>
                         <input type="number"
-                               class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                               class="field mt-1"
                                name="MIC_TIMEOUT_SECONDS" id="MIC_TIMEOUT_SECONDS"
                                value="{{ config.get('MIC_TIMEOUT_SECONDS', '6') }}">
                     </div>
                 </div>
 
                 <div class="flex-1/3 flex flex-col justify-between">
-                    <label for="SILENCE_THRESHOLD" class="flex justify-between items-center text-sm text-slate-300 relative">
+                    <label for="SILENCE_THRESHOLD" class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Speech Threshold
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -1086,15 +1125,14 @@
                             a number here.
                         </div>
                         <input type="number" step="1" min="0" max="32768" id="SILENCE_THRESHOLD"
-                               class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                               class="field mt-1"
                                name="SILENCE_THRESHOLD" value="{{ config.get('SILENCE_THRESHOLD', '2000') }}">
                     </div>
                 </div>
 
-                <div class="flex-1/3 flex flex-col api-provider-only" data-api-provider="openai xai"
-                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                <div class="flex-1/3 flex flex-col" data-hardware-feature="motors" {% if "motors" in device_hidden %}hidden{% endif %}>
                     <label for="MIC_TIMEOUT_TAIL_FLAP"
-                           class="flex justify-between items-center text-sm text-slate-300">
+                           class="flex justify-between items-center text-sm text-zinc-300">
                         Tail flap
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">
@@ -1120,7 +1158,7 @@
             </div>
 
             <div class="mb-4">
-                <label class="flex items-center justify-between text-sm text-slate-300 mb-1">
+                <label class="flex items-center justify-between text-sm text-zinc-300 mb-1">
                     Microphone level & Speech Threshold
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                           onclick="toggleTooltip(this)">
@@ -1164,13 +1202,13 @@
                             <!-- Threshold line -->
                             {% set speech_threshold_percent = ((config.get('SILENCE_THRESHOLD', '2000') | float) / 32768 * 100) | round(4) %}
                             <div id="threshold-line"
-                                 class="absolute top-0 bottom-0 bg-red-500 cursor-ew-resize"
+                                 class="absolute top-0 bottom-0 bg-rose-500 cursor-ew-resize"
                                  style="left: {{ speech_threshold_percent }}%; width: 4px; transform: translateX(-50%);"
                                  draggable="false">
                             </div>
                         </div>
 
-                        <div id="mic-record-status" class="mt-2 text-xs text-slate-400 min-h-5">No test recording yet.</div>
+                        <div id="mic-record-status" class="mt-2 text-xs text-zinc-400 min-h-5">No test recording yet.</div>
                     </div>
 
                     <button type="button" id="mic-check-btn"
@@ -1188,8 +1226,8 @@
                 </div>
 
                 <!-- Mic Gain Slider -->
-                <div class="mb-8 flex gap-2 items-center">
-                    <div class="w-20 text-sm text-gray-200">
+                <div class="mb-8 flex gap-2 items-center" data-hardware-feature="mic-gain" {% if "mic-gain" in device_hidden %}hidden{% endif %}>
+                    <div class="w-20 text-sm text-zinc-200">
                         Gain: <span id="mic-gain-value">16</span>
                     </div>
                     <label for="mic-gain" class="sr-only">Microphone Gain</label>
@@ -1217,7 +1255,7 @@
 
             <!-- Speaker Volume Slider -->
             <div class="mb-4">
-                <label for="speaker-volume" class="block text-sm text-slate-300 mb-1">
+                <label for="speaker-volume" class="block text-sm text-zinc-300 mb-1">
                     Speaker Volume
                 </label>
                 <div class="flex gap-2 items-center">
@@ -1260,24 +1298,24 @@
 
             <div class="flex flex-wrap mb-4 gap-4">
                 <div class="w-full md:w-[calc(75%-0.5rem)]">
-                    <label for="MQTT_HOST" class="block text-sm text-slate-300">MQTT Host</label>
+                    <label for="MQTT_HOST" class="block text-sm text-zinc-300">MQTT Host</label>
                     <input
                             id="MQTT_HOST"
                             name="MQTT_HOST"
                             type="text"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            class="field mt-1"
                             value="{{ config.get('MQTT_HOST', '') }}"
                     >
                 </div>
                 <div class="w-full md:w-[calc(25%-0.5rem)]">
-                    <label for="MQTT_PORT" class="block text-sm text-slate-300">Port</label>
+                    <label for="MQTT_PORT" class="block text-sm text-zinc-300">Port</label>
                     <input
                             id="MQTT_PORT"
                             name="MQTT_PORT"
                             type="number"
                             min="1"
                             max="65535"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            class="field mt-1"
                             value="{{ config.get('MQTT_PORT', '1883') }}"
                     >
                 </div>
@@ -1285,31 +1323,31 @@
 
             <div class="flex flex-wrap mb-4 gap-4">
                 <div class="w-full md:w-[calc(50%-0.5rem)]">
-                    <label for="MQTT_USERNAME" class="block text-sm text-slate-300">MQTT
+                    <label for="MQTT_USERNAME" class="block text-sm text-zinc-300">MQTT
                         Username</label>
                     <input
                             id="MQTT_USERNAME"
                             name="MQTT_USERNAME"
                             type="text"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            class="field mt-1"
                             value="{{ config.get('MQTT_USERNAME', '') }}"
                     >
                 </div>
                 <div class="w-full md:w-[calc(50%-0.5rem)]">
-                    <label for="MQTT_PASSWORD" class="block text-sm text-slate-300">MQTT
+                    <label for="MQTT_PASSWORD" class="block text-sm text-zinc-300">MQTT
                         Password</label>
                     <div class="relative">
                         <input
                                 id="MQTT_PASSWORD"
                                 name="MQTT_PASSWORD"
                                 type="password"
-                                class="w-full p-3 mt-1  bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                class="field mt-1"
                                 value="{{ config.get('MQTT_PASSWORD', '') }}"
                         >
                         <button
                                 type="button"
                                 onclick="toggleInputVisibility('MQTT_PASSWORD', this)"
-                                class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
+                                class="input-reveal-button absolute inset-y-0 right-0 text-zinc-400 hover:text-white"
                         >
                             <span class="material-icons" id="MQTT_PASSWORD_icon">visibility</span>
                         </button>
@@ -1326,32 +1364,32 @@
                 <span>Home Assistant</span>
             </h3>
             <div class="mb-4">
-                <label for="HA_HOST" class="block text-sm text-slate-300">Home Assistant
+                <label for="HA_HOST" class="block text-sm text-zinc-300">Home Assistant
                     Host</label>
                 <input
                         id="HA_HOST"
                         name="HA_HOST"
                         type="text"
-                        class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        class="field mt-1 pr-10"
                         value="{{ config.get('HA_HOST', '') }}"
                 >
             </div>
 
             <div class="mb-4">
-                <label for="HA_TOKEN" class="block text-sm text-slate-300">Home Assistant
+                <label for="HA_TOKEN" class="block text-sm text-zinc-300">Home Assistant
                     Token</label>
                 <div class="relative">
                     <input
                             id="HA_TOKEN"
                             name="HA_TOKEN"
                             type="password"
-                            class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            class="field mt-1 pr-10"
                             value="{{ config.get('HA_TOKEN', '') }}"
                     >
                     <button
                             type="button"
                             onclick="toggleInputVisibility('HA_TOKEN', this)"
-                            class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white"
+                            class="input-reveal-button absolute inset-y-0 right-0 text-zinc-400 hover:text-white"
                     >
                         <span class="material-icons" id="HA_TOKEN_icon">visibility</span>
                     </button>
@@ -1361,7 +1399,7 @@
             <div class="grid gap-4 md:grid-cols-2">
                 <div class="relative">
                     <label for="HA_AGENT_ID"
-                           class="flex justify-between items-center text-sm text-slate-300 relative">
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Assistant
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -1376,7 +1414,7 @@
                         </div>
                     </div>
                     <select id="HA_AGENT_ID" name="HA_AGENT_ID"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            class="field mt-1">
                         <option value="">Preferred in Home Assistant</option>
                         {% if config.get('HA_AGENT_ID') %}
                         <option value="{{ config.get('HA_AGENT_ID') }}" selected>{{ config.get('HA_AGENT_ID') }}</option>
@@ -1386,7 +1424,7 @@
                 </div>
 
                 <div>
-                    <label for="HA_LANG" class="block text-sm text-slate-300 mb-1">Language
+                    <label for="HA_LANG" class="block text-sm text-zinc-300">Language
                     </label>
                     {% set ha_languages = [
                     ('EN', 'English'), ('NL', 'Dutch'), ('IT', 'Italian'), ('FR', 'French'),
@@ -1396,7 +1434,7 @@
                     ('UK', 'Ukrainian'), ('VI', 'Vietnamese'), ('AR', 'Arabic'), ('ID', 'Indonesian')
                     ] %}
                     <select name="HA_LANG" id="HA_LANG"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            class="field mt-1">
                         {% for code, label in ha_languages %}
                         <option value="{{ code }}" {% if config.get(
                         'HA_LANG') == code %}selected{% endif %}>
@@ -1435,7 +1473,7 @@
                             </div>
                         </details>
                         <select id="RUN_MODE" name="RUN_MODE"
-                                class="settings-select bg-zinc-800 border border-zinc-600 rounded px-3 py-2 text-sm">
+                                class="settings-select field field--compact">
                             <option value="normal" {% if config.get(
                             'RUN_MODE', 'normal') == 'normal' %}selected{% endif %}>Normal</option>
                             <option value="dory" {% if config.get(
@@ -1496,20 +1534,19 @@
             </div>
         </div>
 
-        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
+        <div class="settings-card settings-card--sections mb-4"
              id="section-software" data-settings-panel aria-labelledby="title-section-software" {% if settings_category|default('voice', true) != 'software' %}hidden{% endif %}>
-            <h3 id="title-section-software" class="settings-panel-title" tabindex="-1">
-                <span class="material-icons" aria-hidden="true">system_update_alt</span>
-                <span>Software</span>
-                {{ status_badge('software-update', 'Update available', 'update', release=true) }}
-            </h3>
-            {% call badge_info('software-update', 'update') %}
-                <p id="software-update-info-text">A new software version is available for Billy.</p>
-                <a id="software-update-release-link" target="_blank" rel="noopener noreferrer" hidden>View release on GitHub <span aria-hidden="true">↗</span></a>
-            {% endcall %}
-
-
             <div class="space-y-4">
+                <section class="card space-y-4">
+                <h3 id="title-section-software" class="settings-panel-title" tabindex="-1">
+                    <span class="material-icons" aria-hidden="true">system_update_alt</span>
+                    <span>Software</span>
+                    {{ status_badge('software-update', 'Update available', 'update', release=true) }}
+                </h3>
+                {% call badge_info('software-update', 'update') %}
+                    <p id="software-update-info-text">A new software version is available for Billy.</p>
+                    <a id="software-update-release-link" target="_blank" rel="noopener noreferrer" hidden>View release on GitHub <span aria-hidden="true">↗</span></a>
+                {% endcall %}
                 <div class="settings-select-row update-channel-setting">
                     <div class="settings-step-heading">
                         <label for="UPDATE_CHANNEL-bar" class="settings-select-label">
@@ -1545,13 +1582,14 @@
                         <span>Installed: <span id="software-current-version">...</span></span>
                         <span>Latest: <span id="software-latest-version">...</span></span>
                     </div>
-                    <button id="update-btn" type="button" class="primary-action hidden bg-amber-600 text-black">
+                    <button id="update-btn" type="button" class="primary-action hidden bg-amber-600 text-white">
                         <span class="material-icons align-middle">system_update_alt</span>
                         <span id="latest-version"></span>
                     </button>
                 </div>
-                <p id="software-operation-status" role="status" aria-live="polite" class="text-sm text-slate-300"></p>
-                <div class="bg-zinc-900/40 border border-zinc-700 rounded-lg p-4 shadow-lg">
+                <p id="software-operation-status" role="status" aria-live="polite" class="text-sm text-zinc-300"></p>
+                </section>
+                <div class="card">
                     <h4 id="release-title" class="flex items-center gap-3 text-sm text-emerald-300">
                         <span class="material-icons text-emerald-400 select-none" aria-hidden="true">campaign</span>
                         <span>Release Notes</span>
@@ -1570,9 +1608,9 @@
                     </a>
                 </div>
 
-                <div id="support-section" class="bg-zinc-900/40 border border-red-600 rounded-lg p-4 shadow-lg">
-                    <h4 class="flex items-center gap-3 text-sm text-red-300 mb-4">
-                        <span class="material-icons text-red-400 select-none" aria-hidden="true">favorite</span>
+                <div id="support-section" class="card border-rose-600">
+                    <h4 class="flex items-center gap-3 text-sm text-rose-300 mb-4">
+                        <span class="material-icons text-rose-400 select-none" aria-hidden="true">favorite</span>
                         <span>Support Development</span>
                     </h4>
 
@@ -1586,7 +1624,7 @@
                             <a href="https://paypal.me/thomkoopman050"
                                target="_blank"
                                rel="noopener"
-                               class="primary-action text-black bg-rose-600">
+                               class="primary-action bg-rose-600 text-white">
                                 <span class="material-icons">open_in_new</span>
                                 <span>Open PayPal.me</span>
                             </a>
@@ -1609,19 +1647,19 @@
                     </div>
                 </div>
 
-                <div id="system-components-card" class="system-components-card">
+                <div id="system-components-card" class="card system-components-card">
                     <div class="system-components-overview">
                         <div class="system-components-heading">
                             <span class="material-icons" aria-hidden="true">build_circle</span>
                             <div class="system-components-heading-content">
                                 <div class="system-components-title-row">
                                     <h4>System components</h4>
-                                    <span id="system-packages-badge" hidden class="rounded-full bg-amber-500/16 px-2 py-0.5 text-[11px] leading-none text-amber-300 border border-amber-400/30">Needs attention</span>
+                                    <span id="system-packages-badge" hidden class="rounded-full bg-amber-500/16 px-2 py-0.5 text-xs leading-none text-amber-300 border border-amber-400/30">Needs attention</span>
                                 </div>
                                 <p id="system-packages-summary" role="status" aria-live="polite">Checking system components…</p>
                             </div>
                         </div>
-                        <button id="repair-packages-btn" type="button" hidden disabled class="primary-action bg-amber-600 text-black system-components-repair">
+                        <button id="repair-packages-btn" type="button" hidden disabled class="primary-action bg-amber-600 text-white system-components-repair">
                             <span id="system-packages-action-icon" class="material-icons" aria-hidden="true">download</span>
                             <span id="system-packages-action-label">Install components</span>
                         </button>
@@ -1642,7 +1680,7 @@
 
 
                 <!-- Reset to Defaults -->
-                <div id="reset-defaults-card" class="flex flex-row justify-between gap-3 p-3 rounded-lg border border-zinc-700 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/30 transition-colors cursor-pointer">
+                <div id="reset-defaults-card" class="card flex flex-row justify-between gap-3 hover:border-rose-400 hover:bg-rose-500/20 transition-colors cursor-pointer">
                     <div>
                         <div class="text-white text-sm">Recovery &amp; reset</div>
                         <div class="text-xs text-zinc-400 my-1">
@@ -1668,10 +1706,10 @@
             <p id="settings-save-status" role="status" aria-live="polite">Changes in all categories are saved together.</p>
             <div class="flex justify-center">
                 <div class="relative inline-block">
-                    <div class="settings-save-actions flex overflow-hidden shadow-lg">
+                    <div class="split-action">
                         <button
                                 id="save-btn"
-                                class="primary-action bg-emerald-600 text-black"
+                                class="primary-action bg-emerald-600 text-white"
                                 type="submit"
                                 form="config-form"
                         >
@@ -1680,14 +1718,15 @@
                         </button>
                         <button
                                 id="dropdown-btn"
+                                aria-label="More options"
                                 type="button"
-                                class="primary-action button-icon dropdown-toggle bg-emerald-600 text-black"
+                                class="primary-action bg-emerald-600 text-white button-icon dropdown-toggle"
                                 onclick="toggleDropdown(this)"
                         >
                             <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
                         </button>
                     </div>
-                    <div class="dropdown-menu absolute bottom-0 right-0 w-full text-black border border-emerald-500 backdrop-blur-xs rounded z-20 hidden">
+                    <div class="dropdown-menu menu-panel absolute bottom-full right-0 mb-1 w-full z-20 hidden">
                         <button type="button" onclick="exportSettings()"
                                 class="secondary-action secondary-action--hover--cyan w-full">
                             <span class="material-icons">file_download</span>
@@ -1710,7 +1749,7 @@
 
 <!-- Reset to Defaults Modal -->
 <div id="factory-reset-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="factory-reset-title">
-    <div class="bg-zinc-900/60 backdrop-blur-xs border border-zinc-700 rounded-lg w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col shadow-2xl">
+    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col shadow-2xl">
         <div class="flex justify-between items-center p-4 border-b border-zinc-700">
             <h3 id="factory-reset-title" class="text-lg text-white flex items-center gap-2">
                 <span class="material-icons text-rose-400" aria-hidden="true">build</span>
@@ -1727,7 +1766,7 @@
                 <div class="mt-4 space-y-3">
                     <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-700 p-3">
                         <div class="min-w-0">
-                            <p class="text-sm text-slate-200">Current version</p>
+                            <p class="text-sm text-zinc-200">Current version</p>
                             <p id="recovery-current-version" class="text-lg text-white break-all">Checking…</p>
                             <p class="text-xs text-zinc-400">Install a fresh copy of this version.</p>
                         </div>
@@ -1739,7 +1778,7 @@
                     </div>
                     <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-700 p-3">
                         <div class="min-w-0">
-                            <p class="text-sm text-slate-200">Previous version</p>
+                            <p class="text-sm text-zinc-200">Previous version</p>
                             <p id="recovery-previous-version" class="text-lg text-white break-all">Checking…</p>
                             <p id="recovery-previous-help" class="text-xs text-zinc-400">Checking for a saved installation…</p>
                         </div>
@@ -1750,7 +1789,7 @@
                         </button>
                     </div>
                 </div>
-                <p id="recovery-software-status" role="status" aria-live="polite" class="mt-2 text-sm text-slate-300"></p>
+                <p id="recovery-software-status" role="status" aria-live="polite" class="mt-2 text-sm text-zinc-300"></p>
             </section>
             <section id="env-editor-card" class="rounded-lg border border-zinc-700 bg-zinc-900/40 p-4" aria-labelledby="recovery-config-title">
                 <div class="flex flex-wrap items-center justify-between gap-3">
@@ -1772,19 +1811,19 @@
                 <div class="space-y-4 pt-4">
                     <p class="text-sm text-rose-200/80">Only the options selected below will be reset. This cannot be undone.</p>
                     <div class="space-y-3">
-                        <label class="flex items-center gap-3 text-sm text-slate-200">
+                        <label class="flex items-center gap-3 text-sm text-zinc-200">
                             <input type="checkbox" id="factory-reset-env" class="h-4 w-4">
                             Reset general settings <span class="text-xs text-zinc-400">(.env file)</span>
                         </label>
-                        <label class="flex items-center gap-3 text-sm text-slate-200">
+                        <label class="flex items-center gap-3 text-sm text-zinc-200">
                             <input type="checkbox" id="factory-reset-profiles" class="h-4 w-4">
                             Remove custom profiles <span class="text-xs text-zinc-400">(user profile .ini files)</span>
                         </label>
-                        <label class="flex items-center gap-3 text-sm text-slate-200">
+                        <label class="flex items-center gap-3 text-sm text-zinc-200">
                             <input type="checkbox" id="factory-reset-personas" class="h-4 w-4">
                             Remove custom personas <span class="text-xs text-zinc-400">(custom persona .ini files)</span>
                         </label>
-                        <label class="flex items-center gap-3 text-sm text-slate-200">
+                        <label class="flex items-center gap-3 text-sm text-zinc-200">
                             <input type="checkbox" id="factory-reset-logs" class="h-4 w-4">
                             Clear debug logs
                         </label>
@@ -1792,11 +1831,11 @@
 
                     <div id="factory-reset-advanced" class="space-y-3 pt-2 border-t border-zinc-700">
 
-                        <label class="flex items-center gap-3 text-sm text-slate-200">
+                        <label class="flex items-center gap-3 text-sm text-zinc-200">
                             <input type="checkbox" id="factory-reset-wifi" class="h-4 w-4">
                             Remove active wifi credentials
                         </label>
-                        <label class="flex items-center gap-3 text-sm text-slate-200">
+                        <label class="flex items-center gap-3 text-sm text-zinc-200">
                             <input type="checkbox" id="factory-reset-reboot" class="h-4 w-4">
                             Reboot when done
                         </label>

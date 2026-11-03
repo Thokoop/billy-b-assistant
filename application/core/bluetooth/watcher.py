@@ -135,6 +135,13 @@ def _run():
         if route == dismissed:
             _stop.wait(POLL_SECONDS)
             continue
+        if route[1] and _only_ringing():
+            # A ringing call opens its audio early (in-band ringtone), but
+            # the phone does not take audio back until the call is answered:
+            # taking over now fails at once and five failures dismiss the
+            # route for the whole call. Wait until it is answered.
+            _stop.wait(POLL_SECONDS)
+            continue
         _stop.wait(SETTLE_SECONDS)
         if _stop.is_set() or active_route() != route:
             continue
@@ -163,6 +170,14 @@ def _run():
             # or reconnecting clears it.
             logger.error(f"Bluetooth session failed: {exc}")
             dismissed = route
+
+
+def _only_ringing():
+    """True while the phone's only call is still ringing (not answered)."""
+    from .controls import ACTIVE_CALL_STATES, call_states
+
+    states = call_states()
+    return bool(states) and not set(states) & ACTIVE_CALL_STATES
 
 
 def _run_session(route):

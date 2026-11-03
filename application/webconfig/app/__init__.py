@@ -53,6 +53,11 @@ def create_app() -> Flask:
     app.register_blueprint(misc_bp)
     app.register_blueprint(songs_bp)
 
+    # An extension device may add its own settings section (core.devices).
+    from .device_panels import install as install_device_panels
+
+    install_device_panels(app)
+
     # Register WebSocket routes when flask_sock is available.
     if SOCK_AVAILABLE:
         websocket.sock.init_app(app)

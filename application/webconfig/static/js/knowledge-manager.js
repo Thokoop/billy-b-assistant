@@ -167,7 +167,7 @@ window.KnowledgeManager = (() => {
                 >
                     <div class="flex items-center justify-between gap-3">
                         <button type="button" class="knowledge-folder-select min-w-0 flex-1 text-left cursor-pointer">
-                            <div class="text-sm text-slate-100">${escapeHtml(folder.label)}</div>
+                            <div class="text-sm text-zinc-100">${escapeHtml(folder.label)}</div>
                             <div class="text-xs text-zinc-400 mt-1 break-words">${triggerText}</div>
                         </button>
                         <div class="flex items-center gap-3 shrink-0">
@@ -228,7 +228,7 @@ window.KnowledgeManager = (() => {
             return `
                 <div class="rounded border border-zinc-700 bg-zinc-950/60 p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div class="min-w-0 flex-1 overflow-hidden">
-                        <div class="text-sm text-slate-100 whitespace-nowrap overflow-hidden" title="${escapeHtml(doc.filename)}">${escapeHtml(displayName)}</div>
+                        <div class="text-sm text-zinc-100 whitespace-nowrap overflow-hidden" title="${escapeHtml(doc.filename)}">${escapeHtml(displayName)}</div>
                         <div class="text-xs text-zinc-400 mt-1">
                             ${escapeHtml(doc.extension)} • ${doc.chunk_count} chunks • ${escapeHtml(uploaded)}
                         </div>

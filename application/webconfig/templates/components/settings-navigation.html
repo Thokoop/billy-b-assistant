@@ -14,7 +14,7 @@
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
         </a>
-        <a href="/settings/wakeword" id="nav-section-wakeword" class="settings-menu-item" data-settings-path="/settings/wakeword" data-settings-target="section-wakeword" aria-controls="section-wakeword" {% if settings_category|default('voice', true) == 'wakeword' %}aria-current="page"{% endif %}>
+        <a href="/settings/wakeword" id="nav-section-wakeword" class="settings-menu-item" {% if "wakeword" in device_hidden %}hidden{% endif %} data-settings-path="/settings/wakeword" data-settings-target="section-wakeword" aria-controls="section-wakeword" {% if settings_category|default('voice', true) == 'wakeword' %}aria-current="page"{% endif %}>
             <span class="material-icons" aria-hidden="true">hearing</span>
             <span class="settings-menu-label">Wake word</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
@@ -51,8 +51,8 @@
     <div class="settings-menu-group" role="group" aria-labelledby="settings-group-system">
         <h3 id="settings-group-system">System</h3>
         <a href="/settings/hardware" id="nav-section-hardware" class="settings-menu-item" data-settings-path="/settings/hardware" data-settings-target="section-hardware" aria-controls="section-hardware" {% if settings_category|default('voice', true) == 'hardware' %}aria-current="page"{% endif %}>
-            <span class="material-icons" aria-hidden="true">build</span>
-            <span class="settings-menu-label">Hardware</span>
+            <span class="material-icons" aria-hidden="true">{{ device_panels[0].icon if device_panels else 'build' }}</span>
+            <span class="settings-menu-label">Device</span>
             <span class="settings-dirty-dot" data-settings-dirty hidden title="Unsaved changes"><span class="sr-only">Unsaved changes</span></span>
             <span class="material-icons settings-menu-chevron" aria-hidden="true">chevron_right</span>
         </a>

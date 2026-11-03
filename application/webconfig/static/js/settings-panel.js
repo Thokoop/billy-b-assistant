@@ -684,7 +684,7 @@ class UserProfilePanel {
 
             // Create stats content
             statsContent.innerHTML = `
-                <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-600">
+                <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
                     <div class="space-y-3 text-sm">
                         <div class="flex items-center gap-2">
                             <span class="material-icons text-cyan-400 text-sm">chat</span>
@@ -745,7 +745,7 @@ class UserProfilePanel {
                             </div>
                         </div>
                         <div class="flex items-center gap-1">
-                            <button type="button" class="icon-action-btn icon-action-btn--edit button-reveal button-reveal--wide" data-memory-id="${memory.id || 'temp_' + memory.date}" onclick="event.stopPropagation(); window.UserProfilePanel.editMemory(this.dataset.memoryId)" title="Edit memory" aria-label="Edit memory">
+                            <button type="button" class="secondary-action secondary-action--hover--amber button-reveal button-reveal--wide h-11 shrink-0" data-memory-id="${memory.id || 'temp_' + memory.date}" onclick="event.stopPropagation(); window.UserProfilePanel.editMemory(this.dataset.memoryId)" title="Edit memory" aria-label="Edit memory">
                                 <span class="material-icons" aria-hidden="true">edit</span>
                                 <span class="button-reveal-label">Edit memory</span>
                             </button>
@@ -1190,12 +1190,12 @@ class UserProfilePanel {
                 <div class="flex-1 overflow-y-auto">
                     <form id="edit-memory-form" class="px-6 py-4">
                         <div class="mb-4">
-                            <label class="block text-sm text-zinc-300 mb-2">Memory</label>
-                            <textarea id="edit-memory-text" class="w-full bg-zinc-700 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" rows="3" required>${memoryData.memory}</textarea>
+                            <label class="block text-sm text-zinc-300">Memory</label>
+                            <textarea id="edit-memory-text" class="field mt-1" rows="3" required>${memoryData.memory}</textarea>
                         </div>
                         <div class="mb-4">
-                            <label class="block text-sm text-zinc-300 mb-2">Category</label>
-                            <select id="edit-memory-category" class="w-full bg-zinc-700 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <label class="block text-sm text-zinc-300">Category</label>
+                            <select id="edit-memory-category" class="field mt-1">
                                 <option value="preference" ${memoryData.category === 'preference' ? 'selected' : ''}>Preference</option>
                                 <option value="fact" ${memoryData.category === 'fact' ? 'selected' : ''}>Fact</option>
                                 <option value="event" ${memoryData.category === 'event' ? 'selected' : ''}>Event</option>
@@ -1204,8 +1204,8 @@ class UserProfilePanel {
                             </select>
                         </div>
                         <div class="mb-4">
-                            <label class="block text-sm text-zinc-300 mb-2">Importance</label>
-                            <select id="edit-memory-importance" class="w-full bg-zinc-700 text-white rounded px-3 py-2 border border-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <label class="block text-sm text-zinc-300">Importance</label>
+                            <select id="edit-memory-importance" class="field mt-1">
                                 <option value="high" ${memoryData.importance === 'high' ? 'selected' : ''}>High</option>
                                 <option value="medium" ${memoryData.importance === 'medium' ? 'selected' : ''}>Medium</option>
                                 <option value="low" ${memoryData.importance === 'low' ? 'selected' : ''}>Low</option>
@@ -1216,10 +1216,10 @@ class UserProfilePanel {
 
                 <div class="border-t border-zinc-700 p-4 flex-shrink-0">
                     <div class="flex justify-end gap-3">
-                        <button id="cancel-edit-memory" class="px-4 py-2 bg-zinc-600 hover:bg-zinc-500 text-white rounded transition-colors">
+                        <button id="cancel-edit-memory" class="secondary-action secondary-action--hover--cyan">
                             Cancel
                         </button>
-                        <button id="save-edit-memory" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500  text-white rounded transition-colors">
+                        <button id="save-edit-memory" class="primary-action bg-emerald-600 text-white">
                             Save Changes
                         </button>
                     </div>

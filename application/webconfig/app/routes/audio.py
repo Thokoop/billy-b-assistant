@@ -27,6 +27,45 @@ from ..state import PERSONA_PATH, PROJECT_ROOT, WAKE_UP_DIR
 
 bp = Blueprint("audio", __name__)
 
+
+# --- a device's own audio path (core.devices webconfig_panel "audio_test") -
+
+
+def _device_audio_hooks():
+    from flask import current_app
+
+    return current_app.config.get("DEVICE_AUDIO_TEST") or None
+
+
+def _device_audio_open(hooks, timeout: float = 30.0) -> tuple[bool, str]:
+    """Let the device make its audio path usable for a test (or say why not)."""
+    if not hooks or not hooks.get("open"):
+        return True, ""
+    try:
+        result = hooks["open"](timeout)
+    except Exception as exc:
+        return False, str(exc)
+    if isinstance(result, tuple):
+        return bool(result[0]), str(result[1] if len(result) > 1 else "")
+    return bool(result), ""
+
+
+def _device_audio_close(hooks, delay: float = 0.0) -> None:
+    if not hooks or not hooks.get("close"):
+        return
+
+    def close():
+        with contextlib.suppress(Exception):
+            hooks["close"]()
+
+    if delay > 0:
+        timer = threading.Timer(delay, close)
+        timer.daemon = True
+        timer.start()
+    else:
+        close()
+
+
 mic_check_running = False
 rms_queue = queue.Queue()
 mic_check_record_queue: queue.Queue[bytes] | None = None
@@ -420,6 +459,19 @@ def _wav_duration_seconds(path: str) -> float:
         return float(wav.getnframes()) / float(rate)
 
 
+def _named_alsa_pcm(preference: str | None) -> str | None:
+    """The preference itself when it names an ALSA PCM (e.g. one defined in
+    /etc/asound.conf), which is not a sound card and so has no card index."""
+    name = (preference or "").strip()
+    if not name or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+        return None
+    try:
+        out = subprocess.check_output(["aplay", "-L"], text=True, timeout=5)
+    except Exception:
+        return None
+    return name if name in {line.strip() for line in out.splitlines()} else None
+
+
 def _play_wav_on_speaker(path: str, speaker_preference: str | None = None):
     if not os.path.exists(path):
         raise FileNotFoundError(path)
@@ -428,8 +480,14 @@ def _play_wav_on_speaker(path: str, speaker_preference: str | None = None):
     if duration <= 0:
         raise RuntimeError("Audio file is empty or invalid")
 
-    card_index = get_usb_pcm_card_index(speaker_preference)
-    device = alsa_play_device(card_index)
+    device = _named_alsa_pcm(
+        speaker_preference
+        if speaker_preference is not None
+        else core_config.SPEAKER_PREFERENCE
+    )
+    if device is None:
+        card_index = get_usb_pcm_card_index(speaker_preference)
+        device = alsa_play_device(card_index)
     process = subprocess.Popen(
         ["aplay", "-q", "-D", device, path],
         stdout=subprocess.DEVNULL,
@@ -813,9 +871,20 @@ def mic_record_start():
                 os.remove(MIC_TEST_RECORDING_PATH)
         except Exception:
             pass
+        hooks = _device_audio_hooks()
+        ok, message = _device_audio_open(hooks)
+        if not ok:
+            return jsonify({"error": message or "The microphone is not ready"}), 409
         mic_recording_stop_event = threading.Event()
+
+        def record(stop_event):
+            try:
+                _record_mic_test(stop_event)
+            finally:
+                _device_audio_close(hooks)
+
         mic_recording_thread = threading.Thread(
-            target=_record_mic_test,
+            target=record,
             args=(mic_recording_stop_event,),
             daemon=True,
         )
@@ -879,10 +948,19 @@ def mic_record_play():
     try:
         data = request.get_json(silent=True) or {}
         speaker_preference = str(data.get("speaker_preference") or "").strip() or None
-        device, duration = _play_wav_on_speaker(
-            MIC_TEST_RECORDING_PATH,
-            speaker_preference,
-        )
+        hooks = _device_audio_hooks()
+        ok, message = _device_audio_open(hooks)
+        if not ok:
+            return jsonify({"error": message or "The speaker is not ready"}), 409
+        try:
+            device, duration = _play_wav_on_speaker(
+                MIC_TEST_RECORDING_PATH,
+                speaker_preference,
+            )
+        except Exception:
+            _device_audio_close(hooks)
+            raise
+        _device_audio_close(hooks, delay=float(duration or 0) + 0.5)
         return jsonify({"status": f"playing on {device}", "duration": duration})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -993,7 +1071,11 @@ def play_wakeup_clip():
                     "index": index,
                     "persona": persona_name,
                 })
-                result = client.publish("billy/wakeup/play", payload, retain=False)
+                result = client.publish(
+                    core_config.mqtt_wire_topic("billy/wakeup/play"),
+                    payload,
+                    retain=False,
+                )
                 client.disconnect()
                 if result.rc == mqtt.MQTT_ERR_SUCCESS:
                     return jsonify({
@@ -1236,7 +1318,16 @@ def speaker_test():
         data = request.get_json(silent=True) or {}
         speaker_preference = str(data.get("speaker_preference") or "").strip() or None
         sound_path = os.path.join(PROJECT_ROOT, "sounds", "speakertest.wav")
-        device, duration = _play_wav_on_speaker(sound_path, speaker_preference)
+        hooks = _device_audio_hooks()
+        ok, message = _device_audio_open(hooks)
+        if not ok:
+            return jsonify({"error": message or "The speaker is not ready"}), 409
+        try:
+            device, duration = _play_wav_on_speaker(sound_path, speaker_preference)
+        except Exception:
+            _device_audio_close(hooks)
+            raise
+        _device_audio_close(hooks, delay=float(duration or 0) + 0.5)
         return jsonify({"status": f"playing on {device}", "duration": duration})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1381,7 +1472,18 @@ def mic_check():
             mic_check_running = False
             mic_check_record_queue = None
 
-    return Response(rms_stream_generator(), mimetype="text/event-stream")
+    hooks = _device_audio_hooks()
+    ok, message = _device_audio_open(hooks)
+    if not ok:
+        return jsonify({"error": message or "The microphone is not ready"}), 409
+
+    def stream():
+        try:
+            yield from rms_stream_generator()
+        finally:
+            _device_audio_close(hooks)
+
+    return Response(stream(), mimetype="text/event-stream")
 
 
 @bp.route("/mic-check/stop")

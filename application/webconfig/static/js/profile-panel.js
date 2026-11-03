@@ -214,7 +214,7 @@ window.ProfilePanel = (() => {
                             </div>
                             <div class="flex gap-2">
                                 <button onclick="switchToProfile('${profile.name}')" 
-                                        class="px-3 py-1 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-500 transition-colors">
+                                        class="primary-action bg-emerald-600 text-white button-small">
                                     Switch
                                 </button>
                                 <button onclick="deleteProfile('${profile.name}')" 
@@ -270,7 +270,7 @@ window.ProfilePanel = (() => {
             }
         } catch (error) {
             console.error("Failed to load profiles:", error);
-            elements.profilesList.innerHTML = '<div class="text-red-400 text-sm">Failed to load profiles</div>';
+            elements.profilesList.innerHTML = '<div class="text-rose-400 text-sm">Failed to load profiles</div>';
         }
     };
 

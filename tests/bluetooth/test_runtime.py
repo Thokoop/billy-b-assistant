@@ -33,6 +33,8 @@ def runtime(monkeypatch, tmp_path):
         module = importlib.util.module_from_spec(spec)
         monkeypatch.setitem(sys.modules, spec.name, module)
         spec.loader.exec_module(module)
+    # No real pw-cat --help probe while Popen is faked.
+    monkeypatch.setattr(sys.modules[f"{name}.transport"], "_raw_supported", False)
     monkeypatch.setitem(
         sys.modules, "core.config", SimpleNamespace(BLUETOOTH_CALL_AEC=True)
     )

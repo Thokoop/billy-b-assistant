@@ -536,3 +536,77 @@ def test_mode_aware_check_still_reports_missing_wifi_components(env, monkeypatch
     assert packages.check(env.source, env.root)['missing'] == ['dnsmasq-base']
     (env.root / '.env').write_text('WIFI_ONBOARDING_MODE=legacy\n')
     assert packages.check(env.source, env.root)['missing'] == ['dnsmasq', 'hostapd']
+
+
+def _phone_component(env, *, device='phone'):
+    setup = env.source / 'application/private/phone/setup'
+    setup.mkdir(parents=True)
+    (setup / 'component.json').write_text(
+        json.dumps({
+            'name': 'Phone setup',
+            'packages': ['baresip-core'],
+            'script': 'install.sh',
+        })
+    )
+    (setup / 'install.sh').write_text('true\n')
+    (env.root / '.env').write_text(f'BILLY_DEVICE={device}\n')
+    return setup
+
+
+def test_fish_has_no_device_component(env):
+    assert packages.device_component(env.source, env.root) is None
+    (env.root / '.env').write_text('BILLY_DEVICE=fish\n')
+    assert packages.device_component(env.source, env.root) is None
+
+
+@pytest.mark.parametrize('device', ['phone', 'private.phone:PhoneDevice'])
+def test_device_component_is_reported_and_installed(env, device, monkeypatch):
+    _phone_component(env, device=device)
+    env.installed['hello'] = {'version': '2', 'status': 'installed'}
+
+    state = packages.check(env.source, env.root)
+    assert state['missing'] == ['baresip-core']
+    assert {'name': 'Phone setup', 'state': 'configuration_needed'} in state[
+        'components'
+    ]
+
+    def run(args, **kw):
+        env.calls.append((args, kw))
+        if '--simulate' in args:
+            return 'Inst baresip-core (1 Debian:stable [arm64])\n'
+        if '--no-download' in args:
+            env.installed['baresip-core'] = {'version': '1', 'status': 'installed'}
+        return ''
+
+    monkeypatch.setattr(packages, 'run', run)
+    packages.ensure(env.source, env.root, Mock())
+    script = [c for c in env.calls if c[0][0] == 'bash']
+    assert script and script[0][0][1].endswith(
+        'application/private/phone/setup/install.sh'
+    )
+    assert script[0][1]['extra_env']['COMPONENT_SETUP'] == '1'
+    assert packages.device_ready(
+        packages.device_component(env.source, env.root), env.root
+    )
+
+
+def test_changed_setup_file_needs_the_component_again(env):
+    setup = _phone_component(env)
+    component = packages.device_component(env.source, env.root)
+    packages.configure_device(component, env.root)
+    assert packages.device_ready(component, env.root)
+    (setup / 'install.sh').write_text('echo changed\n')
+    assert not packages.device_ready(component, env.root)
+
+
+@pytest.mark.parametrize('device', ['../etc', 'other.module:X', 'private.a-b:X'])
+def test_device_component_only_from_private_devices(env, device):
+    (env.root / '.env').write_text(f'BILLY_DEVICE={device}\n')
+    assert packages.device_component(env.source, env.root) is None
+
+
+def test_invalid_device_component_is_rejected(env):
+    setup = _phone_component(env)
+    (setup / 'component.json').write_text(json.dumps({'script': '../evil.sh'}))
+    with pytest.raises(ValueError):
+        packages.device_component(env.source, env.root)

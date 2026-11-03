@@ -111,7 +111,7 @@
             <div class="flex items-center gap-3 flex-wrap">
                 <div class="flex flex-col items-start gap-2">
                     <div class="flex items-center gap-2">
-                        <label for="log-level-select" class="text-sm text-gray-200">
+                        <label for="log-level-select" class="text-sm text-zinc-200">
                             Billy log level:
                         </label>
                         <span class="material-icons text-zinc-300 cursor-pointer"
@@ -119,11 +119,11 @@
                               title="Log level help">help_outline</span>
                         <div data-tooltip class="log-level-tooltip-inline gap-3">
                             <div class="flex items-center gap-2">
-                                <span class="material-icons text-red-400 text-sm mt-0.5">error</span>
+                                <span class="material-icons text-rose-400 text-sm mt-0.5">error</span>
                                 <p><strong>Error:</strong> Operations that failed.</p>
                             </div>
                             <div class="flex items-center gap-2">
-                                <span class="material-icons text-yellow-400 text-sm mt-0.5">warning</span>
+                                <span class="material-icons text-amber-400 text-sm mt-0.5">warning</span>
                                 <p><strong>Warning:</strong> Adds recoverable issues.</p>
                             </div>
                             <div class="flex items-center gap-2">
@@ -138,7 +138,7 @@
                     </div>
                 </div>
                 <select id="log-level-select"
-                        class="bg-zinc-700 text-white text-sm px-3 py-1 rounded border border-zinc-600 focus:border-cyan-500 focus:outline-none">
+                        class="field field--compact">
                     <option value="ERROR">Error</option>
                     <option value="WARNING">Warning</option>
                     <option value="INFO" selected>Info</option>
@@ -151,9 +151,9 @@
             </div>
             <div class="log-toolbar-actions">
                 <div class="log-source-control">
-                    <label for="log-source-select" class="text-sm text-gray-200">Source:</label>
+                    <label for="log-source-select" class="text-sm text-zinc-200">Source:</label>
                     <select id="log-source-select"
-                            class="bg-zinc-700 text-white text-sm px-3 py-1 rounded border border-zinc-600 focus:border-cyan-500 focus:outline-none">
+                            class="field field--compact">
                         <option value="billy">Billy</option>
                         <option value="web">Web interface</option>
                         <option value="bluetooth">Bluetooth</option>

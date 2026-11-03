@@ -107,6 +107,49 @@ def _strip_tools_section_for_provider(instructions: str, provider_name: str) -> 
     return instructions
 
 
+# What the device says about how this conversation came about (for example
+# "the user called you" or "you called the user"). Set by core.button for one
+# session at a time; every instruction build during that session includes it.
+_session_situation: str | None = None
+
+
+def set_session_situation(text: str | None) -> None:
+    global _session_situation
+    _session_situation = (text or "").strip() or None
+
+
+# A persona for this one conversation (for example chosen by a dialled
+# number). The user's own persona comes back when the conversation ends.
+_session_persona: str | None = None
+_persona_before_session: str | None = None
+
+
+def session_persona() -> str | None:
+    return _session_persona
+
+
+def set_session_persona(name: str | None) -> None:
+    global _session_persona, _persona_before_session
+    name = (name or "").strip() or None
+    if name == _session_persona:
+        return
+    if name is None:
+        previous, _persona_before_session = _persona_before_session, None
+        _session_persona = None
+        if previous:
+            try:
+                persona_manager.switch_persona(previous)
+            except Exception as exc:
+                logger.warning(f"Could not restore persona {previous}: {exc}")
+        return
+    previous = persona_manager.current_persona
+    if not persona_manager.switch_persona(name):
+        return  # unknown persona: keep the current one
+    if _session_persona is None:
+        _persona_before_session = previous
+    _session_persona = name
+
+
 def get_instructions_with_user_context(provider_name: str | None = None):
     """Generate instructions with current user context and persona if available."""
     import os
@@ -134,6 +177,8 @@ def get_instructions_with_user_context(provider_name: str | None = None):
     )
 
     instructions = instruction_builder.build(context)
+    if _session_situation:
+        instructions = f"{instructions}\n---\n# Situation\n{_session_situation}"
     provider_name = (provider_name or REALTIME_AI_PROVIDER or "").strip().lower()
     return _strip_tools_section_for_provider(instructions, provider_name)
 

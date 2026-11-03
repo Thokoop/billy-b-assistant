@@ -54,12 +54,13 @@ _cache = {}
 _guard = threading.Lock()
 
 
-def run(args, *, mutate=False, timeout=60):
+def run(args, *, mutate=False, timeout=60, extra_env=None):
     env = {
         k: v
         for k, v in os.environ.items()
         if not k.startswith(('APT', 'DPKG', 'PYTHON', 'BILLY_'))
     }
+    env.update(extra_env or {})
     env.update(
         LC_ALL='C',
         LANG='C',
@@ -184,6 +185,105 @@ def onboarding_mode(root):
     return value if value in {'legacy', 'unified'} else 'legacy'
 
 
+def configured_device(root):
+    """BILLY_DEVICE from the stable install's .env, read like onboarding_mode()."""
+    try:
+        content = (Path(root) / '.env').read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return 'fish'
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError('Could not read the device from the configuration.') from exc
+    value = 'fish'
+    for line in content.splitlines():
+        if line.startswith('BILLY_DEVICE='):
+            value = line.split('=', 1)[1].strip().strip('"').strip("'") or 'fish'
+    return value
+
+
+def device_component(source, root):
+    """The system component of the configured extension device, if it has one.
+
+    A device kept in application/private/<name> (BILLY_DEVICE=<name>, or a
+    ``private.<name>...:attribute`` path) may ship setup/component.json:
+
+        {"name": "Phone setup", "packages": ["..."], "script": "install.sh"}
+
+    ``packages`` join Billy's own required packages; ``script`` (in setup/) is
+    run like install-bluetooth.sh: as the Billy user, after the packages, again
+    whenever a file in setup/ changes.
+    """
+    device = configured_device(root)
+    if device.lower() == 'fish':
+        return None
+    module = device.partition(':')[0]
+    parts = module.split('.') if ':' in device else ['private', module]
+    if (
+        len(parts) < 2
+        or parts[0] != 'private'
+        or not all(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', p) for p in parts)
+    ):
+        return None
+    folder = Path(source) / 'application' / parts[0] / parts[1]
+    manifest = folder / 'setup' / 'component.json'
+    if not manifest.is_file():
+        return None
+    data = json.loads(manifest.read_text())
+    packages = data.get('packages', [])
+    script = data.get('script', '')
+    if (
+        not isinstance(packages, list)
+        or any(not isinstance(n, str) or not NAME.fullmatch(n) for n in packages)
+        or not re.fullmatch(r'[A-Za-z0-9_.-]+\.sh', script)
+        or not (folder / 'setup' / script).is_file()
+    ):
+        raise ValueError(f'Invalid system component for device {device}')
+    return {
+        'device': device,
+        'name': str(data.get('name') or f'{parts[1].title()} setup'),
+        'packages': packages,
+        'setup': folder / 'setup',
+        'script': folder / 'setup' / script,
+    }
+
+
+def device_revision(component, root):
+    digest = hashlib.sha256(str(Path(root).resolve()).encode())
+    digest.update(str(os.getuid()).encode())
+    digest.update(component['device'].encode())
+    for path in sorted(component['setup'].rglob('*')):
+        if path.is_file() and '__pycache__' not in path.parts:
+            digest.update(str(path.relative_to(component['setup'])).encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def device_ready(component, root):
+    if component is None:
+        return True
+    try:
+        marker = json.loads((Path(root) / 'state/device-setup.json').read_text())
+    except (OSError, ValueError):
+        return False
+    return marker.get('revision') == device_revision(component, root)
+
+
+def configure_device(component, root):
+    if device_ready(component, root):
+        return
+    run(
+        ['bash', str(component['script'])],
+        timeout=None,
+        extra_env={'COMPONENT_SETUP': '1', 'COMPONENT_ROOT': str(Path(root).resolve())},
+    )
+    atomic_write(
+        Path(root) / 'state/device-setup.json',
+        json.dumps({
+            'device': component['device'],
+            'revision': device_revision(component, root),
+        }),
+    )
+
+
 def requirements(manifest, machine, *, mode='legacy'):
     if machine not in manifest['platforms']:
         raise RuntimeError(
@@ -267,6 +367,9 @@ def check(source, root):
     manifest = load_manifest(source)
     machine = host()
     names = requirements(manifest, machine, mode=onboarding_mode(root))
+    device = device_component(source, root)
+    if device:
+        names = sorted({*names, *device['packages']})
     installed = inventory()
     missing = [name for name in names if not lookup(installed, name)]
     damaged = [
@@ -312,6 +415,13 @@ def check(source, root):
         'name': 'Bluetooth setup',
         'state': 'configuration_needed' if configure else 'installed',
     })
+    if device:
+        device_needed = not device_ready(device, root)
+        configure = configure or device_needed
+        components.append({
+            'name': device['name'],
+            'state': 'configuration_needed' if device_needed else 'installed',
+        })
     needs = bool(missing or damaged or outdated or configure or unfinished)
     return {
         'state': 'attention' if needs else 'ready',
@@ -349,6 +459,7 @@ def status(root, source=None):
     for path in (
         root / 'state/software/packages/transaction.json',
         root / 'state/bluetooth-setup.json',
+        root / 'state/device-setup.json',
         root / '.env',
     ):
         try:
@@ -510,6 +621,9 @@ def ensure(source, root, progress, *, repair=False):
     manifest = load_manifest(source)
     machine = host()
     names = requirements(manifest, machine, mode=onboarding_mode(root))
+    device = device_component(source, root)
+    if device:
+        names = sorted({*names, *device['packages']})
     approved = targets(manifest, machine)
     folder = root / 'state/software/packages'
     folder.mkdir(parents=True, exist_ok=True)
@@ -557,7 +671,7 @@ def ensure(source, root, progress, *, repair=False):
         before = lookup(installed, name)
         if not before or before['version'] != version:
             requested.append(f'{name}={version}')
-    needs_config = not bluetooth_ready(source, root)
+    needs_config = not bluetooth_ready(source, root) or not device_ready(device, root)
     if not requested and not needs_config:
         if previous:
             previous['state'] = 'resolved'
@@ -649,6 +763,7 @@ def ensure(source, root, progress, *, repair=False):
         ):
             raise RuntimeError('System-component installation is incomplete.')
         configure_bluetooth(source, root)
+        configure_device(device, root)
         record.update(state='complete', after=after, finished=time.time())
         save_receipt(receipt, record)
     except BaseException:

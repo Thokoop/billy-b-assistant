@@ -91,8 +91,16 @@ def test_discovery_excludes_local_mic_and_binds_device_identity():
     assert nodes[0]['device'] == 'AA:BB:CC:DD:EE:FF'
     # pw-cat has no --raw option (PipeWire 1.2.7 rejects it and exits); what it
     # writes to stdout for '-' is raw PCM already.
+    transport._raw_supported = False
     assert '--raw' not in command(nodes[0]['name'], record=True)
     assert '--target=bluez_input.phone' in command(nodes[0]['name'], record=True)
+
+
+def test_newer_pw_cat_gets_raw_for_stdin_pcm(monkeypatch):
+    """PipeWire 1.4's pw-cat opens '-' through libsndfile unless --raw."""
+    monkeypatch.setattr(transport, '_raw_supported', True)
+    assert '--raw' in command('bluez_output.phone', record=False)
+    assert '--raw' in command('bluez_input.phone', record=True)
 
 
 def test_hfp_stream_classes_are_recognised():

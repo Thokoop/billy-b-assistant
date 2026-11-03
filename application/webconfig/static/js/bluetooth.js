@@ -322,7 +322,7 @@ window.BluetoothSettings = (() => {
             if (emptyList) {
                 if (!emptyDevicesRow) {
                     emptyDevicesRow = document.createElement('li');
-                    emptyDevicesRow.className = 'text-slate-400';
+                    emptyDevicesRow.className = 'text-zinc-400';
                     emptyDevicesRow.textContent = 'No devices paired yet.';
                 }
                 rows.push(emptyDevicesRow);

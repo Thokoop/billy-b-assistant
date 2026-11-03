@@ -121,6 +121,7 @@ def test_unusable_unselected_mic_does_not_hide_selected_device():
         MIC_PREFERENCE='selected',
         SPEAKER_PREFERENCE='speaker',
         _preference_matches_device=lambda preference, name: preference == name,
+        _preference_is_exact=lambda preference, name: preference == name,
         _pick_mic_rate=pick,
         PROVIDER_MIC_RATE=24000,
         CHUNK_MS=40,

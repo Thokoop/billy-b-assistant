@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import configparser
 import os
+import re
 
 from dotenv import load_dotenv
 
@@ -179,6 +180,27 @@ RUN_MODE = os.getenv("RUN_MODE", "normal").lower()
 BILLY_MODEL = os.getenv("BILLY_MODEL", "modern").strip().lower()
 BILLY_PINS = os.getenv("BILLY_PINS", "new").strip().lower()
 
+# === Device profile ===
+# "fish" is the built-in Big Mouth Billy Bass. Any other value names an
+# extension device (see core.devices): an installed ``billy.devices`` entry
+# point, or a ``package.module:attribute`` import path.
+BILLY_DEVICE = (os.getenv("BILLY_DEVICE", "fish") or "").strip() or "fish"
+if BILLY_DEVICE.lower() == "fish":
+    BILLY_DEVICE = "fish"
+
+
+def _motors_enabled() -> bool:
+    value = os.getenv("MOTORS_ENABLED", "auto").strip().lower()
+    if value in {"true", "1", "yes", "on"}:
+        return True
+    if value in {"false", "0", "no", "off"}:
+        return False
+    # auto: the fish has motors; extension devices do not, unless they say so.
+    return BILLY_DEVICE == "fish"
+
+
+MOTORS_ENABLED = _motors_enabled()
+
 # === Audio Config ===
 SPEAKER_PREFERENCE = os.getenv("SPEAKER_PREFERENCE")
 MIC_PREFERENCE = os.getenv("MIC_PREFERENCE")
@@ -307,6 +329,44 @@ MQTT_HOST = os.getenv("MQTT_HOST", "")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+
+
+def _mqtt_device_id() -> str:
+    """Name of this Billy on MQTT: topic prefix and Home Assistant device.
+
+    "billy" (the fish default) keeps the topics and entities existing
+    installations already use. Extension devices default to the hostname, so
+    several Billys can share one broker. MQTT_DEVICE_ID overrides either way;
+    "auto" means the hostname.
+    """
+    value = (os.getenv("MQTT_DEVICE_ID") or "").strip()
+    if not value:
+        value = "billy" if BILLY_DEVICE == "fish" else "auto"
+    if value.lower() == "auto":
+        import socket
+
+        value = socket.gethostname()
+    cleaned = re.sub(r"[^a-z0-9_-]+", "_", value.lower()).strip("_")
+    return cleaned or "billy"
+
+
+MQTT_DEVICE_ID = _mqtt_device_id()
+
+
+def mqtt_wire_topic(topic: str) -> str:
+    """Topic as sent to the broker; code uses the canonical "billy/..." name."""
+    if MQTT_DEVICE_ID != "billy" and (topic == "billy" or topic.startswith("billy/")):
+        return MQTT_DEVICE_ID + topic[len("billy") :]
+    return topic
+
+
+def mqtt_canonical_topic(topic: str) -> str:
+    """Inverse of mqtt_wire_topic, for incoming messages."""
+    prefix = MQTT_DEVICE_ID
+    if prefix != "billy" and (topic == prefix or topic.startswith(prefix + "/")):
+        return "billy" + topic[len(prefix) :]
+    return topic
+
 
 # === Home Assistant Config ===
 HA_HOST = os.getenv("HA_HOST")
