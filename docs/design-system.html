@@ -209,6 +209,29 @@
         </div>
         <div class="ds-label mt-4">List row</div>
         <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700"><p class="text-sm">Likes pirate jokes</p><p class="text-xs text-zinc-400 mt-1">Preference · high</p></div>
+        <div class="ds-label mt-4">List rows with actions (ringtones)</div>
+        <div class="space-y-2">
+          <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+            <div class="flex items-center gap-2">
+              <input type="text" class="field flex-1 min-w-0" value="Classic bell" readonly aria-label="Built-in ringtone">
+              <span class="w-11 shrink-0" aria-hidden="true"></span>
+              <button type="button" class="secondary-action secondary-action--hover--cyan button-icon shrink-0" aria-label="Upload"><span class="material-icons" aria-hidden="true">upload_file</span></button>
+              <button type="button" class="secondary-action secondary-action--hover--emerald button-icon shrink-0" aria-label="Play"><span class="material-icons" aria-hidden="true">play_arrow</span></button>
+              <button type="button" class="secondary-action secondary-action--hover--rose button-icon shrink-0" aria-label="Remove"><span class="material-icons" aria-hidden="true">delete</span></button>
+            </div>
+          </div>
+          <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+            <div class="flex items-center gap-2">
+              <input type="text" class="field flex-1 min-w-0" placeholder="What should the ringtone say?" aria-label="Ringtone text">
+              <button type="button" class="secondary-action secondary-action--hover--cyan button-icon shrink-0" aria-label="Generate"><span class="material-icons" aria-hidden="true">auto_fix_high</span></button>
+              <button type="button" class="secondary-action secondary-action--hover--cyan button-icon shrink-0" aria-label="Upload"><span class="material-icons" aria-hidden="true">upload_file</span></button>
+              <span class="w-11 shrink-0" aria-hidden="true"></span>
+              <button type="button" class="secondary-action secondary-action--hover--rose button-icon shrink-0" aria-label="Remove"><span class="material-icons" aria-hidden="true">delete</span></button>
+            </div>
+            <p class="text-xs text-amber-300 mt-1">No audio yet: generate or upload it.</p>
+          </div>
+        </div>
+        <p class="ds-note">Icon buttons (<code>button-icon</code>); a <code>w-11</code> spacer keeps the columns aligned when a row lacks an action.</p>
         <div class="ds-label ds-label--dev mt-4">Exception: empty state</div>
         <div class="flex min-h-[18rem] items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 px-6 text-center text-zinc-400 ds-dev" style="min-height:5rem">No custom songs yet</div>
       </div>
@@ -372,6 +395,18 @@
           </div>
           <div class="settings-step-label">Stable</div>
         </div>
+        <div class="ds-label mt-4">Stepped control, three stops (Ringtones)</div>
+        <div class="settings-step-control">
+          <div class="settings-step-bar" tabindex="0" role="slider" aria-valuetext="Billy's ringtones">
+            <div class="settings-step-fill" style="width:50%"></div>
+            <div class="settings-step-dots">
+              <span class="settings-step-dot" style="left:calc(0% + 8px);transform:translate(-50%,-50%)"></span>
+              <span class="settings-step-dot" style="left:calc(50% + 0px);transform:translate(-50%,-50%)"></span>
+              <span class="settings-step-dot" style="left:calc(100% - 8px);transform:translate(-50%,-50%)"></span>
+            </div>
+          </div>
+          <div class="settings-step-label">Billy's ringtones</div>
+        </div>
         <div class="ds-label mt-4">Native range</div>
         <input type="range" class="w-full" style="-webkit-appearance:none;appearance:none;background:transparent" value="40">
       </div>
@@ -471,6 +506,7 @@
           <li class="system-component-row"><span class="system-component-name">Audio stack</span><span class="system-component-state" data-state="installed"><span class="material-icons" aria-hidden="true">check_circle</span>Installed</span></li>
           <li class="system-component-row"><span class="system-component-name">Camera</span><span class="system-component-state" data-state="missing"><span class="material-icons" aria-hidden="true">error_outline</span>Missing</span></li>
           <li class="system-component-row"><span class="system-component-name">Wake word</span><span class="system-component-state" data-state="outdated"><span class="material-icons" aria-hidden="true">update</span>Outdated</span></li>
+          <li class="system-component-row"><span class="system-component-name">Bluetooth calls<span class="system-component-version">Opt-in component with its own Install button; never required.</span></span><span class="system-component-state" data-state="optional"><span class="material-icons" aria-hidden="true">download</span>Not installed (optional)<button type="button" class="secondary-action secondary-action--hover--emerald button-small"><span class="material-icons" aria-hidden="true">download</span>Install</button></span></li>
         </ul>
       </div>
       <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">

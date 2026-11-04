@@ -116,9 +116,15 @@
             damaged: ['build', 'Repair needed'],
             outdated: ['system_update_alt', 'Update available'],
             configuration_needed: ['build', 'Setup needed'],
-            optional: ['add_circle_outline', 'Optional, not installed'],
+            optional: ['download', 'Not installed (optional)'],
             unknown: ['help_outline', 'Unknown'],
         };
+        // Opt-in components this OS offers (Bluetooth calls on Bookworm): the
+        // row says what it does and carries its own Install button. They are
+        // never required, so a regular update or repair does not install them.
+        const optional = new Map((packages.optional || [])
+            .filter(item => item && typeof item.id === 'string' && typeof item.name === 'string')
+            .map(item => [item.name, item]));
         const rows = [];
         for (const component of components) {
             if (!component || typeof component.name !== 'string' || !component.name) continue;
@@ -144,6 +150,27 @@
             const label = document.createElement('span');
             label.textContent = states[state][1];
             status.append(icon, label);
+            const offer = state === 'optional' ? optional.get(component.name) : null;
+            if (offer) {
+                if (offer.description) {
+                    const description = document.createElement('span');
+                    description.className = 'system-component-version';
+                    description.textContent = offer.description;
+                    name.append(description);
+                }
+                const install = document.createElement('button');
+                install.type = 'button';
+                install.className = 'secondary-action secondary-action--hover--emerald button-small';
+                install.dataset.optionalInstall = offer.id;
+                install.dataset.optionalName = offer.name;
+                install.disabled = softwareBusy;
+                const installIcon = document.createElement('span');
+                installIcon.className = 'material-icons';
+                installIcon.setAttribute('aria-hidden', 'true');
+                installIcon.textContent = 'download';
+                install.append(installIcon, document.createTextNode(' Install'));
+                status.append(install);
+            }
             row.append(name, status);
             rows.push(row);
         }
@@ -247,7 +274,7 @@
             setText('system-packages-action-label', action.label);
             setText('system-packages-action-icon', action.icon);
             renderComponentDetails(packages);
-            renderOptionalComponents(packages);
+            bindOptionalComponents();
             const repair = document.getElementById('repair-packages-btn');
             componentAction = packages.repairable ? action.label : '';
             refreshSettingsBadge();
@@ -281,48 +308,17 @@
         button.addEventListener('click', () => runSoftwareAction(url, confirmation));
     }
 
-    // Opt-in components this OS offers (for example newer Bluetooth audio on
-    // Bookworm). Never installed automatically: only from this button.
-    const renderOptionalComponents = (packages) => {
-        const box = document.getElementById('system-optional-components');
-        if (!box) return;
-        const items = (packages.optional || []).filter(item => item && item.state === 'available'
-            && typeof item.id === 'string' && typeof item.name === 'string');
-        box.hidden = !items.length;
-        box.replaceChildren(...items.map((item) => {
-            const row = document.createElement('div');
-            row.className = 'flex flex-wrap items-center justify-between gap-3';
-            const text = document.createElement('div');
-            const title = document.createElement('div');
-            title.className = 'text-sm text-white';
-            title.textContent = item.name;
-            const description = document.createElement('div');
-            description.className = 'text-xs text-zinc-400 mt-1';
-            description.textContent = item.description || '';
-            text.append(title, description);
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'secondary-action secondary-action--hover--emerald';
-            button.dataset.optionalInstall = item.id;
-            button.dataset.optionalName = item.name;
-            button.disabled = softwareBusy;
-            const icon = document.createElement('span');
-            icon.className = 'material-icons';
-            icon.setAttribute('aria-hidden', 'true');
-            icon.textContent = 'download';
-            button.append(icon, document.createTextNode(' Install'));
-            row.append(text, button);
-            return row;
-        }));
-        if (box.dataset.bound !== 'true') {
-            box.dataset.bound = 'true';
-            box.addEventListener('click', (event) => {
-                const button = event.target.closest('[data-optional-install]');
-                if (!button || button.disabled) return;
-                runSoftwareAction(`/software/optional/${encodeURIComponent(button.dataset.optionalInstall)}`,
-                    `Install ${button.dataset.optionalName}? Billy pauses briefly and the Raspberry Pi restarts when it is done. Your settings are kept. Keep the power connected.`);
-            });
-        }
+    // The Install button of an opt-in component row (renderComponentDetails).
+    const bindOptionalComponents = () => {
+        const list = document.getElementById('system-packages-details');
+        if (!list || list.dataset.optionalBound === 'true') return;
+        list.dataset.optionalBound = 'true';
+        list.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-optional-install]');
+            if (!button || button.disabled) return;
+            runSoftwareAction(`/software/optional/${encodeURIComponent(button.dataset.optionalInstall)}`,
+                `Install ${button.dataset.optionalName}? Billy pauses briefly and the Raspberry Pi restarts when it is done. Your settings are kept. Keep the power connected.`);
+        });
     };
 
     async function runSoftwareAction(url, confirmation) {

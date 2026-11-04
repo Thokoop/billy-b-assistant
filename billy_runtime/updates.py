@@ -226,9 +226,17 @@ def unit_name(root):
     return f'billy-software-{suffix}'
 
 
-def dispatch(root, identity):
-    """Separate cgroup survives web/core restarts; a reboot is resumed from disk."""
+def dispatch(root, identity, source=None):
+    """Separate cgroup survives web/core restarts; a reboot is resumed from disk.
+
+    The job runs the installation root's updater, which a release update never
+    replaces. An opt-in component (``source``) instead runs the selected
+    release's updater: the root of an older installation does not know it.
+    Recovery stays with the root: an interrupted job is resumed there, and the
+    root's repair finishes or rejects it.
+    """
     root = Path(root).resolve()
+    code = Path(source).resolve() if source else root
     user = pwd.getpwuid(os.getuid()).pw_name
     command = [
         'sudo',
@@ -241,7 +249,8 @@ def dispatch(root, identity):
         '--property=Restart=on-failure',
         '--property=RestartSec=5',
         f'--uid={user}',
-        f'--working-directory={root}',
+        f'--working-directory={code}',
+        f'--setenv=BILLY_INSTALL_ROOT={root}',
         str(root / 'venv/bin/python'),
         '-m',
         'billy_runtime.updates',
@@ -290,7 +299,11 @@ def queue(action, version=None, root=INSTALL_ROOT):
         )
         # Serialize queuing with dispatch, so another request cannot replace it.
         try:
-            dispatch(root, identity)
+            dispatch(
+                root,
+                identity,
+                source=selection(root)[1] if action == 'optional' else None,
+            )
         except subprocess.TimeoutExpired:
             # systemd may already have accepted the request. Leave it queued;
             # the supervisor resumes it and the operation lock prevents duplicates.

@@ -512,9 +512,10 @@ and rotates its chevron.
   `white/7` hairlines between rows; the state colour is set by `data-state`
   (installed = emerald, missing/damaged/outdated/configuration_needed = amber,
   optional = muted: an opt-in component that is not installed).
-- Opt-in system components: a `.card-divider` group below the component list,
-  one row per component (white name, muted `text-xs` description) with a
-  secondary emerald Install button. Never a warning colour: nothing is wrong.
+- Opt-in system components are rows in the same list, in the muted
+  `optional` state ("Not installed (optional)"), with their description under
+  the name and a `button-small` secondary emerald Install button in the state
+  cell. Never a warning colour: nothing is wrong.
 - Definition summary: `.wifi-summary` (`dt` muted, `dd` white).
 - Stepper: `.wifi-stepper`, numbered steps with an emerald underline for the
   current step.
