@@ -67,7 +67,7 @@ const SettingsForm = (() => {
     // Same idea for the few selects drawn as a stepped slider: the select is
     // the form control, the slider is the picture of it, and population and
     // refresh set the select without firing 'change'.
-    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB', 'UPDATE_CHANNEL']);
+    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB', 'UPDATE_CHANNEL', 'BLUETOOTH_RINGTONE']);
 
     const syncStepSlider = (selectElement) => {
         if (!selectElement || !STEP_SLIDER_SELECT_IDS.has(selectElement.id)) return;
@@ -197,8 +197,8 @@ const SettingsForm = (() => {
 
         const setStatus = (text, isError = false) => {
             status.textContent = text;
-            status.classList.toggle("text-red-300", isError);
-            status.classList.toggle("text-slate-400", !isError);
+            status.classList.toggle("text-rose-300", isError);
+            status.classList.toggle("text-zinc-400", !isError);
         };
 
         const clearPreview = () => {
@@ -324,6 +324,7 @@ const SettingsForm = (() => {
             { id: 'AEC_BARGE_IN_SNR_DB', key: 'AEC_BARGE_IN_SNR_DB' },
             { id: 'MIC_TIMEOUT_TAIL_FLAP', key: 'MIC_TIMEOUT_TAIL_FLAP' },
             { id: 'MOOD_INSTRUCTIONS_ENABLED', key: 'MOOD_INSTRUCTIONS_ENABLED' },
+            { id: 'BLUETOOTH_RINGTONE', key: 'BLUETOOTH_RINGTONE' },
             { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
             { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
@@ -1148,7 +1149,7 @@ const SettingsForm = (() => {
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED', 'WEB_SEARCH_ENABLED',
-            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED', 'BLUETOOTH_RINGTONE'
         ];
         dropdowns.forEach(id => {
             const element = document.getElementById(id);
@@ -1447,7 +1448,7 @@ const SettingsForm = (() => {
         const onDelete = typeof options.onDelete === "function" ? options.onDelete : null;
 
         if (!sources || sources.length === 0) {
-            list.innerHTML = '<div class="text-sm text-slate-400">No sources configured.</div>';
+            list.innerHTML = '<div class="text-sm text-zinc-400">No sources configured.</div>';
             return;
         }
 
@@ -1468,11 +1469,11 @@ const SettingsForm = (() => {
             }`;
             row.innerHTML = `
                 <div class="grow min-w-[220px] pr-20">
-                    <div class="text-sm text-slate-100 mb-1" data-view-name>${escapeHtml(source.name)}</div>
+                    <div class="text-sm text-zinc-100 mb-1" data-view-name>${escapeHtml(source.name)}</div>
                     <a href="${escapeHtml(source.url)}" target="_blank" rel="noopener"
                        class="text-xs text-blue-300 hover:text-cyan-300 break-all underline" data-view-url>${escapeHtml(source.url)}</a>
                     <div class="text-xs text-cyan-300 mt-1" data-view-topics>${(source.topics || []).length ? escapeHtml((source.topics || []).join(", ")) : "general"}</div>
-                    <div class="text-xs text-slate-400 mt-1" data-view-query>${isDynamicSourceUrl(source.url) ? "query: dynamic" : "query: static feed"}</div>
+                    <div class="text-xs text-zinc-400 mt-1" data-view-query>${isDynamicSourceUrl(source.url) ? "query: dynamic" : "query: static feed"}</div>
                 </div>
                 <div class="absolute top-3 right-3 flex items-center gap-2">
                     <button type="button" class="secondary-action secondary-action--hover--rose h-11 w-11 p-0 shrink-0" data-action="delete" title="Delete source">
@@ -1947,7 +1948,7 @@ const SettingsForm = (() => {
             if (editToggleBtn) {
                 editToggleBtn.classList.toggle("primary-action", onboardingUi);
                 editToggleBtn.classList.toggle("bg-emerald-600", onboardingUi);
-                editToggleBtn.classList.toggle("text-black", onboardingUi);
+                editToggleBtn.classList.toggle("text-white", onboardingUi);
                 editToggleBtn.classList.toggle("secondary-action", !onboardingUi);
                 editToggleBtn.classList.toggle("secondary-action--hover--cyan", !onboardingUi);
                 editToggleBtn.classList.toggle("button-reveal", !onboardingUi);

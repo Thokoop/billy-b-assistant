@@ -124,18 +124,22 @@ def setup_call(c, monkeypatch, states=("active", "held", "waiting")):
         AG + f"/call{i}": {c.CALL: {"State": Variant("s", s)}}
         for i, s in enumerate(states)
     }
-    c._objects = AsyncMock(side_effect=[objects, calls])
+    c._objects = AsyncMock(
+        side_effect=lambda bus, service, path: calls if path == AG else objects
+    )
     props = SimpleNamespace(
         call_get=AsyncMock(
             return_value=Variant("s", states[0] if states else "disconnected")
         )
     )
-    call = SimpleNamespace(call_hangup=AsyncMock())
+    call = SimpleNamespace(call_hangup=AsyncMock(), call_answer=AsyncMock())
 
     async def interface(bus, service, path, name):
         assert service == c.TELEPHONY
         assert path == AG + "/call0"
-        return props if name == c.PROPERTIES else call
+        # PipeWire's call objects do not answer Properties.Get.
+        assert name != c.PROPERTIES, "No such interface"
+        return call
 
     monkeypatch.setattr(c, "_interface", interface)
     return call, props
@@ -146,11 +150,13 @@ def test_hangup_targets_active_call_not_held_or_waiting(controls, monkeypatch):
     call, _ = setup_call(c, monkeypatch)
     asyncio.run(c._hangup(None, ADDRESS, lambda: True))
     call.call_hangup.assert_awaited_once()
-    assert c._objects.await_args_list[1].args[2] == AG
+    # The gateway's own calls are looked up (they may also be at the root).
+    assert AG in [call.args[2] for call in c._objects.await_args_list]
 
 
 @pytest.mark.parametrize(
-    "states", [(), ("held",), ("waiting",), ("incoming",), ("active", "active")]
+    "states",
+    [(), ("held",), ("waiting",), ("incoming", "incoming"), ("active", "active")],
 )
 def test_no_ambiguous_or_unrelated_call_is_ended(controls, monkeypatch, states):
     c = controls
@@ -160,14 +166,26 @@ def test_no_ambiguous_or_unrelated_call_is_ended(controls, monkeypatch, states):
     call.call_hangup.assert_not_awaited()
 
 
+def test_a_press_while_the_call_still_rings_answers_it(controls, monkeypatch):
+    # The phone's own ringtone plays through Billy: the call audio is already
+    # open, so the press goes to the call - and answers it.
+    c = controls
+    call, _ = setup_call(c, monkeypatch, ("incoming",))
+    assert asyncio.run(c._hangup(None, ADDRESS, lambda: True)) == "answer"
+    call.call_answer.assert_awaited_once()
+    call.call_hangup.assert_not_awaited()
+
+
 @pytest.mark.parametrize(
     "case", ["wrong_phone", "stale_route", "ended_call", "unsupported"]
 )
 def test_hangup_failure_leaves_call_alone(controls, monkeypatch, case):
     c = controls
-    call, props = setup_call(c, monkeypatch)
-    if case == "ended_call":
-        props.call_get.return_value = Variant("s", "disconnected")
+    # An ended call is listed as disconnected: nothing to hang up.
+    states = (
+        ("disconnected",) if case == "ended_call" else ("active", "held", "waiting")
+    )
+    call, _ = setup_call(c, monkeypatch, states)
     if case == "unsupported":
         c._objects.side_effect = RuntimeError("service missing")
     with pytest.raises(RuntimeError) as failure:

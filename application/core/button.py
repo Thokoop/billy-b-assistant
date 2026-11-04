@@ -9,7 +9,7 @@ from concurrent.futures import CancelledError
 
 from billy_runtime.worker import progress as runtime_progress
 
-from . import audio, config
+from . import audio, config, session_events
 from .bluetooth import controls as bluetooth_controls
 from .bluetooth import mode as bluetooth_mode
 from .logger import logger
@@ -95,6 +95,15 @@ _setup_monitor_stop = threading.Event()
 _shutdown_requested = threading.Event()
 _setup_monitor_thread = None
 _session_start_lock = threading.Lock()  # Lock to prevent concurrent session starts
+_session_stop_lock = threading.Lock()  # Serializes stops requested from outside
+
+# Session lifecycle bookkeeping for core.session_events listeners. Every
+# session that starts gets exactly one session_ended, whichever way it ends.
+_session_events_lock = threading.Lock()
+_session_counter = 0
+_current_session_id: int | None = None
+_open_sessions: dict[int, str] = {}  # session id -> start source
+_stop_sources: dict[int, str] = {}  # session id -> who asked it to stop
 
 # Setup hardware button
 button = Button(config.BUTTON_PIN, pull_up=True)
@@ -216,6 +225,133 @@ def _resume_wakeword_listener():
         logger.warning(f"Failed to resume wake-word listener: {e}", "⚠️")
 
 
+def _open_session_events(source: str) -> int:
+    global _session_counter, _current_session_id
+    with _session_events_lock:
+        _session_counter += 1
+        session_id = _session_counter
+        _open_sessions[session_id] = source
+        _current_session_id = session_id
+    session_events.emit(
+        session_events.SESSION_STARTED, session_id=session_id, source=source
+    )
+    return session_id
+
+
+def _set_situation(text: str | None):
+    with contextlib.suppress(Exception):
+        from .session_manager import set_session_situation
+
+        set_session_situation(text)
+
+
+def _set_persona(name: str | None):
+    with contextlib.suppress(Exception):
+        from .session_manager import set_session_persona
+
+        set_session_persona(name)
+
+
+def _close_session_events(session_id: int | None):
+    """Announce the end of ``session_id``; later calls for it do nothing."""
+    global _current_session_id
+    if session_id is None:
+        return
+    with _session_events_lock:
+        source = _open_sessions.pop(session_id, None)
+        stopped_by = _stop_sources.pop(session_id, None)
+        was_current = _current_session_id == session_id
+        if was_current:
+            _current_session_id = None
+    if was_current:
+        _set_situation(None)
+        _set_persona(None)
+    if source is None:
+        return
+    session_events.emit(
+        session_events.SESSION_ENDED,
+        session_id=session_id,
+        source=source,
+        stopped_by=stopped_by,
+    )
+
+
+def _record_stop_source(source: str) -> int | None:
+    with _session_events_lock:
+        session_id = _current_session_id
+        if session_id is not None:
+            _stop_sources.setdefault(session_id, source)
+    return session_id
+
+
+def request_session_start(
+    source: str,
+    *,
+    opening: dict | None = None,
+    situation: str | None = None,
+    persona: str | None = None,
+) -> bool:
+    """Start a conversation on behalf of ``source`` (for example a device).
+
+    Same rules as any other non-button trigger: ignored while a session is
+    already active or while another mode owns the audio path.
+
+    ``opening`` makes Billy speak first instead of playing a wake-up clip, as
+    an MQTT "say" does, but as a normal tracked session (session events,
+    outside stop). Keys: ``text``; ``kind`` "literal" (say these words) or
+    "prompt" (respond to this instruction); ``interactive`` True (listen
+    afterwards), False (say it and end) or None (decide automatically).
+
+    ``situation`` describes how this conversation came about (for example who
+    called whom); it is added to Billy's instructions for this session only.
+
+    ``persona`` uses that persona for this conversation only; the user's own
+    persona returns when it ends. An unknown name keeps the user's persona.
+    """
+    return trigger_session_start(
+        source=source, opening=opening, situation=situation, persona=persona
+    )
+
+
+def _opening_session_options(opening: dict | None) -> dict:
+    """BillySession keyword arguments for an opening line; {} for none."""
+    if not opening:
+        return {}
+    text = str(opening.get("text") or "").strip()
+    if not text:
+        return {}
+    interactive = opening.get("interactive")
+    return {
+        "kickoff_text": text,
+        "kickoff_kind": "prompt" if opening.get("kind") == "prompt" else "literal",
+        "kickoff_to_interactive": interactive is True,
+        "autofollowup": (
+            "always"
+            if interactive is True
+            else "never"
+            if interactive is False
+            else "auto"
+        ),
+    }
+
+
+def request_session_stop(source: str) -> bool:
+    """Stop the active conversation on behalf of ``source``.
+
+    Safe to call when nothing is running and safe to call more than once or
+    concurrently with the session ending by itself. The session's
+    ``session_ended`` event reports ``stopped_by=source`` unless something
+    else already asked it to stop. Returns True if there was something to stop.
+    """
+    _record_stop_source(source)
+    with _session_stop_lock:
+        if not (is_active or bool(session_thread and session_thread.is_alive())):
+            return False
+        logger.info(f"Stop requested by {source}.", "🛑")
+        _stop_active_session()
+    return True
+
+
 def _stop_active_session():
     global is_active, session_thread, session_instance, _button_interrupt_armed
 
@@ -305,6 +441,7 @@ def stop_for_takeover(reason: str = "bluetooth"):
     if not (is_active or bool(session_thread and session_thread.is_alive())):
         return False
 
+    taken_over_session_id = _record_stop_source(reason)
     session = session_instance
     if session is not None and session.loop is not None:
         with contextlib.suppress(Exception):
@@ -325,6 +462,9 @@ def stop_for_takeover(reason: str = "bluetooth"):
         session_instance = None
         move_head("off")
         _force_release_session_start_lock(f"{reason} takeover")
+        # The detached thread may take a while to notice; listeners should
+        # not have to wait for it to learn the session is over.
+        _close_session_events(taken_over_session_id)
     return True
 
 
@@ -414,7 +554,12 @@ def _handle_active_session_button_press(force_stop: bool = False):
     _stop_active_session()
 
 
-def trigger_session_start(source: str = "button"):
+def trigger_session_start(
+    source: str = "button",
+    opening: dict | None = None,
+    situation: str | None = None,
+    persona: str | None = None,
+):
     global \
         is_active, \
         session_thread, \
@@ -539,6 +684,9 @@ def trigger_session_start(source: str = "button"):
         _button_interrupt_armed = False
         is_active = True
         interrupt_event = threading.Event()  # Fresh event for each session
+        _set_situation(situation)
+        _set_persona(persona)
+        my_session_id = _open_session_events(source)
 
         if config.RUN_MODE == "song":
             logger.info(
@@ -576,6 +724,7 @@ def trigger_session_start(source: str = "button"):
                             "(a newer session is active)",
                             "🧹",
                         )
+                        _close_session_events(my_session_id)
                         return
                     move_head("off")
                     is_active = False
@@ -592,22 +741,36 @@ def trigger_session_start(source: str = "button"):
                     logger.info("Waiting for button press...", "🕐")
                     with contextlib.suppress(Exception):
                         _session_start_lock.release()
+                    _close_session_events(my_session_id)
 
         else:
-            # Clear the playback done event so session waits for wake-up sound
-            audio.playback_done_event.clear()
-            logger.info(
-                "🔧 playback_done_event cleared (waiting for wake-up sound)", "🔧"
-            )
-            set_status_led_state("starting")
-            threading.Thread(target=audio.play_random_wake_up_clip, daemon=True).start()
-            logger.info(f"{source} trigger received. Listening...", "🎤")
+            opening_options = _opening_session_options(opening)
+            if opening_options:
+                # Billy speaks first, so there is no wake-up clip to wait for.
+                audio.playback_done_event.set()
+                set_status_led_state("starting")
+                logger.info(f"{source} trigger received with an opening line.", "🗣️")
+            else:
+                # Clear the playback done event so session waits for wake-up sound
+                audio.playback_done_event.clear()
+                logger.info(
+                    "🔧 playback_done_event cleared (waiting for wake-up sound)", "🔧"
+                )
+                set_status_led_state("starting")
+                threading.Thread(
+                    target=audio.play_random_wake_up_clip, daemon=True
+                ).start()
+                logger.info(f"{source} trigger received. Listening...", "🎤")
 
             def run_session():
                 global session_instance, is_active, _button_interrupt_armed
                 my_thread = threading.current_thread()
                 try:
-                    session_instance = BillySession(interrupt_event=interrupt_event)
+                    session_instance = BillySession(
+                        interrupt_event=interrupt_event, **opening_options
+                    )
+                    if opening_options.get("autofollowup") == "never":
+                        session_instance.run_mode = "dory"  # one-and-done
                     if _shutdown_requested.is_set():
                         return
                     session_instance.last_activity[0] = time.time()
@@ -642,6 +805,7 @@ def trigger_session_start(source: str = "button"):
                             "(something newer owns the audio path)",
                             "🧹",
                         )
+                        _close_session_events(my_session_id)
                         return
                     move_head("off")
                     is_active = False
@@ -656,6 +820,7 @@ def trigger_session_start(source: str = "button"):
                     # Release lock when session finishes
                     with contextlib.suppress(Exception):
                         _session_start_lock.release()  # Lock might already be released
+                    _close_session_events(my_session_id)
 
         session_thread = threading.Thread(target=run_session, daemon=True)
         session_thread.start()
@@ -664,6 +829,11 @@ def trigger_session_start(source: str = "button"):
     except Exception as e:
         # If anything goes wrong, release the lock
         logger.error(f"Error starting session: {e}")
+        if not (session_thread and session_thread.is_alive()):
+            is_active = False
+            with _session_events_lock:
+                failed_session_id = _current_session_id
+            _close_session_events(failed_session_id)
         with contextlib.suppress(Exception):
             _session_start_lock.release()
         return False

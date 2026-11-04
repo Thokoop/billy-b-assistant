@@ -8,6 +8,7 @@ two functions.
 import ast
 import sys
 import threading
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -30,6 +31,8 @@ def load_watcher():
         "__name__": "core.bluetooth.watcher",
         "__package__": "core.bluetooth",
         "threading": threading,
+        "time": time,
+        "ringer": SimpleNamespace(update=lambda ringing: None, stop=lambda: None),
         "mode": SimpleNamespace(observe_route=lambda route: True),
         "logger": SimpleNamespace(
             info=lambda *a, **k: None,
@@ -265,3 +268,38 @@ class HandoverTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RingCheckTests(unittest.TestCase):
+    """The watcher tells the ringer whether the paired phone's call rings."""
+
+    def check(self, states):
+        watcher = load_watcher()
+        seen = []
+        watcher["ringer"] = SimpleNamespace(update=seen.append, stop=lambda: None)
+        controls = SimpleNamespace(
+            ACTIVE_CALL_STATES={"active", "dialing", "alerting", "held"},
+            RINGING_CALL_STATES={"incoming", "waiting"},
+            call_states=lambda timeout=1.0: states,
+        )
+        with unittest.mock.patch.dict(
+            sys.modules,
+            {
+                "core": SimpleNamespace(),
+                "core.bluetooth": SimpleNamespace(),
+                "core.bluetooth.controls": controls,
+            },
+        ):
+            watcher["_check_ringing"]()
+            watcher["_check_ringing"]()  # throttled: asks at most once a second
+        return seen
+
+    def test_an_incoming_call_rings(self):
+        self.assertEqual(self.check(["incoming"]), [True])
+
+    def test_an_answered_call_does_not(self):
+        self.assertEqual(self.check(["active", "waiting"]), [False])
+
+    def test_no_phone_or_no_telephony_service_does_not(self):
+        self.assertEqual(self.check(None), [False])
+        self.assertEqual(self.check([]), [False])

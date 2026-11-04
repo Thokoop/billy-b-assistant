@@ -1,0 +1,11 @@
+{#- Stepped control (Design System 3.6): the visible bar for a hidden select,
+    driven by settings-form.js (STEP_SLIDER_SELECT_IDS). -#}
+{% macro step_slider(id, label, initial_label, initial_percent) -%}
+<div class="settings-step-control">
+    <div id="{{ id }}-bar" class="settings-step-bar" role="slider" tabindex="0" aria-label="{{ label }}">
+        <div id="{{ id }}-fill" class="settings-step-fill" style="width: {{ initial_percent }}%;"></div>
+        <div class="settings-step-dots" data-step-dots></div>
+    </div>
+    <div id="{{ id }}-label" class="settings-step-label">{{ initial_label }}</div>
+</div>
+{%- endmacro %}

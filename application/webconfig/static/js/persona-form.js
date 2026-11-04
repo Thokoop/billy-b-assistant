@@ -116,7 +116,7 @@ const PersonaForm = (() => {
             wrapper.className = "flex gap-2 space-y-1";
 
             const label = document.createElement("div");
-            label.className = "flex w-36 justify-between items-center text-sm text-slate-300";
+            label.className = "flex w-36 justify-between items-center text-sm text-zinc-300";
             const displayName = coreTraits[key] || key;
             label.innerHTML = `<span>${displayName}</span>`;
 
@@ -153,11 +153,11 @@ const PersonaForm = (() => {
                         // Active block: show color, text, and border
                         const color = block.dataset.color;
                         const label = block.dataset.label;
-                        block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 ${color} flex items-center justify-center text-xs text-slate-200`;
+                        block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 ${color} flex items-center justify-center text-xs text-zinc-200`;
                         block.textContent = label;
                     } else {
                         // Inactive block: dark grey background, no text
-                        block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs text-slate-200`;
+                        block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs text-zinc-200`;
                         block.textContent = '';
                     }
                 });
@@ -167,7 +167,7 @@ const PersonaForm = (() => {
             levels.forEach((level) => {
                 const block = document.createElement("div");
                 // Default to dark grey background, no text
-                block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs text-slate-200`;
+                block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 bg-zinc-700 flex items-center justify-center text-xs text-zinc-200`;
                 block.dataset.level = level.name;
                 block.dataset.minValue = level.range[0];
                 block.dataset.maxValue = level.range[1];
@@ -178,7 +178,7 @@ const PersonaForm = (() => {
                 const isActive = value >= level.range[0] && value <= level.range[1];
                 if (isActive) {
                     // Active block: show color, text, and border
-                    block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 ${level.color} flex items-center justify-center text-xs text-slate-200`;
+                    block.className = `flex-1 h-6 rounded cursor-pointer transition-all duration-200 hover:opacity-80 ${level.color} flex items-center justify-center text-xs text-zinc-200`;
                     block.textContent = level.name;
                 }
                 
@@ -433,7 +433,7 @@ const PersonaForm = (() => {
                 if (activeBlock) {
                     // Get the trait name from the label in the same wrapper
                     const wrapper = slider.closest('.flex.gap-2');
-                    const label = wrapper && wrapper.querySelector('.text-slate-300');
+                    const label = wrapper && wrapper.querySelector('.text-zinc-300');
                     if (label) {
                         // Extract trait name from the label text
                         const traitDisplay = label.textContent.trim();
@@ -920,7 +920,7 @@ const PersonaForm = (() => {
                 if (activeBlock) {
                     // Get the trait name from the label in the same wrapper
                     const wrapper = slider.closest('.flex.gap-2');
-                    const label = wrapper && wrapper.querySelector('.text-slate-300');
+                    const label = wrapper && wrapper.querySelector('.text-zinc-300');
                     if (label) {
                         // Extract trait name from the label text
                         const traitDisplay = label.textContent.trim();
@@ -1224,6 +1224,14 @@ const PersonaForm = (() => {
         modal.dataset.bound = 'true';
     };
 
+    // The voice list differs per provider, so only that provider's docs link shows.
+    const syncVoiceDocsLink = (provider) => {
+        const active = String(provider || 'openai').trim().toLowerCase();
+        document.querySelectorAll('[data-voice-docs]').forEach((link) => {
+            link.toggleAttribute('hidden', link.dataset.voiceDocs !== active);
+        });
+    };
+
     // Populate voice options dynamically from config
     const populateVoiceOptions = async () => {
         const voiceSelect = document.getElementById('VOICE');
@@ -1234,6 +1242,7 @@ const PersonaForm = (() => {
             // not reuse its short-lived config cache when rebuilding this list.
             const configData = await ConfigService.fetchConfig(true);
             if (configData && configData.VOICE_OPTIONS) {
+                syncVoiceDocsLink(configData.REALTIME_AI_PROVIDER);
                 const currentValue = voiceSelect.value;
                 // Clear existing options
                 voiceSelect.innerHTML = '';

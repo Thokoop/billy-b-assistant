@@ -36,6 +36,9 @@ def signal_handler(sig, frame):
     logger.info("Exiting cleanly (signal received).", "👋")
     clear_ready()
     set_status_led_state("stopping")
+    from core.devices import stop_active_device
+
+    stop_active_device()
     stop_mqtt()
     core.button.stop_background_services()
     shutdown_playback_worker()
@@ -65,11 +68,17 @@ def main():
     initialize_devices()
     start_motor_watchdog()
 
+    from core import config
+    from core.devices import load_active_device, start_active_device
+
+    load_active_device(config.BILLY_DEVICE)
+
     def ready():
         # Button setup and the boot animation finish before a connected phone
         # or MQTT command can take the audio hardware over.
         bluetooth_watcher.start()
         threading.Thread(target=start_mqtt, daemon=True).start()
+        start_active_device()
         mark_ready()
         from billy_runtime.worker import ready as report_runtime_ready
 
@@ -86,6 +95,9 @@ def run():
         traceback.print_exc()
         clear_ready()
         set_status_led_state("error")
+        from core.devices import stop_active_device
+
+        stop_active_device()
         core.button.stop_background_services()
         shutdown_playback_worker()
         from core.movements import cleanup_gpio

@@ -220,6 +220,15 @@ def _preference_matches_device(preference: str, device_name: str) -> bool:
     return pref_norm in name_norm or name_norm in pref_norm
 
 
+def _preference_is_exact(preference: str, device_name: str) -> bool:
+    """The device's name is the preference itself, not merely contains it."""
+    if not preference or preference.lower().startswith("usbpath:"):
+        return False
+    return _normalize_device_preference(preference) == _normalize_device_preference(
+        device_name
+    )
+
+
 def _pick_mic_rate(device_index: int, channels: int, preferred_rate=PROVIDER_MIC_RATE):
     for rate in [preferred_rate, 48000, 44100]:
         try:
@@ -240,6 +249,10 @@ def detect_devices(debug=False):
     devices = sd.query_devices()
     logger.info("Enumerating audio devices...", "🔢")
     mic_index = output_index = None
+    # A device named exactly like the preference wins over a looser match: a
+    # preference "billy_phone_mic" must not land on a device called "mic"
+    # just because that one is listed first.
+    mic_exact = output_exact = None
     for index, device in enumerate(devices):
         name = str(device["name"])
         if debug:
@@ -259,6 +272,22 @@ def detect_devices(debug=False):
             and _preference_matches_device(SPEAKER_PREFERENCE, name)
         ):
             output_index = index
+        if (
+            mic_exact is None
+            and device["max_input_channels"] > 0
+            and _preference_is_exact(MIC_PREFERENCE, name)
+        ):
+            mic_exact = index
+        if (
+            output_exact is None
+            and device["max_output_channels"] > 0
+            and _preference_is_exact(SPEAKER_PREFERENCE, name)
+        ):
+            output_exact = index
+    if mic_exact is not None:
+        mic_index = mic_exact
+    if output_exact is not None:
+        output_index = output_exact
 
     if mic_index is None:
         raise RuntimeError(

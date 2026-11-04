@@ -257,6 +257,35 @@ def test_systemd_job_runs_unprivileged_in_separate_unit(root, monkeypatch):
     assert 'pip' not in args and 'checkout' not in args
 
 
+def test_updates_run_the_roots_updater_and_opt_ins_the_releases(root, monkeypatch):
+    run = Mock()
+    monkeypatch.setattr(updates.subprocess, 'run', run)
+    updates.dispatch(root, 'a' * 32)
+    args = run.call_args.args[0]
+    assert f'--working-directory={root.resolve()}' in args
+    assert f'--setenv=BILLY_INSTALL_ROOT={root.resolve()}' in args
+    # A release update never replaces the root's updater, so an older
+    # installation does not know an opt-in component: the release runs it.
+    release = root / 'state/software/releases/abc/source'
+    release.mkdir(parents=True)
+    updates.dispatch(root, 'b' * 32, source=release)
+    args = run.call_args.args[0]
+    assert f'--working-directory={release.resolve()}' in args
+    assert f'--setenv=BILLY_INSTALL_ROOT={root.resolve()}' in args
+    assert str(root / 'venv/bin/python') in args
+    assert args[args.index('--root') + 1] == str(root.resolve())
+
+
+def test_only_an_opt_in_job_is_handed_to_the_selected_release(root, monkeypatch):
+    dispatch = Mock()
+    monkeypatch.setattr(updates, 'dispatch', dispatch)
+    # The root must still recover an interrupted package job itself.
+    (root / 'billy_runtime').mkdir(exist_ok=True)
+    (root / 'billy_runtime/system_packages.py').write_text('')
+    updates.queue('optional', 'bluetooth-calls', root)
+    assert dispatch.call_args.kwargs['source'] == updates.selection(root)[1]
+
+
 def test_dispatch_timeout_does_not_cancel_an_accepted_job(root, monkeypatch):
     monkeypatch.setattr(
         updates,
@@ -475,6 +504,28 @@ def test_package_repair_uses_existing_selection_without_activation(root, monkeyp
     activate.assert_not_called()
     assert updates.job(root)['state'] == 'complete'
     assert (root / '.env').read_text() == 'FLASK_PORT=8080\n'
+
+
+def test_optional_component_install_keeps_the_software_and_reports_restart(
+    root, monkeypatch
+):
+    queued(root, action='optional', version='bluetooth-calls')
+    install = Mock(return_value=True)
+    monkeypatch.setattr(updates, 'install_optional_component', install)
+    activate = Mock()
+    monkeypatch.setattr(updates, 'activate', activate)
+    updates.execute(root, 'job1')
+    install.assert_called_once_with(root, root, 'bluetooth-calls')
+    activate.assert_not_called()
+    assert updates.job(root)['state'] == 'complete'
+    assert 'restarts' in updates.job(root)['message']
+
+
+def test_optional_component_names_are_not_shell_or_path_text(root, monkeypatch):
+    monkeypatch.setattr(updates, 'dispatch', Mock())
+    for name in ['', '../x', 'a b', '--help', None]:
+        with pytest.raises(ValueError):
+            updates.queue('optional', name, root)
 
 
 def test_reboot_during_package_apply_requires_repair_without_activating(

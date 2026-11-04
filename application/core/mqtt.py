@@ -10,7 +10,16 @@ import time
 
 import paho.mqtt.client as mqtt
 
-from .config import CHUNK_MS, MQTT_HOST, MQTT_PASSWORD, MQTT_PORT, MQTT_USERNAME
+from .config import (
+    CHUNK_MS,
+    MQTT_DEVICE_ID,
+    MQTT_HOST,
+    MQTT_PASSWORD,
+    MQTT_PORT,
+    MQTT_USERNAME,
+    mqtt_canonical_topic,
+    mqtt_wire_topic,
+)
 from .logger import logger
 from .movements import stop_all_motors
 from .status_led import set_status_led_state
@@ -23,6 +32,11 @@ _say_lock = threading.Lock()
 _lifecycle_lock = threading.Lock()
 _shutdown_requested = threading.Event()
 _mqtt_thread: threading.Thread | None = None
+
+# Topics added by extension devices (core.devices): topic -> (handler,
+# optional Home Assistant discovery as (config topic, payload)).
+_extra_topics: dict[str, tuple] = {}
+_extra_topics_lock = threading.Lock()
 
 
 def mqtt_available():
@@ -49,10 +63,15 @@ def on_connect(client, userdata, flags, rc):
             last_song = song_manager.get_last_song()
             if last_song:
                 mqtt_publish("billy/song/last", last_song, retain=True, retry=False)
-        client.subscribe("billy/command")
-        client.subscribe("billy/say")  # single endpoint
-        client.subscribe("billy/song")
-        client.subscribe("billy/wakeup/play")
+        client.subscribe(mqtt_wire_topic("billy/command"))
+        client.subscribe(mqtt_wire_topic("billy/say"))  # single endpoint
+        client.subscribe(mqtt_wire_topic("billy/song"))
+        client.subscribe(mqtt_wire_topic("billy/wakeup/play"))
+        client.subscribe(mqtt_wire_topic("billy/ringtone/play"))
+        with _extra_topics_lock:
+            extra = list(_extra_topics)
+        for topic in extra:
+            client.subscribe(mqtt_wire_topic(topic))
     else:
         logger.warning(f"MQTT connection failed with code {rc}")
 
@@ -180,10 +199,138 @@ def mqtt_publish(topic, payload, retain=True, retry=True):
             return
 
         try:
-            client.publish(topic, payload, retain=retain)
+            client.publish(mqtt_wire_topic(topic), payload, retain=retain)
             logger.verbose(f"MQTT publish: {topic} = {payload} (retain={retain})", "📡")
         except Exception as e:
             logger.error(f"MQTT publish failed: {e}")
+
+
+def register_topic(topic: str, handler, *, discovery: tuple | list | None = None):
+    """Let an extension device handle an MQTT topic on Billy's connection.
+
+    ``handler(payload: str)`` runs on the MQTT network thread and must return
+    quickly (start a thread for anything slow). ``discovery`` is an optional
+    Home Assistant ``(config_topic, payload)``, or a list of them for several
+    entities on one topic; payloads get Billy's device block. Retained
+    messages are not passed on: these topics carry commands. Safe to call before or after the connection is up.
+    Returns a function that removes the topic again.
+    """
+    with _extra_topics_lock:
+        _extra_topics[topic] = (handler, discovery)
+    client = mqtt_client
+    if client is not None and mqtt_connected:
+        with contextlib.suppress(Exception):
+            client.subscribe(mqtt_wire_topic(topic))
+            _publish_extra_discovery(client, discovery)
+
+    def unregister():
+        with _extra_topics_lock:
+            if _extra_topics.get(topic, (None,))[0] is handler:
+                del _extra_topics[topic]
+        current = mqtt_client
+        if current is not None and mqtt_connected:
+            with contextlib.suppress(Exception):
+                current.unsubscribe(mqtt_wire_topic(topic))
+
+    return unregister
+
+
+def _publish_extra_discovery(client, discovery):
+    """One ``(config_topic, payload)`` or a list of them (several entities)."""
+    if not discovery:
+        return
+    if isinstance(discovery, tuple):
+        discovery = [discovery]
+    for config_topic, payload in discovery:
+        _announce(client, config_topic, payload)
+
+
+def _announce(client, config_topic: str, payload: dict | None):
+    """Publish a Home Assistant discovery config under this Billy's identity.
+
+    Payloads use the canonical "billy" names; with another MQTT_DEVICE_ID the
+    topics, unique_id and config topic move to that name, so two Billys on one
+    broker show up as two devices.
+    """
+    if payload is None:
+        # An empty retained config removes an entity from Home Assistant.
+        if MQTT_DEVICE_ID != "billy":
+            config_topic = config_topic.replace("/billy/", f"/{MQTT_DEVICE_ID}/", 1)
+        client.publish(config_topic, "", retain=True)
+        return
+    payload = dict(payload)
+    for key, value in payload.items():
+        if key.endswith("_topic") and isinstance(value, str):
+            payload[key] = mqtt_wire_topic(value)
+    if MQTT_DEVICE_ID != "billy":
+        unique_id = payload.get("unique_id")
+        if isinstance(unique_id, str) and unique_id.startswith("billy_"):
+            payload["unique_id"] = f"{MQTT_DEVICE_ID}_{unique_id[len('billy_') :]}"
+        config_topic = config_topic.replace("/billy/", f"/{MQTT_DEVICE_ID}/", 1)
+    payload["device"] = _discovery_device()
+    client.publish(config_topic, json.dumps(payload), retain=True)
+
+
+def _dispatch_extra_topic(topic: str, payload: str, retained: bool = False) -> bool:
+    with _extra_topics_lock:
+        entry = _extra_topics.get(topic)
+    if entry is None:
+        return False
+    if retained:
+        # A broker replays retained messages on every (re)connect; a command
+        # such as "ring" must not run again each time Billy starts.
+        logger.info(f"Ignoring retained MQTT command on {topic}.", "🔕")
+        return True
+    try:
+        entry[0](payload)
+    except Exception as exc:
+        logger.error(f"MQTT handler for {topic} failed: {exc}")
+    return True
+
+
+def _discovery_device():
+    if MQTT_DEVICE_ID == "billy":
+        return {
+            "identifiers": ["billy_bass"],
+            "name": "Big Mouth Billy Bass",
+            "model": "Billy Bassistant",
+            "manufacturer": "ThingsFromThom",
+        }
+    model = "Billy Bassistant"
+    with contextlib.suppress(Exception):
+        from .devices import active_device_model
+
+        model = active_device_model() or model
+    return {
+        "identifiers": [f"billy_{MQTT_DEVICE_ID}"],
+        "name": MQTT_DEVICE_ID,
+        "model": model,
+        "manufacturer": "ThingsFromThom",
+    }
+
+
+def _play_ringtone_preview(payload: bytes):
+    """Play one ringtone from the Bluetooth settings (the Play button)."""
+    try:
+        from .audio import enqueue_wav_to_playback, ensure_playback_worker_started
+        from .bluetooth import mode as bluetooth_mode
+        from .bluetooth import ringtones
+
+        ringtone_id = str(json.loads(payload.decode() or "{}").get("id") or "")
+        entry = ringtones.find(ringtone_id)
+        if entry is None or not ringtones.path_for(entry).is_file():
+            logger.warning(f"Ringtone preview not found: {ringtone_id}", "⚠️")
+            return
+        if bluetooth_mode.active():
+            logger.info(
+                "Ignoring ringtone preview: Bluetooth audio owns the speaker.", "🔕"
+            )
+            return
+        ensure_playback_worker_started(CHUNK_MS)
+        enqueue_wav_to_playback(str(ringtones.path_for(entry)))
+        logger.info(f"Playing ringtone preview: {entry.get('name')}", "🔔")
+    except Exception as exc:
+        logger.error(f"Failed to play the ringtone preview: {exc}")
 
 
 def mqtt_send_discovery():
@@ -191,12 +338,12 @@ def mqtt_send_discovery():
     if not mqtt_client:
         return
 
-    device = {
-        "identifiers": ["billy_bass"],
-        "name": "Big Mouth Billy Bass",
-        "model": "Billy Bassistant",
-        "manufacturer": "ThingsFromThom",
-    }
+    device = _discovery_device()  # replaced per payload by _announce
+    with _extra_topics_lock:
+        extra_discovery = [entry[1] for entry in _extra_topics.values()]
+    for discovery in extra_discovery:
+        with contextlib.suppress(Exception):
+            _publish_extra_discovery(mqtt_client, discovery)
 
     # Sensor for Billy's state
     payload_sensor = {
@@ -206,11 +353,7 @@ def mqtt_send_discovery():
         "icon": "mdi:fish",
         "device": device,
     }
-    mqtt_client.publish(
-        "homeassistant/sensor/billy/state/config",
-        json.dumps(payload_sensor),
-        retain=True,
-    )
+    _announce(mqtt_client, "homeassistant/sensor/billy/state/config", payload_sensor)
 
     payload_mood_sensor = {
         "name": "Billy Mood",
@@ -220,10 +363,8 @@ def mqtt_send_discovery():
         "icon": "mdi:emoticon-outline",
         "device": device,
     }
-    mqtt_client.publish(
-        "homeassistant/sensor/billy/mood/config",
-        json.dumps(payload_mood_sensor),
-        retain=True,
+    _announce(
+        mqtt_client, "homeassistant/sensor/billy/mood/config", payload_mood_sensor
     )
 
     # Button to send shutdown command
@@ -234,11 +375,7 @@ def mqtt_send_discovery():
         "payload_press": "shutdown",
         "device": device,
     }
-    mqtt_client.publish(
-        "homeassistant/button/billy/shutdown/config",
-        json.dumps(payload_button),
-        retain=True,
-    )
+    _announce(mqtt_client, "homeassistant/button/billy/shutdown/config", payload_button)
 
     # Button to restart Billy service
     payload_button_restart = {
@@ -248,10 +385,8 @@ def mqtt_send_discovery():
         "payload_press": "restart-billy",
         "device": device,
     }
-    mqtt_client.publish(
-        "homeassistant/button/billy/restart/config",
-        json.dumps(payload_button_restart),
-        retain=True,
+    _announce(
+        mqtt_client, "homeassistant/button/billy/restart/config", payload_button_restart
     )
 
     # Button to reboot the system
@@ -262,10 +397,8 @@ def mqtt_send_discovery():
         "payload_press": "reboot",
         "device": device,
     }
-    mqtt_client.publish(
-        "homeassistant/button/billy/reboot/config",
-        json.dumps(payload_button_reboot),
-        retain=True,
+    _announce(
+        mqtt_client, "homeassistant/button/billy/reboot/config", payload_button_reboot
     )
 
     # Button to toggle listening
@@ -276,10 +409,8 @@ def mqtt_send_discovery():
         "payload_press": "listen",
         "device": device,
     }
-    mqtt_client.publish(
-        "homeassistant/button/billy/listen/config",
-        json.dumps(payload_button_listen),
-        retain=True,
+    _announce(
+        mqtt_client, "homeassistant/button/billy/listen/config", payload_button_listen
     )
 
     # Single text entity
@@ -291,11 +422,7 @@ def mqtt_send_discovery():
         "max": 255,
         "device": device,
     }
-    mqtt_client.publish(
-        "homeassistant/text/billy/say/config",
-        json.dumps(payload_text_input),
-        retain=True,
-    )
+    _announce(mqtt_client, "homeassistant/text/billy/say/config", payload_text_input)
 
     # Single text entity for playing songs
     payload_song_input = {
@@ -306,11 +433,7 @@ def mqtt_send_discovery():
         "max": 255,
         "device": device,
     }
-    mqtt_client.publish(
-        "homeassistant/text/billy/song/config",
-        json.dumps(payload_song_input),
-        retain=True,
-    )
+    _announce(mqtt_client, "homeassistant/text/billy/song/config", payload_song_input)
 
     # Sensor for the last song Billy played (e.g. offline Song mode picks)
     payload_last_song_sensor = {
@@ -320,10 +443,10 @@ def mqtt_send_discovery():
         "icon": "mdi:music",
         "device": device,
     }
-    mqtt_client.publish(
+    _announce(
+        mqtt_client,
         "homeassistant/sensor/billy/last_song/config",
-        json.dumps(payload_last_song_sensor),
-        retain=True,
+        payload_last_song_sensor,
     )
 
 
@@ -542,7 +665,14 @@ def on_message(client, userdata, msg):
     if _shutdown_requested.is_set() or client is not mqtt_client:
         return
     logger.verbose(f"MQTT message received: {msg.topic} = {msg.payload.decode()}", "📩")
-    if msg.topic == "billy/command":
+    topic = mqtt_canonical_topic(msg.topic)
+    if _dispatch_extra_topic(
+        topic,
+        msg.payload.decode(errors="replace"),
+        retained=bool(getattr(msg, "retain", False)),
+    ):
+        return
+    if topic == "billy/command":
         command = msg.payload.decode().strip().lower()
         if command == "shutdown":
             logger.warning(
@@ -585,7 +715,7 @@ def on_message(client, userdata, msg):
                 logger.warning(f"Error starting/stopping listening: {e}")
         return
 
-    if msg.topic == "billy/say":
+    if topic == "billy/say":
         logger.info(f"Received SAY command: {msg.payload.decode()}", "📩")
 
         import asyncio
@@ -602,6 +732,18 @@ def on_message(client, userdata, msg):
                 if interactive is None:
                     is_prompt = text.startswith("{{") and text.endswith("}}")
                     interactive = None if is_prompt else False
+
+                from .devices import device_handles_say
+
+                is_prompt = text.startswith("{{") and text.endswith("}}")
+                opening = {
+                    "text": text[2:-2].strip() if is_prompt else text,
+                    "kind": "prompt" if is_prompt else "literal",
+                    "interactive": interactive,
+                }
+                if device_handles_say(opening):
+                    logger.info("SAY handed to the device.", "📨")
+                    return
 
                 if not _say_lock.acquire(blocking=False):
                     logger.warning(
@@ -630,7 +772,7 @@ def on_message(client, userdata, msg):
             logger.error(f"Failed to run say(): {e}")
         return
 
-    if msg.topic == "billy/song":
+    if topic == "billy/song":
         logger.info(f"📩 Received SONG command: {msg.payload.decode()}")
         try:
             from .audio import play_song
@@ -644,7 +786,11 @@ def on_message(client, userdata, msg):
             logger.error(f"Failed to run play_song(): {e}")
         return
 
-    if msg.topic == "billy/wakeup/play":
+    if topic == "billy/ringtone/play":
+        _play_ringtone_preview(msg.payload)
+        return
+
+    if topic == "billy/wakeup/play":
         try:
             payload = json.loads(msg.payload.decode() or "{}")
             index = int(payload.get("index", 0))

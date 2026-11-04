@@ -6,6 +6,7 @@ unsupported controls leave the audio connection intact and report a warning.
 """
 
 import asyncio
+import contextlib
 import re
 import threading
 import time
@@ -57,6 +58,15 @@ def _address(route):
 def handle_button(*, ai_active=False):
     """Consume a Bluetooth press without blocking GPIO or an audio thread."""
     global _busy, _paused, _tap
+    from . import ringer
+
+    if ringer.call_ringing():
+        # The phone rings: a press answers it. Billy takes the call over once
+        # it is answered (watcher.py), the same as answering on the phone.
+        ringer.stop()
+        logger.info("Bluetooth button: answering the incoming call.", "📞")
+        answer_call()
+        return True
     state, route, generation = snapshot = mode.snapshot()
     exit_media = False
     with _lock:
@@ -260,8 +270,8 @@ async def _control(snapshot, paused, epoch):
     try:
         await bus.connect()
         if is_call:
-            await _hangup(bus, address, guard)
-            logger.info("Bluetooth button: hang-up requested.", "📞")
+            action = await _hangup(bus, address, guard)
+            logger.info(f"Bluetooth button: {action} requested.", "📞")
             return None
         remembered_player = paused[1] if state == mode.IDLE else None
         action, player = await _toggle_media(bus, address, remembered_player, guard)
@@ -338,25 +348,194 @@ async def _hangup(bus, address, guard):
             "Cannot identify the device for this call in the Telephony service"
         )
     gateway = gateways[0]
-    calls = await _objects(bus, TELEPHONY, gateway)
+    # Calls are listed under the gateway or at the root, depending on the
+    # PipeWire version: _calls() looks in both.
+    calls = {
+        path: state
+        for path, state in (await _calls(bus)).items()
+        if path.startswith(gateway + "/")
+    }
     candidates = [
         path
-        for path, interfaces in calls.items()
-        if path.startswith(gateway + "/")
-        and _value(interfaces.get(CALL, {}), "State")
-        in {"active", "dialing", "alerting"}
+        for path, state in calls.items()
+        if state in {"active", "dialing", "alerting"}
     ]
+    ringing = [path for path, state in calls.items() if state == "incoming"]
+    if not candidates and len(ringing) == 1:
+        # The phone's own ringtone plays through Billy (the call audio is
+        # already open while it rings): this press answers the call.
+        interface = await _interface(bus, TELEPHONY, ringing[0], CALL)
+        _check(guard)
+        await interface.call_answer()
+        return "answer"
     # Never answer/reject a waiting call or end unrelated held calls.
     if len(candidates) != 1:
         raise RuntimeError("No single active phone call to hang up")
-    path = candidates[0]
-    props = await _interface(bus, TELEPHONY, path, PROPERTIES)
-    if (await props.call_get(CALL, "State")).value not in {
-        "active",
-        "dialing",
-        "alerting",
-    }:
-        raise RuntimeError("Call state changed; skipped hang-up")
-    interface = await _interface(bus, TELEPHONY, path, CALL)
+    # The state above is fresh (GetManagedObjects). PipeWire's call objects do
+    # not answer Properties.Get ("No such interface"), so no second read.
+    interface = await _interface(bus, TELEPHONY, candidates[0], CALL)
     _check(guard)
     await interface.call_hangup()
+    return "hang-up"
+
+
+# --- for extension devices (core.devices.DeviceControls) -----------------
+
+
+def end_takeover():
+    """End the Bluetooth takeover the way a person at the device would.
+
+    A call is hung up (a single press); media is paused and left, returning to
+    AI standby (a double press). Returns False when nothing owns the audio.
+    """
+    global _busy
+    state, route, _ = snapshot = mode.snapshot()
+    if state == mode.IDLE or route is None or route[1]:
+        # A call, with or without its audio here: hang it up through the
+        # Telephony service, which finds the call wherever it is listed.
+        states = call_states(timeout=CONTROL_TIMEOUT)
+        if states and set(states) & ACTIVE_CALL_STATES:
+            _telephony_action("hangup", ACTIVE_CALL_STATES)
+            return True
+        if route and route[1]:
+            return handle_button()
+        return False
+    with _lock:
+        if _busy:
+            return True
+        _busy = True
+        paused, epoch = _paused, _epoch
+    threading.Thread(
+        target=_exit_worker,
+        args=(snapshot, paused, epoch),
+        name="bluetooth-end",
+        daemon=True,
+    ).start()
+    return True
+
+
+ACTIVE_CALL_STATES = {"active", "dialing", "alerting", "held"}
+RINGING_CALL_STATES = {"incoming", "waiting"}
+
+
+async def _calls(bus):
+    """{call path: state} of every paired phone (Telephony service)."""
+    objects = await _objects(bus, TELEPHONY, TELEPHONY_ROOT)
+    found = dict(objects)
+    for path, interfaces in objects.items():
+        if GATEWAY in interfaces:
+            with contextlib.suppress(Exception):
+                found.update(await _objects(bus, TELEPHONY, path))
+    return {
+        path: _value(interfaces[CALL], "State")
+        for path, interfaces in found.items()
+        if CALL in interfaces
+    }
+
+
+def call_states(timeout=1.0):
+    """The states of the paired phones' calls ("incoming", "active", ...).
+
+    From PipeWire's Telephony service, so a ringing call is known before (or
+    without) any call audio. None when the service is not there.
+    """
+    try:
+        from dbus_next.aio import MessageBus
+    except ImportError:
+        return None
+
+    async def query():
+        bus = MessageBus(bus_address=pipewire_env()["DBUS_SESSION_BUS_ADDRESS"])
+        await bus.connect()
+        try:
+            return list((await _calls(bus)).values())
+        finally:
+            bus.disconnect()
+
+    try:
+        return asyncio.run(asyncio.wait_for(query(), timeout))
+    except Exception:
+        return None
+
+
+def phone_connected(timeout=1.0):
+    """True when a paired phone offers calls (a Telephony audio gateway)."""
+    try:
+        from dbus_next.aio import MessageBus
+    except ImportError:
+        return False
+
+    async def query():
+        bus = MessageBus(bus_address=pipewire_env()["DBUS_SESSION_BUS_ADDRESS"])
+        await bus.connect()
+        try:
+            objects = await _objects(bus, TELEPHONY, TELEPHONY_ROOT)
+            return any(GATEWAY in interfaces for interfaces in objects.values())
+        finally:
+            bus.disconnect()
+
+    try:
+        return bool(asyncio.run(asyncio.wait_for(query(), timeout)))
+    except Exception:
+        return False
+
+
+def dial(number):
+    """Make the paired phone call ``number`` (Telephony AudioGateway1.Dial)."""
+    from dbus_next.aio import MessageBus
+
+    async def run():
+        bus = MessageBus(bus_address=pipewire_env()["DBUS_SESSION_BUS_ADDRESS"])
+        try:
+            await bus.connect()
+            objects = await _objects(bus, TELEPHONY, TELEPHONY_ROOT)
+            gateways = [p for p, i in objects.items() if GATEWAY in i]
+            if len(gateways) != 1:
+                raise RuntimeError("No single paired phone to call from")
+            gateway = await _interface(bus, TELEPHONY, gateways[0], GATEWAY)
+            await gateway.call_dial(number)
+        finally:
+            bus.disconnect()
+
+    def worker():
+        try:
+            asyncio.run(asyncio.wait_for(run(), timeout=CONTROL_TIMEOUT))
+            logger.info("Bluetooth: the paired phone is dialling.", "📞")
+        except Exception as exc:
+            logger.warning(f"Could not dial through the paired phone: {exc}")
+
+    threading.Thread(target=worker, name="bluetooth-dial", daemon=True).start()
+    return True
+
+
+def answer_call():
+    """Answer the one ringing call of a paired phone (Telephony)."""
+    return _telephony_action("answer", RINGING_CALL_STATES)
+
+
+def _telephony_action(action, states):
+    from dbus_next.aio import MessageBus
+
+    async def run():
+        bus = MessageBus(bus_address=pipewire_env()["DBUS_SESSION_BUS_ADDRESS"])
+        try:
+            await bus.connect()
+            matches = [
+                path for path, state in (await _calls(bus)).items() if state in states
+            ]
+            if len(matches) != 1:
+                raise RuntimeError(f"No single call to {action}")
+            interface = await _interface(bus, TELEPHONY, matches[0], CALL)
+            await getattr(interface, f"call_{action}")()
+        finally:
+            bus.disconnect()
+
+    def worker():
+        try:
+            asyncio.run(asyncio.wait_for(run(), timeout=CONTROL_TIMEOUT))
+            logger.info(f"Bluetooth call: {action} requested.", "📞")
+        except Exception as exc:
+            logger.warning(f"Could not {action} the Bluetooth call: {exc}")
+
+    threading.Thread(target=worker, name=f"bluetooth-{action}", daemon=True).start()
+    return True

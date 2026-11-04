@@ -30,7 +30,7 @@ def fixture():
 
 def test_individual_scripts_available_in_dependency_order():
     app, html, urls = fixture()
-    assert len(urls) == len(set(urls)) == 26
+    assert len(urls) == len(set(urls)) == 27
     assert urls.index('/static/js/live-captions.js') < urls.index(
         '/static/js/websocket.js'
     )

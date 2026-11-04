@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.8.0] — 2026-11-04
+
+### Added
+
+- **Billy Blitzkopf**: A new persona preset — a theatrical mad German scientist fish. ( using one of the new GPT-live voices )
+- **Voice Documentation Links**: The Voice field in the persona editor has a tooltip that links to the voice list of the selected AI provider (OpenAI Realtime, GPT-Live or xAI); the link follows the provider when you switch. The GPT-Live voice setting links to OpenAI's voice options as well.
+- **Several Billys on One MQTT Broker**: `MQTT_DEVICE_ID` in `.env` sets the topic prefix and Home Assistant device name, so each Billy appears as its own device. The default `billy` keeps the existing topics and entities; `auto` uses the hostname.
+- **Optional Bluetooth Calls Component (Bookworm)**: On Raspberry Pi OS Bookworm, Software → System components offers Bluetooth calls: PipeWire 1.4 and WirePlumber 0.5 from Debian bookworm-backports, for answering calls with Billy's button and Billy's own ringtones without an OS upgrade. It is only installed when you choose Install; it never touches other packages, and the Raspberry Pi restarts to finish.
+- **Design System Documentation**: `docs/design-system.md` describes the web interface's colours, typography and components, and `docs/design-system.html` previews every component.
+- **Groundwork for Other Hardware** (Beta): `BILLY_DEVICE` in `.env` selects the hardware Billy runs on (default `fish`, the Big Mouth Billy Bass). Other hardware can add its own settings, hide settings that do not apply to it and install its own system component under Software; the fish is unchanged.
+- **Ringing for Bluetooth Calls**: While a connected phone rings, Billy rings and his status LED blinks blue; press his button to answer. The ringtone repeats every two seconds until the call is answered, declined or missed. Choose what plays with a three-stop slider in Bluetooth settings (`BLUETOOTH_RINGTONE` in `.env`): silent, Billy's ringtones, or the phone's own ringtone. Billy's ringtones work like the wake-up sounds: generate one in the current persona's voice, upload your own audio file, play, or remove one; each call picks one at random. Five built-in ringtones are included, and Restore Defaults brings back any you removed. Billy the fish only. Answering with the button and Billy's own ringtones need PipeWire 1.4 or newer: included in Raspberry Pi OS Trixie, and available on Bookworm as the optional Bluetooth calls component. Without it the phone's ringtone plays through Billy and calls are answered on the phone, as before.
+
+### Changed
+
+- **Web Interface Styling**: Colours, form fields, buttons, cards, menus and icon sizes now follow one design system across all pages, so settings, personas, profiles, songs and the library look and behave the same.
+- **Device Settings**: The Hardware category is now called Device.
+- **Interruption Settings**: Interruption sensitivity sits above the interruption toggle, and the toggle's tooltip explains what it does with GPT-Live (the microphone stays open while Billy talks).
+- **Bluetooth Settings Layout**: Bluetooth settings show your devices and the new ringtones as two separate cards.
+- **Notifications Above Dialogs**: Notifications now appear on top of an open dialog instead of behind it.
+
+### Fixed
+
+- **Bluetooth on Newer Raspberry Pi OS**: Media playback and calls failed straight away on Raspberry Pi OS Trixie (PipeWire 1.4) with "sndfile: failed to open audio file". Billy now detects the newer PipeWire and streams the audio correctly; Bookworm works as before.
+- **Ringing Bluetooth Calls**: An incoming call that is still ringing no longer takes the audio over from the assistant; Billy switches over once the call is answered. With the phone's own ringtone chosen, Billy plays it while the call rings.
+- **Hanging Up Bluetooth Calls**: Ending a call failed on some phones ("No single active phone call") because their calls were listed under the phone instead of at the top level. Billy now finds the call either way.
+- **Audio Device Selection**: A device whose name matches the configured microphone or speaker exactly is now preferred over another device whose name merely contains it.
+- **Speaker Test**: The speaker test stayed silent for speakers that are configured by ALSA device name instead of card number.
+- **Answering Bluetooth Calls with the Button**: Pressing Billy's button while the phone rang tried to resume earlier paused music instead ("Bluetooth button: No such interface"). The button now answers the call.
+- **Settings Navigation**: Choosing a settings category while the page was still loading sometimes reloaded the whole page. Categories now always switch in place, also when loading part of the settings fails.
+
+---
+
 ## [2.7.0] — 2026-10-27
 
 ### Added

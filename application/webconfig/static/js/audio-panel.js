@@ -109,6 +109,13 @@ const AudioPanel = (() => {
             .catch(error => console.error("Failed to load speaker volume:", error));
     }
 
+    // A device can need a step before its speaker or microphone works (the
+    // phone rings and the handset has to be lifted): its hint, if any.
+    function announceDeviceAudioTest() {
+        const hint = document.getElementById("section-audio")?.dataset.audioTestHint;
+        if (hint) showNotification(hint, "info", 8000);
+    }
+
     async function handleSpeakerCheck() {
         try {
             const speakerSelect = document.getElementById("SPEAKER_PREFERENCE");
@@ -132,6 +139,7 @@ const AudioPanel = (() => {
                 showNotification("Billy service stopped. Running speaker test...", "success");
             }
             
+            announceDeviceAudioTest();
             await requestJson("/speaker-test", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
@@ -283,6 +291,7 @@ const AudioPanel = (() => {
                     showNotification("Billy service stopped. Starting mic test...", "success");
                 }
                 
+                announceDeviceAudioTest();
                 startMicCheck();
                 btn.classList.add("secondary-action--active");
                 showNotification("Mic check started");
@@ -382,7 +391,7 @@ const AudioPanel = (() => {
             `<span style="color: #34d399;">Current: ${formatRms(currentRms)}</span>`,
             `<span style="color: #67e8f9;">Avg: ${formatRms(averageRms)}</span>`,
             `<span style="color: #ffffff;">Peak: ${formatRms(peakRms)}</span>`,
-        ].join(" <span class=\"text-slate-500\">|</span> ");
+        ].join(" <span class=\"text-zinc-500\">|</span> ");
         if (playBtn) playBtn.disabled = true;
     }
 
@@ -476,6 +485,7 @@ const AudioPanel = (() => {
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
+            announceDeviceAudioTest();
             const result = await requestJson("/mic-record/start", {
                 method: "POST",
                 // This route reports a refusal ("already recording") as its
@@ -510,6 +520,7 @@ const AudioPanel = (() => {
                 await fetch("/stop-billy", {method: "POST"});
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
+            announceDeviceAudioTest();
             const result = await requestJson("/mic-record/play", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
@@ -546,7 +557,7 @@ const AudioPanel = (() => {
         bar.classList.toggle("bg-zinc-500", percentage < thresholdPercent);
         bar.classList.toggle("bg-emerald-500", percentage >= thresholdPercent && percentage < 70);
         bar.classList.toggle("bg-amber-500", percentage >= 70 && percentage < 90);
-        bar.classList.toggle("bg-red-500", percentage >= 90);
+        bar.classList.toggle("bg-rose-500", percentage >= 90);
     }
 
     function updateRollingRmsAverage(rms) {
@@ -734,9 +745,15 @@ const AudioPanel = (() => {
     refreshMicRecordingStatus();
 
     function renderDeviceInfo(data) {
-        for (const [id, value] of [['mic-label', data.mic], ['speaker-label', data.speaker]]) {
+        // A device can name its own microphone/speaker (e.g. "Handset").
+        const names = document.getElementById("section-audio")?.dataset || {};
+        for (const [id, found, own] of [
+            ['mic-label', data.mic, names.micLabel],
+            ['speaker-label', data.speaker, names.speakerLabel],
+        ]) {
             const label = document.getElementById(id);
             if (!label) continue;
+            const value = own && found && !data.error ? own : found;
             label.textContent = value || "Unknown";
             label.parentElement?.classList.toggle("text-emerald-500", Boolean(value && value !== "Unknown" && !data.error));
         }

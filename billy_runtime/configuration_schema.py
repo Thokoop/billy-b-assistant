@@ -62,6 +62,8 @@ ENUMS = {
     'REALTIME_AI_PROVIDER': {'openai', 'xai', 'gpt-live'},
     'BILLY_MODEL': {'modern', 'classic'},
     'BILLY_PINS': {'new', 'legacy'},
+    'MOTORS_ENABLED': {'auto', 'true', 'false'},
+    'BLUETOOTH_RINGTONE': {'billy', 'phone', 'off'},
     'TURN_EAGERNESS': {'low', 'medium', 'high'},
     'WAKE_WORD_BACKEND': {'porcupine', 'openwakeword'},
     'CAMERA_HARDWARE': {'none', 'rpi_camera', 'usb_webcam'},

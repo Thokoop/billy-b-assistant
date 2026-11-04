@@ -116,8 +116,15 @@
             damaged: ['build', 'Repair needed'],
             outdated: ['system_update_alt', 'Update available'],
             configuration_needed: ['build', 'Setup needed'],
+            optional: ['download', 'Not installed (optional)'],
             unknown: ['help_outline', 'Unknown'],
         };
+        // Opt-in components this OS offers (Bluetooth calls on Bookworm): the
+        // row says what it does and carries its own Install button. They are
+        // never required, so a regular update or repair does not install them.
+        const optional = new Map((packages.optional || [])
+            .filter(item => item && typeof item.id === 'string' && typeof item.name === 'string')
+            .map(item => [item.name, item]));
         const rows = [];
         for (const component of components) {
             if (!component || typeof component.name !== 'string' || !component.name) continue;
@@ -143,6 +150,27 @@
             const label = document.createElement('span');
             label.textContent = states[state][1];
             status.append(icon, label);
+            const offer = state === 'optional' ? optional.get(component.name) : null;
+            if (offer) {
+                if (offer.description) {
+                    const description = document.createElement('span');
+                    description.className = 'system-component-version';
+                    description.textContent = offer.description;
+                    name.append(description);
+                }
+                const install = document.createElement('button');
+                install.type = 'button';
+                install.className = 'secondary-action secondary-action--hover--emerald button-small';
+                install.dataset.optionalInstall = offer.id;
+                install.dataset.optionalName = offer.name;
+                install.disabled = softwareBusy;
+                const installIcon = document.createElement('span');
+                installIcon.className = 'material-icons';
+                installIcon.setAttribute('aria-hidden', 'true');
+                installIcon.textContent = 'download';
+                install.append(installIcon, document.createTextNode(' Install'));
+                status.append(install);
+            }
             row.append(name, status);
             rows.push(row);
         }
@@ -183,7 +211,8 @@
     let awaitingNewJob = false;
     let requestDeadline = 0;
     const busyStates = new Set(['queued', 'preparing', 'installing_packages', 'activating', 'validating', 'rolling_back']);
-    const actionButtons = () => [getUpdateBtn(), getSimulateUpdateBtn(), document.getElementById('rollback-software-btn'), document.getElementById('repair-packages-btn')];
+    const actionButtons = () => [getUpdateBtn(), getSimulateUpdateBtn(), document.getElementById('rollback-software-btn'), document.getElementById('repair-packages-btn'),
+        ...document.querySelectorAll('[data-optional-install]')];
 
     async function softwareJson(url, options = {}) {
         const controller = new AbortController();
@@ -245,6 +274,7 @@
             setText('system-packages-action-label', action.label);
             setText('system-packages-action-icon', action.icon);
             renderComponentDetails(packages);
+            bindOptionalComponents();
             const repair = document.getElementById('repair-packages-btn');
             componentAction = packages.repairable ? action.label : '';
             refreshSettingsBadge();
@@ -275,49 +305,64 @@
     function bindSoftwareButton(button, url, confirmation) {
         if (!button || button.dataset.bound === 'true') return;
         button.dataset.bound = 'true';
-        button.addEventListener('click', async () => {
-            if (!softwareStatusKnown) {
-                await pollSoftware();
-                if (!softwareStatusKnown) {
-                    showNotification('Waiting for the software status. Please try again shortly.', 'info');
-                    return;
-                }
-            }
-            if (softwareBusy || submittingSoftware || !confirm(typeof confirmation === 'function' ? confirmation() : confirmation)) return;
-            softwareBusy = true;
-            submittingSoftware = true;
-            awaitingNewJob = true;
-            requestDeadline = Date.now() + 30000;
-            sawSoftwareJob = true;
-            actionButtons().forEach(item => setButtonLoading(item, true));
-            setSoftwareProgress('Preparing Billy…');
-            try { sessionStorage.removeItem('billy:reload_on_ws_reconnect'); } catch (_) { /* Storage may be disabled. */ }
-            try {
-                const data = await softwareJson(url, {method: 'POST', headers: {'X-Billy-Update': '1'}});
-                if (data.job?.id) awaitingNewJob = false;
-                if (data.status === 'up-to-date') {
-                    awaitingNewJob = false;
-                    sawSoftwareJob = false;
-                    softwareBusy = false;
-                    setSoftwareProgress('Already up to date.');
-                    actionButtons().forEach(item => setButtonLoading(item, false));
-                    showNotification('Already up to date.', 'info');
-                }
-            } catch (error) {
-                if (error.name !== 'AbortError' && !(error instanceof TypeError)) {
-                    sawSoftwareJob = false;
-                    awaitingNewJob = false;
-                    softwareBusy = false;
-                    setSoftwareProgress(error.message);
-                    actionButtons().forEach(item => setButtonLoading(item, false));
-                }
-                showNotification(error.name === 'AbortError'
-                    ? 'Checking whether Billy accepted the request…'
-                    : error.message, 'warning');
-            }
-            submittingSoftware = false;
-            await pollSoftware();
+        button.addEventListener('click', () => runSoftwareAction(url, confirmation));
+    }
+
+    // The Install button of an opt-in component row (renderComponentDetails).
+    const bindOptionalComponents = () => {
+        const list = document.getElementById('system-packages-details');
+        if (!list || list.dataset.optionalBound === 'true') return;
+        list.dataset.optionalBound = 'true';
+        list.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-optional-install]');
+            if (!button || button.disabled) return;
+            runSoftwareAction(`/software/optional/${encodeURIComponent(button.dataset.optionalInstall)}`,
+                `Install ${button.dataset.optionalName}? Billy pauses briefly and the Raspberry Pi restarts when it is done. Your settings are kept. Keep the power connected.`);
         });
+    };
+
+    async function runSoftwareAction(url, confirmation) {
+        if (!softwareStatusKnown) {
+            await pollSoftware();
+            if (!softwareStatusKnown) {
+                showNotification('Waiting for the software status. Please try again shortly.', 'info');
+                return;
+            }
+        }
+        if (softwareBusy || submittingSoftware || !confirm(typeof confirmation === 'function' ? confirmation() : confirmation)) return;
+        softwareBusy = true;
+        submittingSoftware = true;
+        awaitingNewJob = true;
+        requestDeadline = Date.now() + 30000;
+        sawSoftwareJob = true;
+        actionButtons().forEach(item => setButtonLoading(item, true));
+        setSoftwareProgress('Preparing Billy…');
+        try { sessionStorage.removeItem('billy:reload_on_ws_reconnect'); } catch (_) { /* Storage may be disabled. */ }
+        try {
+            const data = await softwareJson(url, {method: 'POST', headers: {'X-Billy-Update': '1'}});
+            if (data.job?.id) awaitingNewJob = false;
+            if (data.status === 'up-to-date') {
+                awaitingNewJob = false;
+                sawSoftwareJob = false;
+                softwareBusy = false;
+                setSoftwareProgress('Already up to date.');
+                actionButtons().forEach(item => setButtonLoading(item, false));
+                showNotification('Already up to date.', 'info');
+            }
+        } catch (error) {
+            if (error.name !== 'AbortError' && !(error instanceof TypeError)) {
+                sawSoftwareJob = false;
+                awaitingNewJob = false;
+                softwareBusy = false;
+                setSoftwareProgress(error.message);
+                actionButtons().forEach(item => setButtonLoading(item, false));
+            }
+            showNotification(error.name === 'AbortError'
+                ? 'Checking whether Billy accepted the request…'
+                : error.message, 'warning');
+        }
+        submittingSoftware = false;
+        await pollSoftware();
     }
 
     const bindUpdateButton = () => bindSoftwareButton(getUpdateBtn(), '/update',

@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Billy web UI design system preview</title>
+<!-- Uses the real compiled stylesheet, so this page shows exactly what the UI ships.
+     Rebuild it first (npm run build:css in application/webconfig) if input.css changed. -->
+<link rel="stylesheet" href="../application/webconfig/static/css/styles.css">
+<style>
+  /* Preview chrome only. Nothing here belongs to the design system. */
+  .ds-wrap { max-width: 72rem; margin: 0 auto; padding: 2rem 1rem 6rem; }
+  .ds-intro { color: #a4bac7; font-size: .875rem; max-width: 46rem; line-height: 1.6; }
+  .ds-nav { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: .25rem .75rem; padding: .75rem 1rem; margin: 1.5rem -1rem 2rem;
+            background: color-mix(in oklab, #18181b 70%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid #3f3f46; font-size: .8125rem; }
+  .ds-nav a { color: #a4bac7; text-decoration: none; }
+  .ds-nav a:hover { color: #67e8f9; }
+  .ds-section { scroll-margin-top: 4rem; margin-bottom: 3rem; }
+  .ds-h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: .25rem; }
+  .ds-sub { color: #a4bac7; font-size: .8125rem; margin-bottom: 1rem; }
+  .ds-label { display: flex; align-items: center; gap: .375rem; margin-bottom: .625rem; font-size: .6875rem; font-weight: 600;
+              letter-spacing: .06em; text-transform: uppercase; color: #6ee7b7; }
+  .ds-label--dev { color: #fcd34d; }
+    .ds-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+  .ds-row { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+  .ds-note { margin-top: .625rem; font-size: .75rem; color: #a4bac7; line-height: 1.5; }
+  .ds-note code, .ds-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .75rem; color: #e2e8f0; }
+  .ds-code { display: block; margin-top: .75rem; padding: .625rem .75rem; border-radius: .5rem; background: #0009; overflow-x: auto; white-space: pre; color: #cbd5e1; }
+  .ds-swatches { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); }
+  .ds-swatch { border: 1px solid #3f3f46; border-radius: .5rem; overflow: hidden; background: #18181b99; }
+  .ds-swatch-chip { height: 3.5rem; }
+  .ds-swatch-meta { padding: .5rem .625rem; font-size: .75rem; line-height: 1.4; }
+  .ds-swatch-meta b { display: block; font-weight: 600; color: #fff; }
+  .ds-swatch-meta span { color: #a4bac7; font-family: ui-monospace, monospace; font-size: .6875rem; }
+  .ds-scale-row { display: flex; align-items: baseline; gap: 1rem; padding: .5rem 0; border-top: 1px solid #ffffff12; }
+  .ds-scale-row:first-child { border-top: 0; }
+  .ds-scale-row > code { flex: 0 0 9rem; font-family: ui-monospace, monospace; font-size: .75rem; color: #a4bac7; }
+  .ds-box { width: 4.5rem; height: 3rem; background: #27272a; border: 1px solid #52525b; display: grid; place-items: center; font-size: .6875rem; color: #a4bac7; }
+  .ds-pad { display: inline-block; background: #10b98140; }
+  .ds-pad > div { background: #27272a; width: 2rem; height: 1.5rem; }
+  .ds-dev { position: relative; outline: 1px dashed #fbbf2466; outline-offset: 6px; border-radius: .25rem; }
+  .ds-surface { height: 5rem; border-radius: .5rem; display: grid; place-items: center; font-size: .75rem; color: #e2e8f0; }
+</style>
+</head>
+<body class="text-white font-sans">
+<div class="ds-wrap">
+
+  <h1 class="text-2xl" style="font-weight:650">Web UI design system</h1>
+  <p class="ds-intro mt-2">
+    Live preview of <code class="ds-code" style="display:inline;padding:0;background:none">docs/design-system.md</code>, rendered with the
+    compiled <code class="ds-code" style="display:inline;padding:0;background:none">styles.css</code>.
+    <span style="color:#6ee7b7">Canonical</span> is the default for new work.
+    <span style="color:#fcd34d">Exception</span> is a deliberate difference, with its reason in the document; dashed outlines mark them.
+  </p>
+
+  <nav class="ds-nav" aria-label="Sections">
+    <a href="#colour">Colour</a><a href="#type">Typography</a><a href="#radius">Radius &amp; spacing</a>
+    <a href="#elevation">Elevation</a><a href="#focus">Focus</a><a href="#cards">Cards</a><a href="#buttons">Buttons</a>
+    <a href="#fields">Fields</a><a href="#help">Help</a><a href="#toggle">Toggle &amp; slider</a>
+    <a href="#selection">Selection card</a><a href="#badges">Badges</a><a href="#notify">Notifications</a>
+    <a href="#modal">Modal</a><a href="#menus">Menus</a><a href="#lists">Lists</a>
+  </nav>
+
+  <!-- ============ Colour ============ -->
+  <section id="colour" class="ds-section">
+    <h2 class="ds-h2">Colour</h2>
+    <p class="ds-sub">Four accents, each with one fixed meaning. Zinc greys for surfaces.</p>
+
+    <div class="ds-label">Accent roles</div>
+    <div class="ds-swatches mb-6">
+      <div class="ds-swatch"><div class="ds-swatch-chip" style="background:#059669"></div><div class="ds-swatch-meta"><b>Emerald: positive</b><span>600 #059669 · 400 #34d399</span></div></div>
+      <div class="ds-swatch"><div class="ds-swatch-chip" style="background:#06b6d4"></div><div class="ds-swatch-meta"><b>Cyan: info / focus</b><span>500 #06b6d4 · 300 #67e8f9</span></div></div>
+      <div class="ds-swatch"><div class="ds-swatch-chip" style="background:#d97706"></div><div class="ds-swatch-meta"><b>Amber: maintenance</b><span>600 #d97706 · 400 #fbbf24</span></div></div>
+      <div class="ds-swatch"><div class="ds-swatch-chip" style="background:#e11d48"></div><div class="ds-swatch-meta"><b>Rose: destructive</b><span>600 #e11d48 · 400 #fb7185</span></div></div>
+    </div>
+
+    <div class="ds-label">Surfaces</div>
+    <div class="ds-grid mb-6" style="grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))">
+      <div><div class="ds-surface bg-black/70 backdrop-blur-sm">overlay</div><p class="ds-note"><code>bg-black/70</code></p></div>
+      <div><div class="ds-surface bg-zinc-900/50 backdrop-blur-xs border border-zinc-700">card</div><p class="ds-note"><code>bg-zinc-900/50</code> + blur</p></div>
+      <div><div class="ds-surface bg-zinc-900/40 border border-zinc-700">inset</div><p class="ds-note"><code>bg-zinc-900/40</code></p></div>
+      <div><div class="ds-surface bg-zinc-800">field</div><p class="ds-note"><code>bg-zinc-800</code></p></div>
+      <div><div class="ds-surface bg-zinc-700">raised</div><p class="ds-note"><code>bg-zinc-700</code></p></div>
+      <div><div class="ds-surface" style="background:rgba(255,255,255,.08)">hover</div><p class="ds-note"><code>white/8</code></p></div>
+    </div>
+
+    <div class="ds-grid">
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Text: canonical</div>
+        <p class="text-white text-sm">text-white: headings, values</p>
+        <p class="text-zinc-300 text-sm mt-1">text-zinc-300: labels</p>
+        <p class="text-zinc-200 text-sm mt-1">text-zinc-200: values, section headings</p>
+        <p class="text-zinc-400 text-sm mt-1">text-zinc-400: hints, secondary</p>
+        <p class="text-zinc-500 text-sm mt-1">text-zinc-500: meta</p>
+      </div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Tokens (component CSS)</div>
+        <p class="text-sm" style="color:var(--color-ink)">--color-ink: light text</p>
+        <p class="text-sm mt-1" style="color:var(--color-ink-muted)">--color-ink-muted: muted text (= zinc-400)</p>
+        <p class="text-sm mt-1" style="color:var(--color-focus)">--color-focus: focus outline</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Typography ============ -->
+  <section id="type" class="ds-section">
+    <h2 class="ds-h2">Typography</h2>
+    <p class="ds-sub">System sans. <code class="ds-note">text-sm</code> is the default UI size (229 uses).</p>
+    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+      <div class="ds-scale-row"><code>settings-panel-title</code><span class="settings-panel-title" style="margin:0"><span class="material-icons" aria-hidden="true">tune</span>Settings category</span></div>
+      <div class="ds-scale-row"><code>text-xl</code><span class="text-xl">Settings menu title, icon-button icons</span></div>
+      <div class="ds-scale-row"><code>text-lg</code><span class="text-lg">Card, section and modal headings</span></div>
+      <div class="ds-scale-row"><code>text-base</code><span class="text-base">Captions, header name</span></div>
+      <div class="ds-scale-row"><code>text-sm</code><span class="text-sm">Labels, inputs, buttons and body copy</span></div>
+      <div class="ds-scale-row"><code>text-xs</code><span class="text-xs text-zinc-400">Hints, badges, meta, nav labels</span></div>
+      <div class="ds-scale-row"><code>group label</code><span style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#b5c9d1">Settings group</span></div>
+      <div class="ds-scale-row"><code>font-mono</code><span class="font-mono text-sm">OPENAI_MODEL=gpt-realtime</span></div>
+    </div>
+  </section>
+
+  <!-- ============ Radius & spacing ============ -->
+  <section id="radius" class="ds-section">
+    <h2 class="ds-h2">Radius &amp; spacing</h2>
+    <p class="ds-sub">Tailwind's 4px spacing scale. Five radius steps, nothing else.</p>
+    <div class="ds-grid">
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Radius</div>
+        <div class="ds-row">
+          <div class="ds-box" style="border-radius:4px">4 field</div>
+          <div class="ds-box" style="border-radius:8px">8 card</div>
+          <div class="ds-box" style="border-radius:10px">10 action</div>
+          <div class="ds-box" style="border-radius:12px">12 large</div>
+          <div class="ds-box" style="border-radius:999px">pill</div>
+        </div>
+      </div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Spacing in use</div>
+        <div class="ds-scale-row"><code>gap-2 · 8px</code><span class="text-sm">Default gap (102 uses)</span></div>
+        <div class="ds-scale-row"><code>gap-3 · 12px</code><span class="text-sm">Between groups</span></div>
+        <div class="ds-scale-row"><code>gap-4 · 16px</code><span class="text-sm">Form columns</span></div>
+        <div class="ds-scale-row"><code>p-3 · 12px</code><span class="text-sm">Input padding</span></div>
+        <div class="ds-scale-row"><code>p-4 · 16px</code><span class="text-sm">Card padding, <code class="ds-note">mb-4</code> between cards</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ds-section">
+    <h2 class="ds-h2">Footer dock</h2>
+    <p class="ds-sub">24px dock, 16px items: rounded, not a pill. Concentric with the 8px padding.</p>
+    <div class="inline-flex items-center gap-2 rounded-3xl border border-white/20 bg-zinc-800/45 p-2 backdrop-blur-md">
+      <span class="flex flex-col items-center gap-2 rounded-2xl py-3 px-5 min-w-28 bg-white/12 !text-emerald-400"><span class="material-icons text-3xl">set_meal</span><span class="text-xs">Personas</span></span>
+      <span class="flex flex-col items-center gap-2 rounded-2xl py-3 px-5 min-w-28"><span class="material-icons text-3xl">person</span><span class="text-xs">Profiles</span></span>
+    </div>
+  </section>
+
+  <!-- ============ Elevation ============ -->
+  <section id="elevation" class="ds-section">
+    <h2 class="ds-h2">Elevation &amp; glass</h2>
+    <div class="ds-grid">
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg"><div class="ds-label">shadow-lg</div><p class="text-sm text-zinc-400">Cards and sections</p></div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-2xl"><div class="ds-label">shadow-2xl</div><p class="text-sm text-zinc-400">Modals and sticky panels</p></div>
+      <div class="settings-save-bar" style="position:static"><span id="settings-save-status" class="has-changes">Unsaved changes</span><button type="button" class="primary-action bg-emerald-600 text-white">Save</button></div>
+    </div>
+  </section>
+
+  <!-- ============ Focus ============ -->
+  <section id="focus" class="ds-section">
+    <h2 class="ds-h2">Focus</h2>
+    <p class="ds-sub">Press Tab to see focus states. Components use a cyan outline; fields use a cyan ring.</p>
+    <div class="ds-row">
+      <button type="button" class="secondary-action secondary-action--hover--cyan">Focus me (outline)</button>
+      <input class="field" style="width:16rem" placeholder="Field (ring)">
+    </div>
+  </section>
+
+  <!-- ============ Cards ============ -->
+  <section id="cards" class="ds-section">
+    <h2 class="ds-h2">Card &amp; section</h2>
+    <div class="ds-grid">
+      <div>
+        <div class="ds-label">Sections panel: separate cards, never nested</div>
+        <div class="space-y-4">
+          <section class="card">
+            <h4 class="card-title mb-1">Outgoing calls</h4>
+            <p class="text-xs text-zinc-400 mb-4">One line on what this group does.</p>
+            <label class="block text-sm text-zinc-300" for="ds-c1">When the handset is lifted</label>
+            <select id="ds-c1" class="field mt-1"><option>Auto-dial</option></select>
+            <div class="card-divider">
+              <p class="text-sm">Subgroup after a .card-divider: no extra background.</p>
+            </div>
+          </section>
+          <section class="card">
+            <h4 class="card-title mb-1">Incoming calls</h4>
+            <p class="text-xs text-zinc-400">A second, separate card.</p>
+          </section>
+        </div>
+      </div>
+      <div>
+        <div class="ds-label">Collapsible section (click the heading)</div>
+        <section class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 collapsible-section p-4 rounded-lg shadow-lg" data-ds-collapsible>
+          <h3 class="cursor-pointer flex gap-2 group grow hover:text-emerald-400 items-center justify-between mb-4 text-lg text-zinc-200 transition-colors">
+            <span>Collapsible section</span><span class="material-icons" aria-hidden="true">expand_less</span>
+          </h3>
+          <p class="text-sm text-zinc-400">Everything except the h3 hides while collapsed.</p>
+        </section>
+        <div class="ds-label mt-4">Clickable card (hover)</div>
+        <div class="card flex flex-row justify-between gap-3 hover:border-rose-400 hover:bg-rose-500/20 transition-colors cursor-pointer">
+          <div><div class="text-white text-sm">Recovery &amp; reset</div><div class="text-xs text-zinc-400 my-1">Repair software or reset selected settings</div></div>
+        </div>
+        <div class="ds-label mt-4">List row</div>
+        <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700"><p class="text-sm">Likes pirate jokes</p><p class="text-xs text-zinc-400 mt-1">Preference · high</p></div>
+        <div class="ds-label mt-4">List rows with actions (ringtones)</div>
+        <div class="space-y-2">
+          <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+            <div class="flex items-center gap-2">
+              <input type="text" class="field flex-1 min-w-0" value="Classic bell" readonly aria-label="Built-in ringtone">
+              <span class="w-11 shrink-0" aria-hidden="true"></span>
+              <button type="button" class="secondary-action secondary-action--hover--cyan button-icon shrink-0" aria-label="Upload"><span class="material-icons" aria-hidden="true">upload_file</span></button>
+              <button type="button" class="secondary-action secondary-action--hover--emerald button-icon shrink-0" aria-label="Play"><span class="material-icons" aria-hidden="true">play_arrow</span></button>
+              <button type="button" class="secondary-action secondary-action--hover--rose button-icon shrink-0" aria-label="Remove"><span class="material-icons" aria-hidden="true">delete</span></button>
+            </div>
+          </div>
+          <div class="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+            <div class="flex items-center gap-2">
+              <input type="text" class="field flex-1 min-w-0" placeholder="What should the ringtone say?" aria-label="Ringtone text">
+              <button type="button" class="secondary-action secondary-action--hover--cyan button-icon shrink-0" aria-label="Generate"><span class="material-icons" aria-hidden="true">auto_fix_high</span></button>
+              <button type="button" class="secondary-action secondary-action--hover--cyan button-icon shrink-0" aria-label="Upload"><span class="material-icons" aria-hidden="true">upload_file</span></button>
+              <span class="w-11 shrink-0" aria-hidden="true"></span>
+              <button type="button" class="secondary-action secondary-action--hover--rose button-icon shrink-0" aria-label="Remove"><span class="material-icons" aria-hidden="true">delete</span></button>
+            </div>
+            <p class="text-xs text-amber-300 mt-1">No audio yet: generate or upload it.</p>
+          </div>
+        </div>
+        <p class="ds-note">Icon buttons (<code>button-icon</code>); a <code>w-11</code> spacer keeps the columns aligned when a row lacks an action.</p>
+        <div class="ds-label ds-label--dev mt-4">Exception: empty state</div>
+        <div class="flex min-h-[18rem] items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 px-6 text-center text-zinc-400 ds-dev" style="min-height:5rem">No custom songs yet</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Buttons ============ -->
+  <section id="buttons" class="ds-section">
+    <h2 class="ds-h2">Buttons</h2>
+    <p class="ds-sub">One size rule: 44px high, 10px radius, 14px / 500. Hover the secondary buttons for their tone.</p>
+    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+      <div class="ds-label">Filled</div>
+      <div class="ds-row mb-6">
+        <button type="button" class="primary-action bg-emerald-600 text-white"><span class="material-icons" aria-hidden="true">save</span>Primary</button>
+        <button type="button" class="primary-action bg-amber-600 text-white"><span class="material-icons" aria-hidden="true">build</span>Warning</button>
+        <button type="button" class="primary-action bg-rose-600 text-white"><span class="material-icons" aria-hidden="true">delete</span>Destructive</button>
+        <button type="button" class="primary-action bg-emerald-600 text-white" disabled>Disabled</button>
+      </div>
+      <div class="ds-label">Secondary tones</div>
+      <div class="ds-row mb-6">
+        <button type="button" class="secondary-action secondary-action--hover--cyan">Default (cyan)</button>
+        <button type="button" class="secondary-action secondary-action--hover--emerald"><span class="material-icons" aria-hidden="true">add</span>Positive</button>
+        <button type="button" class="secondary-action secondary-action--hover--amber"><span class="material-icons" aria-hidden="true">bug_report</span>Warning</button>
+        <button type="button" class="secondary-action secondary-action--hover--rose"><span class="material-icons" aria-hidden="true">link_off</span>Destructive</button>
+        <button type="button" class="secondary-action secondary-action--active">Active</button>
+        <button type="button" class="secondary-action secondary-action--active-cyan">Active cyan</button>
+      </div>
+      <div class="ds-label">Modifiers</div>
+      <div class="ds-row">
+        <button type="button" class="secondary-action secondary-action--hover--cyan button-small">Small</button>
+        <button type="button" class="secondary-action secondary-action--hover--cyan button-icon" aria-label="Refresh"><span class="material-icons" aria-hidden="true">refresh</span></button>
+        <button type="button" class="secondary-action secondary-action--hover--cyan button-icon button-small" aria-label="Edit"><span class="material-icons" aria-hidden="true">edit</span></button>
+        <button type="button" class="secondary-action secondary-action--hover--rose button-reveal button-reveal--wide"><span class="material-icons" aria-hidden="true">restart_alt</span><span class="button-reveal-label">Reveal label</span></button>
+        <span class="text-xs text-zinc-400">← hover 1s (desktop) or Tab</span>
+      </div>
+    </div>
+
+    <div class="ds-grid mt-4">
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Solid tones: running state</div>
+        <div class="ds-row">
+          <button type="button" class="secondary-action secondary-action--emerald secondary-action--hover--emerald"><span class="material-icons" aria-hidden="true">play_arrow</span>Start</button>
+          <button type="button" class="secondary-action secondary-action--rose"><span class="material-icons" aria-hidden="true">stop</span>Recording</button>
+        </div>
+      </div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Split action (click the chevron)</div>
+        <div class="relative inline-block">
+          <div class="split-action">
+            <button type="button" class="primary-action bg-emerald-600 text-white"><span class="material-icons" aria-hidden="true">save</span>Save settings</button>
+            <button type="button" class="primary-action bg-emerald-600 text-white button-icon dropdown-toggle" aria-label="More options" data-ds-menu><span class="material-icons" aria-hidden="true">expand_more</span></button>
+          </div>
+          <div class="dropdown-menu menu-panel absolute bottom-full right-0 mb-1 w-full z-20 hidden">
+            <button type="button" class="secondary-action secondary-action--hover--cyan"><span class="material-icons" aria-hidden="true">file_download</span>Export settings</button>
+            <button type="button" class="secondary-action secondary-action--hover--cyan"><span class="material-icons" aria-hidden="true">file_upload</span>Import settings</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Fields ============ -->
+  <section id="fields" class="ds-section">
+    <h2 class="ds-h2">Form fields</h2>
+    <div class="ds-grid">
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Canonical</div>
+        <div class="api-settings-grid">
+          <div>
+            <label for="ds-name" class="block text-sm text-zinc-300">Name</label>
+            <input id="ds-name" class="field mt-1" value="Billy">
+            <p class="mt-1 text-xs text-zinc-400">Hint text below a field.</p>
+          </div>
+          <div>
+            <label for="ds-model" class="block text-sm text-zinc-300">Model</label>
+            <select id="ds-model" class="field mt-1">
+              <option>gpt-realtime-2.1-mini</option><option>gpt-realtime-2.1</option>
+            </select>
+          </div>
+        </div>
+        <div class="mt-4">
+          <label for="ds-key" class="block text-sm text-zinc-300">API key</label>
+          <div class="relative">
+            <input id="ds-key" type="password" class="field mt-1 pr-10" value="sk-example">
+            <button type="button" class="input-reveal-button absolute text-zinc-400" style="right:.5rem;top:calc(50% + .125rem);transform:translateY(-50%) hover:text-white" aria-label="Show key" data-ds-reveal="ds-key">
+              <span class="material-icons" aria-hidden="true">visibility</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Read-only value</div>
+        <div class="field-static">billy-living-room</div>
+        <div class="ds-label mt-4">Compact field (toolbars)</div>
+        <div class="ds-row">
+          <label class="text-sm text-zinc-200" for="ds-level">Log level:</label>
+          <select id="ds-level" class="field field--compact"><option>INFO</option><option>DEBUG</option></select>
+        </div>
+        <div class="ds-label ds-label--dev mt-4">Exception: .env editor</div>
+        <textarea class="field text-amber-500 font-mono resize-none border border-amber-600 ds-dev" rows="2">KEY=value</textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Help ============ -->
+  <section id="help" class="ds-section">
+    <h2 class="ds-h2">Help: tooltip &amp; inline help</h2>
+    <div class="ds-grid">
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg" style="position:relative">
+        <div class="ds-label">Tooltip (most common, 38 triggers)</div>
+        <label class="flex justify-between items-center text-sm text-zinc-300 relative">
+          Voice interruption
+          <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1" data-ds-tooltip>help_outline</span>
+          <div data-tooltip>Lets you speak while Billy is talking. Short, plain text only.</div>
+        </label>
+      </div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-lg settings-card" style="padding:0">
+        <div class="settings-select-row">
+          <span class="settings-select-label"><span class="material-icons" aria-hidden="true">sell</span>Update channel</span>
+          <div class="settings-select-controls">
+            <details class="settings-inline-help settings-warning-help">
+              <summary aria-label="About beta"><span class="material-icons" aria-hidden="true">warning_amber</span></summary>
+              <div class="settings-help-panel text-sm"><strong>Beta</strong> builds update more often and may be unstable.</div>
+            </details>
+            <select class="settings-select field"><option>Stable</option><option>Beta</option></select>
+          </div>
+        </div>
+        <p class="ds-note" style="padding:0 .75rem .75rem">Inline help: for longer text, links or warnings.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Toggle & slider ============ -->
+  <section id="toggle" class="ds-section">
+    <h2 class="ds-h2">Toggle &amp; slider</h2>
+    <div class="ds-grid">
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Toggle (.wf-toggle)</div>
+        <div class="api-settings-grid" style="gap:.75rem">
+        <div class="api-toggle-setting">
+          <label class="flex items-center text-sm text-zinc-300">Web search</label>
+          <div class="api-toggle-control"><label class="wf-toggle"><input type="checkbox" aria-label="Web search" checked><span class="wf-toggle-track"><span class="wf-toggle-thumb"></span></span></label></div>
+        </div>
+        <div class="api-toggle-setting">
+          <label class="flex items-center text-sm text-zinc-300">Auto-connect</label>
+          <div class="api-toggle-control"><label class="wf-toggle"><input type="checkbox" aria-label="Auto-connect"><span class="wf-toggle-track"><span class="wf-toggle-thumb"></span></span></label></div>
+        </div>
+        </div>
+        <p class="ds-note">Bluetooth device rows use a compact 34×20px version.</p>
+      </div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Value slider</div>
+        <div class="relative w-full rounded-full bg-zinc-700 overflow-hidden cursor-pointer h-4" data-ds-slider>
+          <div class="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-100" style="width:60%"></div>
+        </div>
+        <div class="ds-label mt-4">Stepped control</div>
+        <div class="settings-step-control">
+          <div class="settings-step-bar" tabindex="0" role="slider" aria-valuetext="Stable">
+            <div class="settings-step-fill" style="width:50%"></div>
+            <div class="settings-step-dots"><span class="settings-step-dot" style="left:calc(50% - .25rem);transform:translateY(-50%)"></span></div>
+          </div>
+          <div class="settings-step-label">Stable</div>
+        </div>
+        <div class="ds-label mt-4">Stepped control, three stops (Ringtones)</div>
+        <div class="settings-step-control">
+          <div class="settings-step-bar" tabindex="0" role="slider" aria-valuetext="Billy's ringtones">
+            <div class="settings-step-fill" style="width:50%"></div>
+            <div class="settings-step-dots">
+              <span class="settings-step-dot" style="left:calc(0% + 8px);transform:translate(-50%,-50%)"></span>
+              <span class="settings-step-dot" style="left:calc(50% + 0px);transform:translate(-50%,-50%)"></span>
+              <span class="settings-step-dot" style="left:calc(100% - 8px);transform:translate(-50%,-50%)"></span>
+            </div>
+          </div>
+          <div class="settings-step-label">Billy's ringtones</div>
+        </div>
+        <div class="ds-label mt-4">Native range</div>
+        <input type="range" class="w-full" style="-webkit-appearance:none;appearance:none;background:transparent" value="40">
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Selection card ============ -->
+  <section id="selection" class="ds-section">
+    <h2 class="ds-h2">Selection card</h2>
+    <p class="ds-sub">Shared by songs, personas, profiles and Bluetooth devices. Click to select.</p>
+    <div class="ds-grid" data-ds-select>
+      <div class="selection-card p-3" data-selected="true">
+        <button type="button" class="selection-card-trigger w-full"><span class="block text-sm text-white">Default persona</span><span class="block text-xs text-zinc-400">Selected</span></button>
+      </div>
+      <div class="selection-card p-3 flex items-center justify-between gap-3">
+        <button type="button" class="selection-card-trigger"><span class="block text-sm text-white">Pirate</span><span class="block text-xs text-zinc-400">Click to select</span></button>
+        <div class="selection-card-actions"><button type="button" class="secondary-action secondary-action--hover--rose button-icon button-small" aria-label="Delete"><span class="material-icons" aria-hidden="true">delete</span></button></div>
+      </div>
+      <div class="selection-card p-3"><button type="button" class="selection-card-trigger w-full" disabled><span class="block text-sm text-zinc-500">Unavailable</span><span class="block text-xs text-zinc-500">Disabled trigger</span></button></div>
+    </div>
+  </section>
+
+  <!-- ============ Badges ============ -->
+  <section id="badges" class="ds-section">
+    <h2 class="ds-h2">Status badge &amp; info panel</h2>
+    <p class="ds-sub">Click a badge. A new kind is one <code class="ds-note">--badge-rgb</code> value.</p>
+    <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+      <div class="ds-row">
+        <button type="button" class="status-badge status-badge--beta" data-disclosure-target="ds-beta-info" aria-expanded="false"><span>Beta</span><span class="material-icons" aria-hidden="true">expand_more</span></button>
+        <button type="button" class="status-badge status-badge--deprecated" data-disclosure-target="ds-dep-info" aria-expanded="false"><span>Deprecated</span><span class="material-icons" aria-hidden="true">expand_more</span></button>
+        <button type="button" class="status-badge status-badge--update" data-disclosure-target="ds-upd-info" aria-expanded="false"><span>Update</span><span class="material-icons" aria-hidden="true">expand_more</span></button>
+      </div>
+      <div id="ds-beta-info" class="status-badge-info status-badge--beta" data-disclosure-panel hidden><strong>Beta.</strong> This feature may change between releases.</div>
+      <div id="ds-dep-info" class="status-badge-info status-badge--deprecated" data-disclosure-panel hidden><strong>Deprecated.</strong> Will be removed in a later release.</div>
+      <div id="ds-upd-info" class="status-badge-info status-badge--update" data-disclosure-panel hidden><strong>Update available.</strong> <a href="#badges">Release notes</a></div>
+      <div class="ds-label mt-4">Related indicators</div>
+      <div class="ds-row">
+        <span class="settings-dirty-dot" style="display:inline-block"></span><span class="text-xs text-zinc-400">unsaved</span>
+        <span class="settings-update-dot" style="display:inline-flex">1</span><span class="text-xs text-zinc-400">update count</span>
+        <span class="billy-status-dot" style="display:inline-block;background:#34d399"></span><span class="text-xs text-zinc-400">status dot</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Notifications ============ -->
+  <section id="notify" class="ds-section">
+    <h2 class="ds-h2">Notification bar</h2>
+    <p class="ds-sub"><code class="ds-note">showNotification(message, type)</code>, shown full width at the top of the page.</p>
+    <div class="flex flex-col gap-2">
+      <div class="px-4 py-2 text-center text-white shadow-lg bg-cyan-500/80 rounded">info</div>
+      <div class="px-4 py-2 text-center text-white shadow-lg bg-emerald-500/80 rounded">success</div>
+      <div class="px-4 py-2 text-center text-white shadow-lg bg-amber-500/80 rounded">warning</div>
+      <div class="px-4 py-2 text-center text-white shadow-lg bg-rose-500/80 rounded">error</div>
+    </div>
+  </section>
+
+  <!-- ============ Modal ============ -->
+  <section id="modal" class="ds-section">
+    <h2 class="ds-h2">Modal</h2>
+    <div class="ds-row">
+      <button type="button" class="secondary-action secondary-action--hover--cyan" data-ds-open="ds-modal">Open canonical modal</button>
+      <button type="button" class="secondary-action secondary-action--hover--cyan" data-ds-open="ds-modal-dev">Open small modal (max-w-md)</button>
+    </div>
+  </section>
+
+  <!-- ============ Menus ============ -->
+  <section id="menus" class="ds-section">
+    <h2 class="ds-h2">Menus</h2>
+    <div class="ds-grid">
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Power menu</div>
+        <div style="position:relative;height:9rem">
+          <div id="power-dropdown" style="position:static;display:block;width:12rem">
+            <button type="button" class="secondary-action secondary-action--hover--amber"><span class="material-icons" aria-hidden="true">restart_alt</span>Restart</button>
+            <button type="button" class="secondary-action secondary-action--hover--rose"><span class="material-icons" aria-hidden="true">power_settings_new</span>Shut down</button>
+          </div>
+        </div>
+      </div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">.dropdown-menu uses the same panel</div>
+        <div class="menu-panel" style="width:12rem">
+          <button type="button" class="secondary-action secondary-action--hover--cyan"><span class="material-icons" aria-hidden="true">save_as</span>Save as</button>
+          <button type="button" class="secondary-action secondary-action--hover--cyan"><span class="material-icons" aria-hidden="true">file_download</span>Download</button>
+          <label class="secondary-action secondary-action--hover--cyan"><span class="material-icons" aria-hidden="true">file_upload</span><span>Upload</span><input type="file" class="hidden"></label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Lists ============ -->
+  <section id="lists" class="ds-section">
+    <h2 class="ds-h2">Lists, rows &amp; stepper</h2>
+    <div class="ds-grid">
+      <div class="system-components-card">
+        <div class="ds-label">Status rows</div>
+        <ul class="system-component-list">
+          <li class="system-component-row"><span class="system-component-name">Audio stack</span><span class="system-component-state" data-state="installed"><span class="material-icons" aria-hidden="true">check_circle</span>Installed</span></li>
+          <li class="system-component-row"><span class="system-component-name">Camera</span><span class="system-component-state" data-state="missing"><span class="material-icons" aria-hidden="true">error_outline</span>Missing</span></li>
+          <li class="system-component-row"><span class="system-component-name">Wake word</span><span class="system-component-state" data-state="outdated"><span class="material-icons" aria-hidden="true">update</span>Outdated</span></li>
+          <li class="system-component-row"><span class="system-component-name">Bluetooth calls<span class="system-component-version">Opt-in component with its own Install button; never required.</span></span><span class="system-component-state" data-state="optional"><span class="material-icons" aria-hidden="true">download</span>Not installed (optional)<button type="button" class="secondary-action secondary-action--hover--emerald button-small"><span class="material-icons" aria-hidden="true">download</span>Install</button></span></li>
+        </ul>
+      </div>
+      <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg p-4 shadow-lg">
+        <div class="ds-label">Stepper</div>
+        <ol class="wifi-stepper">
+          <li data-done="true"><span class="wifi-stepper-number">1</span>Network</li>
+          <li aria-current="step"><span class="wifi-stepper-number">2</span>Password</li>
+          <li><span class="wifi-stepper-number">3</span>Connect</li>
+        </ol>
+        <div class="ds-label mt-2">Summary</div>
+        <dl class="wifi-summary"><div><dt>Network</dt><dd>Home</dd></div><div><dt>Security</dt><dd>WPA2</dd></div></dl>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Modals -->
+<div id="ds-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden">
+  <div class="w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl">
+    <div class="p-4">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg text-white">Canonical modal</h3>
+        <button type="button" class="text-zinc-400 hover:text-white" aria-label="Close" data-ds-close><span class="material-icons">close</span></button>
+      </div>
+      <p class="text-sm text-zinc-400 mb-4">Glass panel, border, shadow-2xl, max 90vh with a scrollable body.</p>
+      <label class="block text-sm text-zinc-300" for="ds-modal-field">Field</label>
+      <input id="ds-modal-field" class="field mt-1">
+      <div class="flex justify-end gap-3" style="margin-top:1.5rem">
+        <button type="button" class="secondary-action secondary-action--hover--cyan" data-ds-close>Cancel</button>
+        <button type="button" class="primary-action bg-emerald-600 text-white" data-ds-close>Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="ds-modal-dev" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden">
+  <div class="w-full max-w-md mx-4 p-6 bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="text-lg text-white">Change password</h3>
+      <button type="button" class="text-zinc-400 hover:text-white" aria-label="Close" data-ds-close><span class="material-icons">close</span></button>
+    </div>
+    <label class="block text-sm text-zinc-300" for="ds-pw">New password</label>
+    <input id="ds-pw" type="password" class="field mt-1">
+    <button type="button" style="margin-top:1.5rem" class="primary-action bg-emerald-600 text-white w-full" data-ds-close>Change password</button>
+  </div>
+</div>
+
+<script>
+// Preview behaviour only; the real UI uses ui-helpers.js.
+document.querySelectorAll('[data-ds-collapsible] > h3').forEach(h => h.addEventListener('click', () => {
+  const s = h.parentElement; s.classList.toggle('collapsed');
+  h.querySelector('.material-icons').textContent = s.classList.contains('collapsed') ? 'expand_more' : 'expand_less';
+}));
+document.querySelectorAll('[data-ds-tooltip]').forEach(t => t.addEventListener('click', e => {
+  e.preventDefault(); const tip = t.parentElement.querySelector('[data-tooltip]');
+  tip.dataset.visible = tip.dataset.visible === 'true' ? 'false' : 'true';
+}));
+document.querySelectorAll('[data-disclosure-target]').forEach(b => b.addEventListener('click', () => {
+  const p = document.getElementById(b.dataset.disclosureTarget), open = p.hidden;
+  p.hidden = !open; b.setAttribute('aria-expanded', String(open));
+}));
+document.querySelectorAll('[data-ds-reveal]').forEach(b => b.addEventListener('click', () => {
+  const i = document.getElementById(b.dataset.dsReveal), show = i.type === 'password';
+  i.type = show ? 'text' : 'password'; b.querySelector('.material-icons').textContent = show ? 'visibility_off' : 'visibility';
+}));
+document.querySelectorAll('[data-ds-select] .selection-card-trigger').forEach(t => t.addEventListener('click', () => {
+  if (t.disabled) return;
+  t.closest('[data-ds-select]').querySelectorAll('.selection-card').forEach(c => c.dataset.selected = 'false');
+  t.closest('.selection-card').dataset.selected = 'true';
+}));
+document.querySelectorAll('[data-ds-slider]').forEach(bar => bar.addEventListener('click', e => {
+  const r = bar.getBoundingClientRect(); bar.firstElementChild.style.width = ((e.clientX - r.left) / r.width * 100) + '%';
+}));
+document.querySelectorAll('[data-ds-menu]').forEach(b => b.addEventListener('click', () => {
+  const m = b.closest('.relative').querySelector('.dropdown-menu'); m.classList.toggle('hidden');
+  b.querySelector('.material-icons').classList.toggle('rotate-180');
+}));
+document.querySelectorAll('[data-ds-open]').forEach(b => b.addEventListener('click', () => document.getElementById(b.dataset.dsOpen).classList.remove('hidden')));
+document.querySelectorAll('[data-ds-close]').forEach(b => b.addEventListener('click', () => b.closest('.fixed').classList.add('hidden')));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.fixed.inset-0').forEach(m => m.classList.add('hidden')); });
+</script>
+</body>
+</html>

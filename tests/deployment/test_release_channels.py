@@ -195,6 +195,7 @@ def settings_api(tmp_path, monkeypatch):
             'ENV_PATH': str(path),
             'CONFIG_KEYS': ['UPDATE_CHANNEL', 'SHOW_RC_VERSIONS', 'FLASK_PORT'],
             'BOOLEAN_CONFIG_KEYS': set(),
+            'DEVICE_CONFIG_KEYS': set(),
             'update_channel': policy.update_channel,
             'patch_env': patch_env,
             'ConfigError': ConfigError,

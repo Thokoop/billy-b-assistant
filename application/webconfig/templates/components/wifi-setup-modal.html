@@ -3,7 +3,7 @@
      class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden"
      data-wifi-onboarding-active="{{ 'true' if WIFI_ONBOARDING_ACTIVE else 'false' }}"
      data-wifi-onboarding-mode="{{ config.get('WIFI_ONBOARDING_MODE', 'legacy') }}">
-    <div class="wifi-setup-panel bg-zinc-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="wifi-setup-title">
+    <div class="wifi-setup-panel bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="wifi-setup-title">
         <div class="wifi-setup-header flex justify-between items-center mb-4">
             <h3 id="wifi-setup-title" class="text-lg text-white flex items-center gap-2">
                 <span class="material-icons text-emerald-400">wifi</span>
@@ -43,7 +43,7 @@
                 Choose your Wi-Fi network and save the connection for Billy.
             </p>
             <div class="wifi-step-toolbar">
-                <span class="text-sm text-slate-300">Nearby networks</span>
+                <span class="text-sm text-zinc-300">Nearby networks</span>
                 <button type="button"
                         id="wifi-scan-btn"
                         class="secondary-action secondary-action--hover--cyan button-small">
@@ -56,17 +56,17 @@
             </div>
 
             <div id="wifi-ssid-field" class="wifi-manual-ssid" hidden>
-                <label for="wifi-ssid" class="block text-sm text-slate-300">Network name (SSID)</label>
+                <label for="wifi-ssid" class="block text-sm text-zinc-300">Network name (SSID)</label>
                 <input id="wifi-ssid"
                        type="text"
                        autocomplete="off"
                        autocapitalize="none"
                        spellcheck="false"
                        enterkeyhint="next"
-                       class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                       class="field mt-1"
                        placeholder="My Wi-Fi">
                 <div class="wifi-step-actions">
-                    <button type="button" id="wifi-ssid-next" class="primary-action bg-emerald-600 text-black">
+                    <button type="button" id="wifi-ssid-next" class="primary-action bg-emerald-600 text-white">
                         Next
                         <span class="material-icons" aria-hidden="true">arrow_forward</span>
                     </button>
@@ -74,10 +74,10 @@
             </div>
 
             <div>
-                <label for="wifi-country-modal" class="block text-sm text-slate-300">Wi-Fi country</label>
+                <label for="wifi-country-modal" class="block text-sm text-zinc-300">Wi-Fi country</label>
                 <select id="wifi-country-modal"
                         data-wifi-country-select
-                        class="w-full p-3 mt-1 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        class="field mt-1">
                 {% for code, label in wifi_countries %}
                 <option value="{{ code }}" {% if config.get('WIFI_COUNTRY', 'NL') == code %}selected{% endif %}>
                     {{ label }} ({{ code }})
@@ -97,7 +97,7 @@
                 Password for <span data-wifi-selected-ssid class="break-all"></span>
             </h4>
             <div>
-                <label for="wifi-password" class="block text-sm text-slate-300">Password</label>
+                <label for="wifi-password" class="block text-sm text-zinc-300">Password</label>
                 <div class="relative">
                     <input id="wifi-password"
                            type="password"
@@ -105,12 +105,12 @@
                            autocapitalize="none"
                            spellcheck="false"
                            enterkeyhint="next"
-                           class="w-full p-3 mt-1 pr-10 bg-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                           class="field mt-1 pr-10"
                            placeholder="Wi-Fi password">
                     <button type="button"
                             onclick="toggleInputVisibility('wifi-password', this)"
                             aria-label="Show password"
-                            class="input-reveal-button absolute inset-y-0 right-0 text-slate-400 hover:text-white">
+                            class="input-reveal-button absolute inset-y-0 right-0 text-zinc-400 hover:text-white">
                         <span class="material-icons" id="wifi-password_icon">visibility</span>
                     </button>
                 </div>
@@ -121,7 +121,7 @@
                     <span class="material-icons" aria-hidden="true">arrow_back</span>
                     Back
                 </button>
-                <button type="button" id="wifi-password-next" class="primary-action bg-emerald-600 text-black">
+                <button type="button" id="wifi-password-next" class="primary-action bg-emerald-600 text-white">
                     Next
                     <span class="material-icons" aria-hidden="true">arrow_forward</span>
                 </button>
@@ -143,7 +143,7 @@
                 </button>
                 <button type="button"
                         id="wifi-save-btn"
-                        class="primary-action bg-emerald-600 text-black">
+                        class="primary-action bg-emerald-600 text-white">
                     <span id="wifi-save-icon" class="material-icons text-sm" aria-hidden="true">wifi</span>
                     <span id="wifi-save-label">Connect</span>
                 </button>

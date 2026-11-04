@@ -14,9 +14,9 @@
     {% block main_content %}{% endblock %}
 
     {% block footer %}
-    <footer class="fixed bottom-2 justify-self-center">
-        <div class="flex w-max flex-nowrap items-center justify-start gap-1.5 md:gap-2 rounded-[1.75rem] md:rounded-[2rem] border border-white/20 bg-zinc-800/45 p-1.5 md:p-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-md">
-            {% set nav_item_base = "bg-transparent border border-transparent hover:bg-white/12 hover:border-white/18 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_10px_24px_rgba(0,0,0,0.18)] transition-all text-white text-sm py-2 px-3 md:py-3 md:px-5 rounded-[1.35rem] md:rounded-[1.6rem] flex flex-col gap-1.5 md:gap-2 items-center justify-center cursor-pointer min-w-20 md:min-w-28 shrink-0" %}
+    <footer class="fixed bottom-2 z-30 justify-self-center">
+        <div class="flex w-max flex-nowrap items-center justify-start gap-1.5 md:gap-2 rounded-3xl border border-white/20 bg-zinc-800/45 p-1.5 md:p-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-md">
+            {% set nav_item_base = "bg-transparent border border-transparent hover:bg-white/12 hover:border-white/18 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_10px_24px_rgba(0,0,0,0.18)] transition-all text-white text-sm py-2 px-3 md:py-3 md:px-5 rounded-2xl flex flex-col gap-1.5 md:gap-2 items-center justify-center cursor-pointer min-w-20 md:min-w-28 shrink-0" %}
             {% set nav_item_active = "bg-white/12 !text-emerald-400" %}
 
             <a href="/personas"
@@ -24,7 +24,7 @@
                data-page="personas"
                class="{{ nav_item_base }} {% if current_page == 'personas' %}{{ nav_item_active }}{% endif %}"
                title="Personas">
-                <span class="material-icons text-[30px] md:!text-4xl">set_meal</span>
+                <span class="material-icons text-3xl md:!text-4xl">set_meal</span>
                 <span class="text-xs">Personas</span>
             </a>
 
@@ -33,7 +33,7 @@
                data-page="profiles"
                class="{{ nav_item_base }} {% if current_page == 'profiles' %}{{ nav_item_active }}{% endif %}"
                title="Profiles">
-                <span class="material-icons text-[30px] md:!text-4xl">person</span>
+                <span class="material-icons text-3xl md:!text-4xl">person</span>
                 <span class="text-xs">Profiles</span>
             </a>
 
@@ -42,7 +42,7 @@
                data-page="songs"
                class="{{ nav_item_base }} {% if current_page == 'songs' %}{{ nav_item_active }}{% endif %}"
                title="Songs">
-                <span class="material-icons text-[30px] md:!text-4xl">library_music</span>
+                <span class="material-icons text-3xl md:!text-4xl">library_music</span>
                 <span class="text-xs">Songs</span>
             </a>
 
@@ -51,7 +51,7 @@
                data-page="library"
                class="{{ nav_item_base }} {% if current_page == 'library' %}{{ nav_item_active }}{% endif %}"
                title="Library">
-                <span class="material-icons text-[30px] md:!text-4xl">library_books</span>
+                <span class="material-icons text-3xl md:!text-4xl">library_books</span>
                 <span class="text-xs">Library</span>
             </a>
 
@@ -60,6 +60,11 @@
     {% endblock %}
 
     {% include "components/password-modal.html" %}
+
+    <!-- Notifications while a modal is open: the header bar sits under modal overlays. -->
+    <div id="notification-overlay" role="status" aria-live="polite" aria-atomic="true"
+         class="hidden fixed inset-x-0 top-0 text-center text-white py-2 px-4 shadow-lg transition-opacity duration-300"
+         style="z-index: 2147483001;"></div>
 
     <dialog id="live-captions-dialog" class="live-captions-dialog" aria-label="Session transcript"></dialog>
 
@@ -108,6 +113,7 @@
     <script src="{{ url_for('static', filename='js/songs-manager.js') }}"></script>
     <script src="{{ url_for('static', filename='js/version-release.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bluetooth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ringtones.js') }}"></script>
     <script src="{{ url_for('static', filename='js/page-router.js') }}"></script>
     <script src="{{ url_for('static', filename='js/init.js') }}"></script>
     <script>window.ScriptLoadRecovery.complete();</script>

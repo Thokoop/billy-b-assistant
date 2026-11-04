@@ -10,6 +10,7 @@ from threading import Lock, Thread
 
 import numpy as np
 
+from . import config as _config
 from .config import (
     BILLY_PINS,
     MOCKFISH,
@@ -27,7 +28,11 @@ try:
 except ImportError:
     lgpio_available = False
 
-if MOCKFISH or not lgpio_available:
+# Devices without motors keep this module's API (callers all over the code
+# drive the motors directly) but never touch the GPIO chip.
+MOTORS_ENABLED = getattr(_config, "MOTORS_ENABLED", True)
+
+if MOCKFISH or not lgpio_available or not MOTORS_ENABLED:
     # Mock lgpio for development or when not available
     class MockLgpio:
         error = Exception
@@ -59,6 +64,8 @@ if MOCKFISH or not lgpio_available:
     lgpio = MockLgpio
     if MOCKFISH:
         logger.info("Mockfish: GPIO mocked for development", "🐟")
+    elif not MOTORS_ENABLED:
+        logger.info("Motors disabled for this device: GPIO left untouched", "⚙️")
     elif not lgpio_available:
         logger.info("lgpio not available: GPIO mocked", "🐟")
 
@@ -299,7 +306,7 @@ def _keep_claiming_motor_pins():
 
 def _claim_motor_pins() -> bool:
     global _gpio_active, _gpio_claim_thread
-    if MOCKFISH or not lgpio_available:
+    if MOCKFISH or not lgpio_available or not MOTORS_ENABLED:
         return True
 
     for attempt in range(1, _GPIO_FOREGROUND_ATTEMPTS + 1):
@@ -806,7 +813,8 @@ def _pin_is_active(pin: int) -> bool:
 def stop_all_motors():
     global _gpio_active, head_out, _motor_epoch, _mouth_braked
     with _motor_lock:
-        logger.info("Stopping all motors", "🛑")
+        if MOTORS_ENABLED:
+            logger.info("Stopping all motors", "🛑")
         _motor_epoch += 1
         _motion_tokens.clear()
         for pin in motor_pins:
@@ -830,6 +838,10 @@ def cleanup_gpio():
     # Stop the background claim first: it must not re-enable motor output, or
     # reclaim pins, while everything is being torn down.
     _gpio_shutdown.set()
+    if not MOTORS_ENABLED:
+        # This device has no motors: the GPIO chip was never opened.
+        stop_all_motors()
+        return
     try:
         with _motor_lock:
             stop_all_motors()

@@ -6,7 +6,7 @@
                 <!-- Persona Selector -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 xl:mb-0">
                     <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg text-slate-200 flex items-center">
+                        <h3 class="text-lg text-zinc-200 flex items-center">
                             <span class="material-icons mr-2 text-emerald-400">set_meal</span>
                             Personas
                         </h3>
@@ -28,13 +28,13 @@
                         data-mobile-split-back
                         type="button"
                         class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white mb-4 md:hidden">
-                    <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+                    <span class="material-icons text-lg transition-transform group-hover:-translate-x-0.5">arrow_back</span>
                     <span>Back</span>
                 </button>
                 <!-- Persona Identity -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-persona-identity">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">badge</span>
                         Persona Voice &amp; Expression
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -44,7 +44,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <!-- Name -->
                             <div>
-                                <label for="persona-display-name" class="flex justify-between items-center text-sm text-slate-300 mb-2">
+                                <label for="persona-display-name" class="flex justify-between items-center text-sm text-zinc-300">
                                     Name
                                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1 text-base"
                                           onclick="toggleTooltip(this)">help_outline</span>
@@ -57,38 +57,60 @@
                                            id="persona-display-name" 
                                            name="persona-display-name"
                                            placeholder="e.g., Friendly Billy"
-                                           class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                           class="field mt-1">
                                 </div>
                             </div>
                             
                             <!-- Description -->
                             <div>
-                                <label for="persona-description" class="block text-sm text-slate-300 mb-3">
+                                <label for="persona-description" class="block text-sm text-zinc-300">
                                     Description
                                 </label>
                                 <input type="text" 
                                        id="persona-description" 
                                        name="persona-description"
                                        placeholder="e.g., A warm and welcoming personality"
-                                       class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                       class="field mt-1">
                             </div>
                         </div>
 
                         <!-- Voice -->
                         <div>
-                            <label for="VOICE" class="block text-sm text-slate-300 mb-2">Voice</label>
-                            <select id="VOICE" name="VOICE"
-                                    class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                                {% for voice in config.get('VOICE_OPTIONS', []) %}
-                                    <option value="{{ voice }}">{{ voice | capitalize }}</option>
-                                {% endfor %}
-                            </select>
+                            {% set voice_provider = config.get('REALTIME_AI_PROVIDER', 'openai') %}
+                            <label for="VOICE" class="flex justify-between items-center text-sm text-zinc-300 mb-1">
+                                Voice
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                      onclick="toggleTooltip(this)" role="button" tabindex="0"
+                                      onkeydown="if (event.key === 'Enter' || event.key === ' ') toggleTooltip(this, event)"
+                                      aria-label="About voices">help_outline</span>
+                            </label>
+                            <div class="relative">
+                                <div data-tooltip>
+                                    The voices depend on the selected AI provider. Switching provider changes this list.
+                                    A voice cannot change during a conversation.<br><br>
+                                    <a data-voice-docs="openai" href="https://developers.openai.com/api/docs/guides/realtime-conversations#voice-options"
+                                       target="_blank" rel="noopener noreferrer" class="underline font-medium"
+                                       {% if voice_provider != 'openai' %}hidden{% endif %}>OpenAI Realtime voices &#8599;</a>
+                                    <a data-voice-docs="gpt-live" href="https://developers.openai.com/api/reference/resources/live/methods/create"
+                                       target="_blank" rel="noopener noreferrer" class="underline font-medium"
+                                       {% if voice_provider != 'gpt-live' %}hidden{% endif %}>GPT-Live voices (see the voice parameter) &#8599;</a>
+                                    <a data-voice-docs="xai" href="https://docs.x.ai/docs/guides/voice"
+                                       target="_blank" rel="noopener noreferrer" class="underline font-medium"
+                                       {% if voice_provider != 'xai' %}hidden{% endif %}>xAI voices &#8599;</a>
+                                </div>
+                                <select id="VOICE" name="VOICE"
+                                        class="field">
+                                    {% for voice in config.get('VOICE_OPTIONS', []) %}
+                                        <option value="{{ voice }}">{{ voice | capitalize }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </div>
 
                         <!-- Mouth Articulation Slider -->
                         <div>
                             <label for="MOUTH_ARTICULATION"
-                                   class="flex justify-between items-center text-sm text-slate-300">
+                                   class="flex justify-between items-center text-sm text-zinc-300">
                                 Mouth Articulation
                                 <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                                       onclick="toggleTooltip(this)">help_outline</span>
@@ -103,7 +125,7 @@
                                 </div>
 
                                 <div class="mb-4 mt-2 flex gap-2 items-center">
-                                    <div class="w-20 text-sm text-gray-200">
+                                    <div class="w-20 text-sm text-zinc-200">
                                         Level: <span id="persona-mouth-articulation-value">5</span>
                                     </div>
                                     <input type="range" 
@@ -134,7 +156,7 @@
                 <!-- Persona Traits -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-persona-traits">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">psychology</span>
                         Personality
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -147,14 +169,14 @@
                 <!-- Persona Instructions -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-instructions">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">edit_note</span>
                         Instructions
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
                     </h3>
                     <div>
                         <textarea name="META" id="meta-text" rows="16"
-                                  class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                  class="field mt-1"
                                   spellcheck="false"></textarea>
                     </div>
                 </div>
@@ -162,7 +184,7 @@
                 <!-- Backstory -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-backstory-instructions">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">auto_stories</span>
                         Backstory
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -180,7 +202,7 @@
                 <!-- Wake-up Sounds -->
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 collapsible-section"
                      id="section-wakeup-sounds">
-                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                    <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                         <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">alarm</span>
                         Wake-up Sounds
                         <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -206,10 +228,10 @@
                 <div class="relative pt-0 md:py-4">
                     <div class="flex justify-end">
                         <div class="relative inline-block">
-                            <div class="flex rounded shadow overflow-hidden border border-emerald-500">
+                            <div class="split-action">
                                 <button
                                         id="save-persona-btn"
-                                        class="bg-emerald-600 hover:bg-emerald-500 text-black py-2 px-4 flex items-center gap-1 focus:outline-none"
+                                        class="primary-action bg-emerald-600 text-white"
                                         type="submit"
                                         form="persona-form"
                                 >
@@ -218,27 +240,28 @@
                                 </button>
                                 <button
                                         id="persona-dropdown-btn"
+                                        aria-label="More options"
                                         type="button"
-                                        class="dropdown-toggle bg-emerald-600 hover:bg-emerald-500 text-black px-2 flex items-center"
+                                        class="primary-action bg-emerald-600 text-white button-icon dropdown-toggle"
                                         onclick="toggleDropdown(this)"
                                 >
                                     <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
                                 </button>
                             </div>
                             <div
-                                    class="dropdown-menu absolute bottom-0 right-0 w-full text-black border border-emerald-500 rounded z-20 hidden"
+                                    class="dropdown-menu menu-panel absolute bottom-full right-0 mb-1 w-full z-20 hidden"
                             >
                                 <button onclick="savePersonaAs()"
-                                        class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
+                                        class="secondary-action secondary-action--hover--cyan">
                                     <span class="material-icons">save_as</span>
                                     Save Persona As
                                 </button>
                                 <button onclick="exportPersona()"
-                                        class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
+                                        class="secondary-action secondary-action--hover--cyan">
                                     <span class="material-icons">file_download</span>
                                     Download Persona
                                 </button>
-                                <label class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
+                                <label class="secondary-action secondary-action--hover--cyan">
                                     <span class="material-icons">file_upload</span>
                                     <span>Upload Persona</span>
                                     <input type="file" accept=".ini" onchange="importPersona(this)" class="hidden"/>
@@ -275,7 +298,7 @@
             <div class="space-y-4">
                 <!-- Persona Name Input -->
                 <div>
-                    <label for="new-persona-name" class="flex justify-between items-center text-sm text-slate-300 mb-2">
+                    <label for="new-persona-name" class="flex justify-between items-center text-sm text-zinc-300">
                         <span>Name <span class="text-rose-400">*</span></span>
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1 text-base"
                               onclick="toggleTooltip(this)">help_outline</span>
@@ -287,13 +310,13 @@
                         <input type="text" 
                                id="new-persona-name" 
                                placeholder="e.g., Friendly Billy"
-                               class="w-full p-3 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                               class="field mt-1">
                     </div>
                 </div>
                 
                 <!-- Template Selection -->
                 <div>
-                    <label class="block text-sm text-slate-300 mb-2">
+                    <label class="block text-sm text-zinc-300 mb-1">
                         Start from Template
                     </label>
                     <div id="preset-list" class="space-y-2">
@@ -307,7 +330,7 @@
         <div class="border-t border-zinc-700 p-4 flex-shrink-0 flex justify-end">
             <button type="button" 
                     onclick="window.PersonaForm.createPersonaFromModal()" 
-                    class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors">
+                    class="primary-action bg-emerald-600 text-white">
                 Create Persona
             </button>
         </div>

@@ -1,34 +1,97 @@
-<div id="section-bluetooth" class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4" data-settings-panel aria-labelledby="title-section-bluetooth" {% if settings_category|default('voice', true) != 'bluetooth' %}hidden{% endif %}>
-    <h3 id="title-section-bluetooth" class="settings-panel-title" tabindex="-1">
-        <span class="material-icons" aria-hidden="true">bluetooth</span><span>Bluetooth</span>
-    </h3>
-    <div id="bluetooth-settings" data-token="{{ bluetooth_token }}" class="bt-panel">
-        <p id="bt-setup" role="status" aria-live="polite">Checking Bluetooth installation…</p>
-        <button type="button" id="bt-setup-retry" data-action="setup-retry" class="secondary-action secondary-action--hover--cyan" hidden>
-            <span class="material-icons text-base" aria-hidden="true">refresh</span>
-            Repair system components
-        </button>
-        <a id="bt-components-help" hidden href="/settings/software" data-page-link data-page="settings" class="text-sm text-cyan-400">Open System components</a>
-        <p id="bt-audio" role="status" aria-live="polite" class="text-slate-400">Checking Bluetooth…</p>
-        <ul id="bt-devices" class="bt-devices" aria-label="Devices"></ul>
-        <div class="bt-pairing-toolbar">
-            <button type="button" data-action="pair" id="bt-pair" class="secondary-action secondary-action--hover--cyan">
-                <span class="material-icons text-base" aria-hidden="true">bluetooth_searching</span>
-                Pair new device
+{% from "components/step-slider.html" import step_slider %}
+<div id="section-bluetooth" class="settings-card settings-card--sections mb-4" data-settings-panel aria-labelledby="title-section-bluetooth" {% if settings_category|default('voice', true) != 'bluetooth' %}hidden{% endif %}>
+    <div class="space-y-4">
+    <section class="card">
+        <h3 id="title-section-bluetooth" class="settings-panel-title" tabindex="-1">
+            <span class="material-icons" aria-hidden="true">bluetooth</span><span>Bluetooth</span>
+        </h3>
+        <div id="bluetooth-settings" data-token="{{ bluetooth_token }}" class="bt-panel">
+            <p id="bt-setup" role="status" aria-live="polite">Checking Bluetooth installation…</p>
+            <button type="button" id="bt-setup-retry" data-action="setup-retry" class="secondary-action secondary-action--hover--cyan" hidden>
+                <span class="material-icons text-base" aria-hidden="true">refresh</span>
+                Repair system components
             </button>
-            <button type="button" id="bt-pair-stop" data-action="pair-stop" class="secondary-action secondary-action--hover--amber" hidden>
-                <span class="material-icons text-base" aria-hidden="true">close</span>
-                Stop pairing
-            </button>
-            <span id="bt-pair-status" class="bt-pair-status" hidden></span>
+            <a id="bt-components-help" hidden href="/settings/software" data-page-link data-page="settings" class="text-sm text-cyan-400">Open System components</a>
+            <p id="bt-audio" role="status" aria-live="polite" class="text-zinc-400">Checking Bluetooth…</p>
+            <ul id="bt-devices" class="bt-devices" aria-label="Devices"></ul>
+            <div class="bt-pairing-toolbar">
+                <button type="button" data-action="pair" id="bt-pair" class="secondary-action secondary-action--hover--cyan">
+                    <span class="material-icons text-base" aria-hidden="true">bluetooth_searching</span>
+                    Pair new device
+                </button>
+                <button type="button" id="bt-pair-stop" data-action="pair-stop" class="secondary-action secondary-action--hover--amber" hidden>
+                    <span class="material-icons text-base" aria-hidden="true">close</span>
+                    Stop pairing
+                </button>
+                <span id="bt-pair-status" class="bt-pair-status" hidden></span>
+            </div>
+            <p id="bt-pair-hint" class="bt-pair-hint" hidden>Select this device in your Bluetooth settings, then confirm pairing on your device.</p>
+            <div id="bt-pending" hidden class="bt-pending" role="group" aria-labelledby="bt-request">
+                <div class="bt-request-heading"><span class="material-icons" aria-hidden="true">verified_user</span>Pairing request</div>
+                <p id="bt-request"></p>
+                <p id="bt-code" class="bt-code" aria-label="Pairing code" hidden></p>
+                <p id="bt-confirm-hint" class="bt-confirm-hint">Check the code and select Pair on your device.</p>
+            </div>
+            <p id="bt-error" role="alert" class="text-rose-400"></p>
         </div>
-        <p id="bt-pair-hint" class="bt-pair-hint" hidden>Select this device in your Bluetooth settings, then confirm pairing on your device.</p>
-        <div id="bt-pending" hidden class="bt-pending" role="group" aria-labelledby="bt-request">
-            <div class="bt-request-heading"><span class="material-icons" aria-hidden="true">verified_user</span>Pairing request</div>
-            <p id="bt-request"></p>
-            <p id="bt-code" class="bt-code" aria-label="Pairing code" hidden></p>
-            <p id="bt-confirm-hint" class="bt-confirm-hint">Check the code and select Pair on your device.</p>
+    </section>
+
+    {#- Ringing for incoming calls: Billy the fish only. #}
+    {% if ringtones_enabled %}
+    {% set ringtone = config.get('BLUETOOTH_RINGTONE', 'billy') %}
+    <section class="card" id="bt-ringtones" aria-labelledby="bt-ringtones-title">
+        <h4 id="bt-ringtones-title" class="card-title mb-1">Ringtones</h4>
+        <p class="text-xs text-zinc-400 mb-4">What Billy plays while a connected phone rings. Press his button to answer the call.</p>
+        <label for="BLUETOOTH_RINGTONE-bar" class="flex justify-between items-center text-sm text-zinc-300 relative">
+            Ringtone
+            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                  onclick="toggleTooltip(this)" role="button" tabindex="0"
+                  onkeydown="if (event.key === 'Enter' || event.key === ' ') toggleTooltip(this, event)"
+                  aria-label="About ringtones">help_outline</span>
+        </label>
+        <div class="relative">
+            <div data-tooltip>
+                <b>Billy's ringtones</b>: a random ringtone from the list below. Generate one in the
+                current persona's voice, or upload your own audio file. Restore Defaults brings back
+                the built-in ringtones you removed.<br>
+                <b>Phone's ringtone</b>: the ringtone your phone sends over Bluetooth.<br>
+                <b>Silent</b>: nothing; the status LED still blinks.
+            </div>
+            {#- The select stays the real form control; the three-stop slider
+                is a proxy for it (settings-form.js), like Interruption sensitivity. #}
+            <select id="BLUETOOTH_RINGTONE" name="BLUETOOTH_RINGTONE" class="hidden">
+                <option value="off" {% if ringtone == 'off' %}selected{% endif %}>Silent</option>
+                <option value="billy" {% if ringtone not in ['phone', 'off'] %}selected{% endif %}>Billy's ringtones</option>
+                <option value="phone" {% if ringtone == 'phone' %}selected{% endif %}>Phone's ringtone</option>
+            </select>
+            {% set ringtone_label = {'off': 'Silent', 'phone': "Phone's ringtone"}.get(ringtone, "Billy's ringtones") %}
+            {% set ringtone_percent = {'off': 0, 'phone': 100}.get(ringtone, 50) %}
+            {{ step_slider('BLUETOOTH_RINGTONE', 'Ringtone', ringtone_label, ringtone_percent) }}
         </div>
-        <p id="bt-error" role="alert" class="text-rose-400"></p>
+        <p id="ringtone-telephony-note" class="text-xs text-amber-300 mt-1" hidden>
+            This system can only play the phone's own ringtone, and calls are answered on the phone.
+            Billy's ringtones and answering with his button need a newer PipeWire:
+            install <a href="/settings/software" data-page-link data-page="settings" class="underline">Bluetooth calls under Software</a>
+            (System components).
+        </p>
+        <div id="ringtone-billy-options" {% if ringtone in ['phone', 'off'] %}hidden{% endif %}>
+            <div id="ringtone-list" class="space-y-2 mt-3" aria-live="polite"></div>
+            <div class="flex flex-wrap gap-2 mt-3">
+                <button type="button" id="ringtone-add" class="secondary-action secondary-action--hover--emerald">
+                    <span class="material-icons align-middle" aria-hidden="true">add</span>
+                    Add Ringtone
+                </button>
+                <button type="button" id="ringtone-ideas" class="secondary-action secondary-action--hover--cyan">
+                    <span class="material-icons align-middle" aria-hidden="true">auto_awesome</span>
+                    Generate Ringtones
+                </button>
+                <button type="button" id="ringtone-restore" class="secondary-action secondary-action--hover--amber">
+                    <span class="material-icons align-middle" aria-hidden="true">restore</span>
+                    Restore Defaults
+                </button>
+            </div>
+        </div>
+    </section>
+    {% endif %}
     </div>
 </div>

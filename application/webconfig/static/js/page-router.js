@@ -7,7 +7,8 @@ const MainPageRouter = (() => {
     const getMainContent = () => document.getElementById("main-content");
 
     const getPageNameFromPath = (pathName) => {
-        if (/^\/settings\/(voice|audio|wakeword|network|bluetooth|mqtt|home-assistant|hardware|software|advanced)$/.test(pathName)) return "settings";
+        // Billy's settings categories (/settings/<category>).
+        if (/^\/settings\/[a-z0-9-]+$/.test(pathName)) return "settings";
         switch (pathName) {
             case "/":
             case "/personas":
@@ -90,33 +91,43 @@ const MainPageRouter = (() => {
                 window.BillyVersionUI?.refresh();
                 return;
             }
-            const cfg = await AppConfig.load();
-            SettingsForm.handleSettingsSave();
-            SettingsForm.saveDropdownSelections();
-            await SettingsForm.populateDropdowns(cfg);
-            SettingsForm.initBooleanToggles();
-            SettingsForm.initStepSliders();
-            SettingsForm.initShowTooltipsToggle();
-            await SettingsForm.initHostFields();
-            const agentsReady = SettingsForm.initHomeAssistantAgents();
-            SettingsForm.initMouthArticulationSlider();
-            SettingsForm.initStatusLedBrightnessSlider();
-            SettingsForm.initMouthBoostSlider();
-            SettingsForm.bindFactoryReset();
-            SettingsForm.bindEnvEditorCard();
-            SettingsForm.bindNewsSources();
-            const wakeWordsReady = SettingsForm.bindWakeWordKeywordUpload();
-            SettingsForm.bindCameraPreview();
-            SettingsForm.bindWiFiSection();
-            SettingsForm.bindApiProviderFields();
-            if (window.AudioPanel) {
-                window.AudioPanel.bindUI?.();
-                window.AudioPanel.loadMicGain?.();
-                // Resolves the labels itself; see init.js.
-                await window.AudioPanel.loadAudioDeviceSelectors?.();
+            // Whatever fails while loading data, the category menu must still
+            // be bound, or every category click becomes a full page load.
+            let cfg;
+            try {
+                cfg = await AppConfig.load();
+                SettingsForm.handleSettingsSave();
+                SettingsForm.saveDropdownSelections();
+                await SettingsForm.populateDropdowns(cfg);
+                SettingsForm.initBooleanToggles();
+                SettingsForm.initStepSliders();
+                SettingsForm.initShowTooltipsToggle();
+                await SettingsForm.initHostFields();
+                const agentsReady = SettingsForm.initHomeAssistantAgents();
+                SettingsForm.initMouthArticulationSlider();
+                SettingsForm.initStatusLedBrightnessSlider();
+                SettingsForm.initMouthBoostSlider();
+                SettingsForm.bindFactoryReset();
+                SettingsForm.bindEnvEditorCard();
+                SettingsForm.bindNewsSources();
+                const wakeWordsReady = SettingsForm.bindWakeWordKeywordUpload();
+                SettingsForm.bindCameraPreview();
+                SettingsForm.bindWiFiSection();
+                SettingsForm.bindApiProviderFields();
+                window.Ringtones?.bind();
+                if (window.AudioPanel) {
+                    window.AudioPanel.bindUI?.();
+                    window.AudioPanel.loadMicGain?.();
+                    // Resolves the labels itself; see init.js.
+                    await window.AudioPanel.loadAudioDeviceSelectors?.();
+                }
+                await Promise.allSettled([agentsReady, wakeWordsReady]);
+            } catch (error) {
+                console.error("Failed to initialise settings:", error);
+            } finally {
+                runDevicePanelScripts();
+                window.SettingsNavigation?.init();
             }
-            await Promise.allSettled([agentsReady, wakeWordsReady]);
-            window.SettingsNavigation?.init();
             window.ServiceStatus?.fetchStatus?.();
             window.LogPanel?.bindUI?.(cfg);
             window.BillyVersionUI?.refresh();
@@ -126,6 +137,19 @@ const MainPageRouter = (() => {
         }
 
         window.MobileSplitView?.bindAll();
+    };
+
+    // A device's settings panel brings its own inline script. A page mounted
+    // from fetched HTML never runs inline scripts, so run each one once here;
+    // on a full page load the browser already ran it and marked it.
+    const runDevicePanelScripts = () => {
+        document.querySelectorAll("#main-content script[data-device-panel]").forEach((original) => {
+            if (original.dataset.ran) return;
+            original.dataset.ran = "true";
+            const script = document.createElement("script");
+            script.textContent = original.textContent;
+            original.after(script);
+        });
     };
 
     let settingsDraft = null;

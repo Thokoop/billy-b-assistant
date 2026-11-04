@@ -16,6 +16,16 @@ class PersonaHandler:
     async def reload_persona_from_profile(self):
         """Reload persona from current user's profile."""
         try:
+            from ..session_manager import session_persona
+
+            override = session_persona()
+            if override:
+                persona_manager.switch_persona(override)
+                logger.info(f"🎭 Using this conversation's persona: {override}", "🎭")
+                return
+        except Exception as e:
+            logger.warning(f"Session persona check failed: {e}", "⚠️")
+        try:
             import os
 
             from dotenv import load_dotenv

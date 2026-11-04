@@ -113,7 +113,11 @@ CONFIG_KEYS = [
     "STATUS_LED_BRIGHTNESS",
     "WIFI_COUNTRY",
     "WIFI_ONBOARDING_MODE",
+    "BLUETOOTH_RINGTONE",
 ]
+# Keys saved by an extension device's settings panel (app/device_panels.py).
+DEVICE_CONFIG_KEYS: set[str] = set()
+
 BOOLEAN_CONFIG_KEYS = {
     "AEC_ENABLED",
     "WEB_SEARCH_ENABLED",
@@ -1101,6 +1105,12 @@ def settings_page(category=None):
         "software",
         "advanced",
     }:
+        from flask import current_app
+
+        # A device's own settings live on the Device page (/settings/hardware).
+        panels = current_app.config.get("DEVICE_PANELS", [])
+        if category in {panel["id"] for panel in panels}:
+            return redirect("/settings/hardware", code=302)
         abort(404)
     return render_template(
         "settings.html", settings_category=category, **_page_context("settings")
@@ -1221,6 +1231,11 @@ def repair_system_packages():
     return _software_action('packages')
 
 
+@bp.post('/software/optional/<identity>')
+def install_optional_component(identity):
+    return _software_action('optional', identity)
+
+
 @bp.post('/software/rollback')
 def software_rollback():
     return _software_action('rollback')
@@ -1237,7 +1252,11 @@ def release_note():
 
 @bp.route("/save", methods=["POST"])
 def save():
-    data = request.json
+    from flask import current_app
+
+    # A device can fix settings (e.g. its audio devices) whatever is posted.
+    fixed = current_app.config.get("DEVICE_FIXED_SETTINGS") or {}
+    data = {**(request.json or {}), **fixed}
     existing_env = dotenv_values(ENV_PATH) if os.path.exists(ENV_PATH) else {}
     previous_channel = update_channel(existing_env)
     old_port = os.getenv("FLASK_PORT", "80")
@@ -1255,7 +1274,9 @@ def save():
     }
     updates = {}
     for key, value in data.items():
-        if key in CONFIG_KEYS:
+        if key in DEVICE_CONFIG_KEYS:
+            updates[key] = str(value)
+        elif key in CONFIG_KEYS:
             if key == "UPDATE_CHANNEL":
                 value = str(value).strip().lower()
             elif key == "FOLLOW_UP_RETRY_LIMIT":

@@ -39,6 +39,7 @@ def create_app() -> Flask:
     from .routes.misc import bp as misc_bp
     from .routes.persona import bp as persona_bp
     from .routes.profiles import profiles_bp
+    from .routes.ringtones import bp as ringtones_bp
     from .routes.songs import songs_bp
     from .routes.system import bp as system_bp
     from .state import bootstrap_versions_and_release_note
@@ -49,9 +50,15 @@ def create_app() -> Flask:
     app.register_blueprint(profiles_bp)
     app.register_blueprint(audio_bp)
     app.register_blueprint(bluetooth_bp)
+    app.register_blueprint(ringtones_bp)
     app.register_blueprint(knowledge_bp)
     app.register_blueprint(misc_bp)
     app.register_blueprint(songs_bp)
+
+    # An extension device may add its own settings section (core.devices).
+    from .device_panels import install as install_device_panels
+
+    install_device_panels(app)
 
     # Register WebSocket routes when flask_sock is available.
     if SOCK_AVAILABLE:

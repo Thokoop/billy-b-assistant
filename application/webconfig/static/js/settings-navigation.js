@@ -153,6 +153,28 @@ window.SettingsNavigation = (() => {
         update(form);
     }
 
+    // The page finishes loading its data before init() binds the menu, which
+    // can take seconds on the Pi. A category click in that window must still
+    // switch panels in place instead of following the link (full page load);
+    // init() later restores the category from the path written here.
+    document.addEventListener('click', event => {
+        const button = event.target.closest?.('[data-settings-target]');
+        if (!button || event.defaultPrevented || event.button !== 0
+            || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        const form = button.closest('#config-form');
+        if (!form || states.has(form)) return;
+        const panel = form.querySelector(`#${button.dataset.settingsTarget}`);
+        if (!panel) return;
+        event.preventDefault();
+        for (const item of form.querySelectorAll('[data-settings-panel]')) item.hidden = item !== panel;
+        for (const item of form.querySelectorAll('[data-settings-target]')) {
+            if (item === button) item.setAttribute('aria-current', 'true');
+            else item.removeAttribute('aria-current');
+        }
+        window.MobileSplitView?.showDetail('settings-workspace');
+        writeLocation(button.dataset.settingsPath);
+    });
+
     window.addEventListener('hashchange', restore);
     window.addEventListener('beforeunload', event => {
         if (!hasDraft(draftForm)) return;

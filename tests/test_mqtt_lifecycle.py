@@ -72,6 +72,9 @@ def runtime(isolated, monkeypatch):
         MQTT_PORT=1883,
         MQTT_USERNAME='test',
         MQTT_PASSWORD='test',
+        MQTT_DEVICE_ID='billy',
+        mqtt_wire_topic=lambda topic: topic,
+        mqtt_canonical_topic=lambda topic: topic,
     ).items():
         setattr(isolated.config, name, value)
     mood = Mock()

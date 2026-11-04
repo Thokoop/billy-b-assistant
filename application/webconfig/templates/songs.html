@@ -41,7 +41,7 @@
                         <div id="songs-empty-state" class="hidden text-center py-12">
                             <span class="material-icons text-6xl text-zinc-600 mb-4">music_off</span>
                             <p class="text-zinc-400 mb-4">No custom songs yet</p>
-                            <button class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm py-2 px-4 rounded"
+                            <button class="primary-action bg-emerald-600 text-white"
                                     onclick="document.getElementById('create-song-btn').click()">
                                 Create Your First Song
                             </button>
@@ -55,7 +55,7 @@
                         data-mobile-split-back
                         type="button"
                         class="group hidden self-start items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xs transition-all hover:bg-white/10 hover:text-white mb-4 md:hidden">
-                    <span class="material-icons text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+                    <span class="material-icons text-lg transition-transform group-hover:-translate-x-0.5">arrow_back</span>
                     <span>Back</span>
                 </button>
 
@@ -69,7 +69,7 @@
                     <!-- Basic Info -->
                     <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg collapsible-section"
                          id="section-song-basic">
-                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                             <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">info</span>
                             Basic Info
                             <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -78,16 +78,16 @@
                         <div class="space-y-4">
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label for="song-title" class="block text-sm text-slate-300 mb-2">
+                                    <label for="song-title" class="block text-sm text-zinc-300">
                                         Display Title
                                     </label>
                                     <input type="text" id="song-title" name="title"
-                                           class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                           class="field mt-1"
                                            placeholder="e.g., Never Gonna Give You Up"
                                            required>
                                 </div>
                                 <div id="song-name-field">
-                                    <label for="song-name" class="flex justify-between items-center text-sm text-slate-300 mb-2">
+                                    <label for="song-name" class="flex justify-between items-center text-sm text-zinc-300">
                                         Folder Name
                                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
                                               onclick="toggleTooltip(this)">help_outline</span>
@@ -98,23 +98,23 @@
                                             numbers, and underscores.
                                         </div>
                                         <input type="text" id="song-name" name="name"
-                                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                               class="field mt-1"
                                                placeholder="e.g., never_gonna_give_you_up"
                                                pattern="[a-z0-9_]+"
                                                title="Only lowercase letters, numbers, and underscores">
                                     </div>
                                 </div>
                                 <div id="song-folder-display-field" class="hidden">
-                                    <label class="block text-sm text-slate-300 mb-2">
+                                    <label class="block text-sm text-zinc-300">
                                         Folder
                                     </label>
                                     <div id="song-folder-display"
-                                         class="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded text-zinc-400 truncate"></div>
+                                         class="field-static"></div>
                                 </div>
                             </div>
 
                             <div>
-                                <label for="song-keywords" class="flex justify-between items-center text-sm text-slate-300">
+                                <label for="song-keywords" class="flex justify-between items-center text-sm text-zinc-300">
                                     Keywords (comma-separated)
                                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
                                           onclick="toggleTooltip(this)">help_outline</span>
@@ -125,7 +125,7 @@
                                         Include song title, artist name, genre, mood, or themes.
                                     </div>
                                     <input type="text" id="song-keywords" name="keywords"
-                                           class="w-full px-3 py-2 mt-1 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                           class="field mt-1"
                                            placeholder="e.g., rick astley, 80s, pop">
                                 </div>
                             </div>
@@ -135,14 +135,14 @@
                     <!-- Audio Files -->
                     <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg collapsible-section"
                          id="section-song-audio">
-                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                             <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">audiotrack</span>
                             Audio Files
                             <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
                         </h3>
 
                         <div class="space-y-4">
-                        <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700" id="vocals-card">
+                        <div class="bg-zinc-900/40 border border-zinc-700 rounded-lg p-4" id="vocals-card">
                             <div class="flex items-center justify-between">
                                 <label class="text-sm text-zinc-300">
                                     Vocals
@@ -160,7 +160,7 @@
                             <audio id="vocals-audio" class="hidden"></audio>
                         </div>
 
-                        <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700" id="full-card">
+                        <div class="bg-zinc-900/40 border border-zinc-700 rounded-lg p-4" id="full-card">
                             <div class="flex items-center justify-between">
                                 <label class="text-sm text-zinc-300">
                                     Full Mix
@@ -178,7 +178,7 @@
                             <audio id="full-audio" class="hidden"></audio>
                         </div>
 
-                        <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700" id="drums-card">
+                        <div class="bg-zinc-900/40 border border-zinc-700 rounded-lg p-4" id="drums-card">
                             <div class="flex items-center justify-between">
                                 <label class="text-sm text-zinc-300">
                                     Drums
@@ -197,7 +197,7 @@
                         </div>
 
                         <div class="relative flex items-center justify-end">
-                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-slate-300"
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-zinc-300"
                                   data-tooltip-target="wf-audio-files-tooltip"
                                   onclick="toggleTooltip(this)">help_outline</span>
                             <div id="wf-audio-files-tooltip" data-tooltip>
@@ -213,7 +213,7 @@
                     <!-- Animation Settings -->
                     <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg collapsible-section"
                          id="section-song-animation">
-                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-slate-200 hover:text-emerald-400 transition-colors">
+                        <h3 class="flex items-center gap-2 cursor-pointer group text-lg grow justify-between mb-4 text-zinc-200 hover:text-emerald-400 transition-colors">
                             <span class="material-icons text-white group-hover:text-emerald-400 transition-colors">animation</span>
                             Animation Settings
                             <span class="material-icons transition-transform duration-200 ml-2 rotate-0 group-hover:text-emerald-400">expand_more</span>
@@ -227,7 +227,7 @@
                                     <button type="button" data-stem="full">Full Mix</button>
                                     <button type="button" data-stem="drums">Drums</button>
                                 </div>
-                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-slate-300"
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-zinc-300"
                                       data-tooltip-target="wf-moves-tooltip"
                                       onclick="toggleTooltip(this)">help_outline</span>
                                 <div id="wf-moves-tooltip" data-tooltip>
@@ -299,38 +299,38 @@
                         </div>
 
                         <div id="wf-tail-advanced" class="hidden">
-                            <div class="bg-zinc-800/50 p-4 rounded border border-zinc-700">
+                            <div class="bg-zinc-900/40 border border-zinc-700 rounded-lg p-4">
                                 <p class="text-xs text-zinc-500 mb-3">Tune the automatic, drum-driven tail flap.</p>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label for="song-bpm" class="block text-sm text-zinc-300 mb-2">
+                                        <label for="song-bpm" class="block text-sm text-zinc-300">
                                             BPM (Beats Per Minute)
                                         </label>
                                         <input type="number" id="song-bpm" name="bpm"
-                                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                               class="field mt-1"
                                                value="120" min="40" max="200" step="0.1">
                                     </div>
 
                                     <div>
-                                        <label for="song-tail-threshold" class="block text-sm text-slate-300 mb-2">
+                                        <label for="song-tail-threshold" class="block text-sm text-zinc-300">
                                             Tail Threshold
                                         </label>
                                         <input type="number" id="song-tail-threshold" name="tail_threshold"
-                                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                               class="field mt-1"
                                                value="1500" min="0" max="10000" step="100">
                                     </div>
 
                                     <div>
-                                        <label for="song-compensate-tail" class="block text-sm text-slate-300 mb-2">
+                                        <label for="song-compensate-tail" class="block text-sm text-zinc-300">
                                             Compensate Tail (0-1)
                                         </label>
                                         <input type="number" id="song-compensate-tail" name="compensate_tail"
-                                               class="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                               class="field mt-1"
                                                value="0" min="0" max="1" step="0.05">
                                     </div>
 
                                     <div>
-                                        <label for="song-half-tempo" class="block text-sm text-slate-300 mb-2">
+                                        <label for="song-half-tempo" class="block text-sm text-zinc-300">
                                             Half Tempo Tail Flap
                                         </label>
                                         <div class="flex items-center gap-2 mt-1">
@@ -357,7 +357,7 @@
                                         <button type="button" data-mode="solid">Solid</button>
                                         <button type="button" data-mode="off">Off</button>
                                     </div>
-                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-slate-300"
+                                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer text-zinc-300"
                                           data-tooltip-target="wf-led-tooltip"
                                           onclick="toggleTooltip(this)">help_outline</span>
                                     <div id="wf-led-tooltip" data-tooltip>
@@ -377,7 +377,7 @@
 
                         <div id="song-moves-legacy-inputs" class="hidden">
                         <div>
-                            <label for="song-head-moves" class="flex justify-between items-center text-sm text-slate-300">
+                            <label for="song-head-moves" class="flex justify-between items-center text-sm text-zinc-300">
                                 Head Moves (time:duration pairs)
                                 <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
                                       onclick="toggleTooltip(this)">help_outline</span>
@@ -389,13 +389,13 @@
                                     at 2s for 2 seconds.
                                 </div>
                                 <input type="text" id="song-head-moves" name="head_moves"
-                                       class="w-full px-3 py-2 mt-1 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       class="field mt-1"
                                        placeholder="e.g., 2:2.0, 29.5:2.0, 33:2.0">
                             </div>
                         </div>
 
                         <div>
-                            <label for="song-tail-moves" class="flex justify-between items-center text-sm text-slate-300">
+                            <label for="song-tail-moves" class="flex justify-between items-center text-sm text-zinc-300">
                                 Tail Moves (time:duration pairs)
                                 <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
                                       onclick="toggleTooltip(this)">help_outline</span>
@@ -407,13 +407,13 @@
                                     automatic drum-driven ones.
                                 </div>
                                 <input type="text" id="song-tail-moves" name="tail_moves"
-                                       class="w-full px-3 py-2 mt-1 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       class="field mt-1"
                                        placeholder="e.g., 1.5:0.2, 4:0.2">
                             </div>
                         </div>
 
                         <div>
-                            <label for="song-mouth-mutes" class="flex justify-between items-center text-sm text-slate-300">
+                            <label for="song-mouth-mutes" class="flex justify-between items-center text-sm text-zinc-300">
                                 Mouth Mute (time:duration pairs)
                                 <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
                                       onclick="toggleTooltip(this)">help_outline</span>
@@ -425,7 +425,7 @@
                                     more than one voice and only one should drive the mouth.
                                 </div>
                                 <input type="text" id="song-mouth-mutes" name="mouth_mutes"
-                                       class="w-full px-3 py-2 mt-1 bg-zinc-800 border border-zinc-700 rounded text-white"
+                                       class="field mt-1"
                                        placeholder="e.g., 5:3.0, 12:1.5">
                             </div>
                         </div>
@@ -433,7 +433,7 @@
 
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="flex justify-between items-center text-sm text-slate-300">
+                                <label class="flex justify-between items-center text-sm text-zinc-300">
                                     Gain (Volume Multiplier)
                                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
                                           onclick="toggleTooltip(this)">help_outline</span>
@@ -444,7 +444,7 @@
                                         louder, lower is quieter.
                                     </div>
                                     <div class="mb-2 mt-2 flex gap-2 items-center">
-                                        <div class="w-16 text-sm text-gray-200">
+                                        <div class="w-16 text-sm text-zinc-200">
                                             <span id="song-gain-value">1.0</span>x
                                         </div>
                                         <input type="range"
@@ -465,7 +465,7 @@
                             </div>
 
                             <div>
-                                <label class="flex justify-between items-center text-sm text-slate-300">
+                                <label class="flex justify-between items-center text-sm text-zinc-300">
                                     Mouth Articulation
                                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer"
                                           onclick="toggleTooltip(this)">help_outline</span>
@@ -477,7 +477,7 @@
                                         currently loaded until you adjust it here.
                                     </div>
                                     <div class="mb-2 mt-2 flex gap-2 items-center">
-                                        <div class="w-20 text-sm text-gray-200">
+                                        <div class="w-20 text-sm text-zinc-200">
                                             Level: <span id="song-mouth-articulation-value">5</span>
                                         </div>
                                         <input type="range"
@@ -504,22 +504,23 @@
 
                     <div id="song-edit-footer" class="hidden relative pt-0 md:py-4 flex justify-end">
                         <div class="relative inline-block">
-                            <div class="flex rounded shadow overflow-hidden border border-emerald-500">
+                            <div class="split-action">
                                 <button id="save-song-btn" type="button"
-                                        class="bg-emerald-600 hover:bg-emerald-500 transition-colors text-black py-2 px-4 flex items-center gap-1 focus:outline-none">
+                                        class="primary-action bg-emerald-600 text-white">
                                     <span class="material-icons align-middle">save</span>
                                     <span id="save-song-btn-text">Save Song</span>
                                 </button>
                                 <button id="song-save-dropdown-btn"
+                                        aria-label="More options"
                                         type="button"
-                                        class="dropdown-toggle bg-emerald-600 hover:bg-emerald-500 text-black px-2 flex items-center focus:outline-none"
+                                        class="primary-action bg-emerald-600 text-white button-icon dropdown-toggle"
                                         onclick="toggleDropdown(this)">
                                     <span class="material-icons align-middle transition-transform duration-200">expand_more</span>
                                 </button>
                             </div>
-                            <div class="dropdown-menu absolute bottom-full right-0 mb-1 w-48 text-black border border-emerald-500 backdrop-blur-xs rounded z-20 hidden">
+                            <div class="dropdown-menu menu-panel absolute bottom-full right-0 mb-1 w-full z-20 hidden">
                                 <button type="button" onclick="window.SongsManager.downloadCurrentSong()"
-                                        class="w-full flex gap-2 items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
+                                        class="secondary-action secondary-action--hover--cyan">
                                     <span class="material-icons">file_download</span>
                                     Download Song
                                 </button>

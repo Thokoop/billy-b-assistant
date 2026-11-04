@@ -101,10 +101,38 @@ def select_route(nodes):
     return sources[0]["name"], sinks[0]["name"] if sinks else None
 
 
+_raw_supported = None
+
+
+def raw_supported():
+    """Whether this pw-cat needs and knows --raw for PCM on stdin/stdout.
+
+    PipeWire 1.2.7 (Bookworm) has no --raw and exits on it; '-' is raw PCM
+    there already. Newer pw-cat (Trixie) opens '-' through libsndfile unless
+    told --raw, and playback then fails at once: 'sndfile: failed to open audio
+    file "-": Format not recognised'.
+    """
+    global _raw_supported
+    if _raw_supported is None:
+        try:
+            result = subprocess.run(
+                ["pw-cat", "--help"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=pipewire_env(),
+            )
+            _raw_supported = "--raw" in (result.stdout + result.stderr)
+        except Exception:
+            _raw_supported = False
+    return _raw_supported
+
+
 def command(target, *, record, latency_ms=20):
     return [
         "pw-cat",
         "--record" if record else "--playback",
+        *(["--raw"] if raw_supported() else []),
         "--rate=48000",
         "--channels=1",
         "--format=s16",

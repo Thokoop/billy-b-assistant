@@ -35,6 +35,7 @@ def providers(monkeypatch, tmp_path):
         XAI_API_KEY='test-xai',
         XAI_MODEL='configured-xai-model',
         REALTIME_AI_PROVIDER='xai',
+        BILLY_DEVICE='fish',
     )
     logger = Mock()
     monkeypatch.setitem(sys.modules, f'{prefix}.config', config)
@@ -291,7 +292,7 @@ def test_web_factory_and_server_initialize_before_profiles_routes_and_background
         # The standalone app factory must also initialize providers.
         if factory_first:
             app = web.create_app()
-            assert len(app.blueprints) == 8
+            assert len(app.blueprints) == 9
             assert events == [
                 'background',
                 'background',

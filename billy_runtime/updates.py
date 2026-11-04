@@ -226,9 +226,17 @@ def unit_name(root):
     return f'billy-software-{suffix}'
 
 
-def dispatch(root, identity):
-    """Separate cgroup survives web/core restarts; a reboot is resumed from disk."""
+def dispatch(root, identity, source=None):
+    """Separate cgroup survives web/core restarts; a reboot is resumed from disk.
+
+    The job runs the installation root's updater, which a release update never
+    replaces. An opt-in component (``source``) instead runs the selected
+    release's updater: the root of an older installation does not know it.
+    Recovery stays with the root: an interrupted job is resumed there, and the
+    root's repair finishes or rejects it.
+    """
     root = Path(root).resolve()
+    code = Path(source).resolve() if source else root
     user = pwd.getpwuid(os.getuid()).pw_name
     command = [
         'sudo',
@@ -241,7 +249,8 @@ def dispatch(root, identity):
         '--property=Restart=on-failure',
         '--property=RestartSec=5',
         f'--uid={user}',
-        f'--working-directory={root}',
+        f'--working-directory={code}',
+        f'--setenv=BILLY_INSTALL_ROOT={root}',
         str(root / 'venv/bin/python'),
         '-m',
         'billy_runtime.updates',
@@ -255,14 +264,18 @@ def dispatch(root, identity):
 
 def queue(action, version=None, root=INSTALL_ROOT):
     root = Path(root).resolve()
-    if action not in {'update', 'reinstall', 'rollback', 'packages'}:
+    if action not in {'update', 'reinstall', 'rollback', 'packages', 'optional'}:
         raise ValueError('Unknown software action')
+    if action == 'optional' and not re.fullmatch(
+        r'[a-z0-9][a-z0-9-]{0,40}', version or ''
+    ):
+        raise ValueError('No valid optional component selected')
     if action == 'update' and not re.fullmatch(r'v?\d+[A-Za-z0-9._+-]*', version or ''):
         raise ValueError('No valid release selected')
     if action == 'rollback' and not state(root).get('previous'):
         raise ValueError('No previous installation is available')
     if (
-        action == 'packages'
+        action in {'packages', 'optional'}
         and not (root / 'billy_runtime/system_packages.py').is_file()
     ):
         raise RuntimeError(
@@ -286,7 +299,11 @@ def queue(action, version=None, root=INSTALL_ROOT):
         )
         # Serialize queuing with dispatch, so another request cannot replace it.
         try:
-            dispatch(root, identity)
+            dispatch(
+                root,
+                identity,
+                source=selection(root)[1] if action == 'optional' else None,
+            )
         except subprocess.TimeoutExpired:
             # systemd may already have accepted the request. Leave it queued;
             # the supervisor resumes it and the operation lock prevents duplicates.
@@ -388,6 +405,15 @@ def install_components(source, root, *, repair=False):
         state='preparing',
         message='System components checked. Preparing software…',
     )
+
+
+def install_optional_component(source, root, identity):
+    from .system_packages import install_optional
+
+    def progress(message):
+        save_job(root, state='installing_packages', message=message)
+
+    return install_optional(source, root, identity, progress)
 
 
 def prepare_candidate(root, work):
@@ -582,6 +608,21 @@ def execute(root, identity):
                 message='Preparing and checking software; Billy remains available…',
             )
             work = job(root)
+            if work['action'] == 'optional':
+                restart = install_optional_component(
+                    selection(root)[1], root, work['version']
+                )
+                save_job(
+                    root,
+                    state='complete',
+                    message=(
+                        'Installed. The Raspberry Pi restarts in a moment to finish; '
+                        'settings and software version preserved.'
+                        if restart
+                        else 'Already installed. Settings and software version preserved.'
+                    ),
+                )
+                return
             if work['action'] == 'packages':
                 install_components(selection(root)[1], root, repair=True)
                 save_job(
@@ -647,7 +688,7 @@ def execute(root, identity):
                 save_job(
                     root,
                     state='failed',
-                    message=f'Preparation failed: {str(exc)[:350]}. Current software retained.',
+                    message=f'Preparation failed: {str(exc)[:350].rstrip(".")}. Current software retained.',
                 )
 
 
