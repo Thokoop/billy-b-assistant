@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import threading
 import time
+import wave
 
 from ..logger import logger
 
@@ -109,6 +110,15 @@ def _busy() -> bool:
     return bool(button.is_active) or mode.active()
 
 
+def _duration(path) -> float:
+    """Length of a WAV in seconds (30 when it cannot be read)."""
+    try:
+        with wave.open(str(path), "rb") as wf:
+            return wf.getnframes() / float(wf.getframerate() or 1)
+    except Exception:
+        return 30.0
+
+
 def _ring(stop_event: threading.Event) -> None:
     from .. import audio
     from ..config import CHUNK_MS
@@ -136,17 +146,21 @@ def _ring(stop_event: threading.Event) -> None:
                 stop_event.wait(RING_PAUSE_SECONDS)
                 continue
             audio.ensure_playback_worker_started(CHUNK_MS)
+            # Wait for this ring's own chunks, as the wake-up clip does:
+            # playback_done_event is not reset by plain WAV playback, so
+            # is_billy_speaking() can stay True between rings.
+            already_pending = audio.playback_queue.unfinished_tasks
             audio.enqueue_wav_to_playback(str(path))
             playing = True
-            # Wait for the ring to finish playing, then pause between rings.
-            deadline = time.monotonic() + 30.0
+            deadline = time.monotonic() + _duration(path) + 5.0
             while (
                 not stop_event.is_set()
-                and audio.is_billy_speaking()
+                and audio.playback_queue.unfinished_tasks > already_pending
                 and time.monotonic() < deadline
             ):
                 stop_event.wait(0.05)
             playing = False
+            # Then the pause between rings, like a real phone.
             stop_event.wait(RING_PAUSE_SECONDS)
     except Exception as exc:
         logger.warning(f"Could not play the ringtone: {exc}")

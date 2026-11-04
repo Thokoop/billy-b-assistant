@@ -151,3 +151,59 @@ def test_without_a_ringing_call_the_button_works_as_before(isolated, monkeypatch
     monkeypatch.setattr(controls, "answer_call", answered)
     assert controls.handle_button(ai_active=False) is False  # starts a conversation
     answered.assert_not_called()
+
+
+def test_the_ringtone_repeats_until_the_call_stops_ringing(
+    isolated, monkeypatch, tmp_path
+):
+    import sys
+    import threading
+    import time as real_time
+    from types import ModuleType
+
+    tone = tmp_path / "tone.wav"
+    with wave.open(str(tone), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        wf.writeframes(b"\0\0" * 240)  # 10 ms
+
+    played = []
+
+    class Queue:
+        unfinished_tasks = 0
+
+    audio = ModuleType("isolated_core.audio")
+    audio.playback_queue = Queue()
+    audio.ensure_playback_worker_started = lambda _ms: None
+    # The playback worker drains the ring at once; playback_done_event stays
+    # cleared, as it does outside a conversation.
+    audio.enqueue_wav_to_playback = played.append
+    audio.is_billy_speaking = lambda: True
+    audio.stop_playback = lambda: None
+    monkeypatch.setitem(sys.modules, "isolated_core.audio", audio)
+    monkeypatch.setitem(
+        sys.modules, "isolated_core.mqtt", SimpleNamespace(mqtt_publish=lambda *a: None)
+    )
+    ringtones = ModuleType("isolated_core.bluetooth.ringtones")
+    ringtones.pick = lambda: tone
+    monkeypatch.setitem(sys.modules, "isolated_core.bluetooth.ringtones", ringtones)
+    module = isolated.load("bluetooth.ringer")
+    monkeypatch.setattr(
+        sys.modules["isolated_core.bluetooth"], "ringtones", ringtones, raising=False
+    )
+    isolated.config.BILLY_DEVICE = "fish"
+    isolated.config.BLUETOOTH_RINGTONE = "billy"
+    monkeypatch.setattr(module, "RING_PAUSE_SECONDS", 0.01)
+    monkeypatch.setattr(module, "_busy", lambda: False)
+
+    stop = threading.Event()
+    thread = threading.Thread(target=module._ring, args=(stop,))
+    thread.start()
+    real_time.sleep(0.3)
+    stop.set()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    # Rings again after every pause, not once and then a 30 s wait.
+    assert len(played) >= 5
+    assert set(played) == {str(tone)}
