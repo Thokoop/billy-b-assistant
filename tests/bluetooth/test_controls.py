@@ -137,7 +137,9 @@ def setup_call(c, monkeypatch, states=("active", "held", "waiting")):
     async def interface(bus, service, path, name):
         assert service == c.TELEPHONY
         assert path == AG + "/call0"
-        return props if name == c.PROPERTIES else call
+        # PipeWire's call objects do not answer Properties.Get.
+        assert name != c.PROPERTIES, "No such interface"
+        return call
 
     monkeypatch.setattr(c, "_interface", interface)
     return call, props
@@ -179,9 +181,11 @@ def test_a_press_while_the_call_still_rings_answers_it(controls, monkeypatch):
 )
 def test_hangup_failure_leaves_call_alone(controls, monkeypatch, case):
     c = controls
-    call, props = setup_call(c, monkeypatch)
-    if case == "ended_call":
-        props.call_get.return_value = Variant("s", "disconnected")
+    # An ended call is listed as disconnected: nothing to hang up.
+    states = (
+        ("disconnected",) if case == "ended_call" else ("active", "held", "waiting")
+    )
+    call, _ = setup_call(c, monkeypatch, states)
     if case == "unsupported":
         c._objects.side_effect = RuntimeError("service missing")
     with pytest.raises(RuntimeError) as failure:

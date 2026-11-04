@@ -371,15 +371,9 @@ async def _hangup(bus, address, guard):
     # Never answer/reject a waiting call or end unrelated held calls.
     if len(candidates) != 1:
         raise RuntimeError("No single active phone call to hang up")
-    path = candidates[0]
-    props = await _interface(bus, TELEPHONY, path, PROPERTIES)
-    if (await props.call_get(CALL, "State")).value not in {
-        "active",
-        "dialing",
-        "alerting",
-    }:
-        raise RuntimeError("Call state changed; skipped hang-up")
-    interface = await _interface(bus, TELEPHONY, path, CALL)
+    # The state above is fresh (GetManagedObjects). PipeWire's call objects do
+    # not answer Properties.Get ("No such interface"), so no second read.
+    interface = await _interface(bus, TELEPHONY, candidates[0], CALL)
     _check(guard)
     await interface.call_hangup()
     return "hang-up"
