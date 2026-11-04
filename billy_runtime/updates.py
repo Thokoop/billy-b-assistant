@@ -675,7 +675,7 @@ def execute(root, identity):
                 save_job(
                     root,
                     state='failed',
-                    message=f'Preparation failed: {str(exc)[:350]}. Current software retained.',
+                    message=f'Preparation failed: {str(exc)[:350].rstrip(".")}. Current software retained.',
                 )
 
 

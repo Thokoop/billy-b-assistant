@@ -651,11 +651,10 @@ def optional(env, monkeypatch):
         if '--simulate' in args:
             return env.plan
         if '--no-download' in args:
-            for name in ('pipewire', 'libspa-0.2-bluetooth:arm64'):
-                env.installed[name] = {
-                    'version': '1.4.2-1~bpo12+1',
-                    'status': 'installed',
-                }
+            for package in args:
+                name, _, version = package.partition('=')
+                if version and '::' not in name:
+                    env.installed[name] = {'version': version, 'status': 'installed'}
         return ''
 
     monkeypatch.setattr(packages, 'run', run)
@@ -745,6 +744,9 @@ def test_optional_install_adds_its_source_pins_the_plan_and_restarts(optional):
     'plan',
     [
         BACKPORT_PLAN + 'Inst libc6 [2.36-9] (2.40-1 Debian-backports [arm64])\n',
+        # An installed package outside the component's families.
+        BACKPORT_PLAN + 'Inst hello [2] (3 Debian-backports [arm64])\n',
+        BACKPORT_PLAN + 'Inst libssl3 (3.5-1 Debian-backports [arm64])\n',
         BACKPORT_PLAN + 'Inst network-manager (1.50 Debian-backports [arm64])\n',
         BACKPORT_PLAN + 'Remv pipewire-pulse [1.2.7-1]\n',
     ],
@@ -757,6 +759,18 @@ def test_optional_install_never_touches_anything_else(optional, plan):
         )
     assert not any('--no-download' in args for args, _ in optional.calls)
     assert ['systemctl', 'stop', 'billy.service'] not in [a for a, _ in optional.calls]
+
+
+def test_optional_install_may_add_new_libraries_it_needs(optional):
+    # PipeWire 1.4 from backports needs libebur128-1, which bookworm's
+    # PipeWire 1.2 did not: a new package changes nothing that exists.
+    optional.plan = BACKPORT_PLAN + 'Inst libebur128-1 (1.2.6-1 Debian:12 [arm64])\n'
+    assert packages.install_optional(
+        optional.source, optional.root, 'bluetooth-calls', Mock()
+    )
+    receipt = packages.pending_transaction(optional.root)
+    assert receipt['state'] == 'complete'
+    assert receipt['plan']['libebur128-1'] == '1.2.6-1'
 
 
 @pytest.mark.parametrize(

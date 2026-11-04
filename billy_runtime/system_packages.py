@@ -603,6 +603,17 @@ def parse_plan(output):
     return result
 
 
+# Connectivity packages: installing or changing one needs a tested migration.
+NETWORK_PACKAGES = (
+    'network-manager',
+    'wpasupplicant',
+    'dhcpcd',
+    'avahi',
+    'hostapd',
+    'dnsmasq',
+)
+
+
 def validate_plan(plan, installed, approved):
     for name, version in plan.items():
         before = lookup(installed, name)
@@ -910,11 +921,19 @@ def install_optional(source, root, identity, progress):
     allowed = tuple(item['allow'])
     for name, version in plan.items():
         base = name.partition(':')[0]
-        if not base.startswith(allowed) or base.startswith(FOUNDATION):
-            raise RuntimeError(
-                f'Installing {item["name"]} would change {name}; nothing installed.'
-            )
         before = lookup(installed, name)
+        # A package that is not installed yet (a new library the component
+        # needs, such as libebur128-1 for PipeWire 1.4) changes nothing that
+        # exists. Existing packages may only change within the component's
+        # own families; recovery and network packages never.
+        if (
+            base.startswith(FOUNDATION)
+            or base.startswith(NETWORK_PACKAGES)
+            or (before and not base.startswith(allowed))
+        ):
+            raise RuntimeError(
+                f'Installing {item["name"]} would change {name}; nothing installed'
+            )
         if before and before['version'] != version:
             result = subprocess.run(
                 ['dpkg', '--compare-versions', version, 'lt', before['version']],
