@@ -16,6 +16,7 @@ import threading
 import time
 from pathlib import Path
 
+from .paths import default_device, devices_root
 from .storage import atomic_write
 
 
@@ -242,25 +243,29 @@ def onboarding_mode(root):
 
 
 def configured_device(root):
-    """BILLY_DEVICE from the stable install's .env, read like onboarding_mode()."""
+    """BILLY_DEVICE from the stable install's .env, read like onboarding_mode().
+
+    Not set: the one device installed in <root>/private/, else the fish.
+    """
     try:
         content = (Path(root) / '.env').read_text(encoding='utf-8')
     except FileNotFoundError:
-        return 'fish'
+        return default_device(root)
     except (OSError, UnicodeError) as exc:
         raise RuntimeError('Could not read the device from the configuration.') from exc
-    value = 'fish'
+    value = ''
     for line in content.splitlines():
         if line.startswith('BILLY_DEVICE='):
-            value = line.split('=', 1)[1].strip().strip('"').strip("'") or 'fish'
-    return value
+            value = line.split('=', 1)[1].strip().strip('"').strip("'")
+    return value or default_device(root)
 
 
 def device_component(source, root):
     """The system component of the configured extension device, if it has one.
 
-    A device kept in application/private/<name> (BILLY_DEVICE=<name>, or a
-    ``private.<name>...:attribute`` path) may ship setup/component.json:
+    A device installed in <root>/private/<name>, or kept in the release's
+    application/private/<name> (BILLY_DEVICE=<name>, or a
+    ``private.<name>...:attribute`` path), may ship setup/component.json:
 
         {"name": "Phone setup", "packages": ["..."], "script": "install.sh"}
 
@@ -279,7 +284,9 @@ def device_component(source, root):
         or not all(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', p) for p in parts)
     ):
         return None
-    folder = Path(source) / 'application' / parts[0] / parts[1]
+    folder = devices_root(root) / parts[1]
+    if not (folder / '__init__.py').is_file():
+        folder = Path(source) / 'application' / parts[0] / parts[1]
     manifest = folder / 'setup' / 'component.json'
     if not manifest.is_file():
         return None

@@ -45,6 +45,7 @@ from ..state import (
     load_versions,
     save_versions,
 )
+from ..theme import device_name
 
 
 bp = Blueprint("system", __name__)
@@ -59,6 +60,7 @@ CONFIG_KEYS = [
     "OPENAI_MODEL",
     "OPENAI_LIVE_MODEL",
     "OPENAI_LIVE_BACKEND_MODEL",
+    "OPENAI_LIVE_CUSTOM_VOICES",
     "XAI_MODEL",
     "REALTIME_AI_PROVIDER",
     "BILLY_MODEL",
@@ -114,6 +116,8 @@ CONFIG_KEYS = [
     "WIFI_COUNTRY",
     "WIFI_ONBOARDING_MODE",
     "BLUETOOTH_RINGTONE",
+    "LIVE_BACKCHANNELS",
+    "LIVE_IGNORE_BACKGROUND",
 ]
 # Keys saved by an extension device's settings panel (app/device_panels.py).
 DEVICE_CONFIG_KEYS: set[str] = set()
@@ -126,6 +130,7 @@ BOOLEAN_CONFIG_KEYS = {
     "FLAP_ON_BOOT",
     "MIC_TIMEOUT_TAIL_FLAP",
     "MOOD_INSTRUCTIONS_ENABLED",
+    "LIVE_IGNORE_BACKGROUND",
     "SHOW_TOOLTIPS",
 }
 WAKEWORD_REL_ROOT = Path("wakewords")
@@ -669,22 +674,20 @@ def _friendly_wifi_error_message(error: str, *, password_provided: bool) -> str:
         return (
             "This Wi-Fi network requires a password."
             if not password_provided
-            else "Billy could not join this Wi-Fi network. Check the password and try again."
+            else f"{device_name()} could not join this Wi-Fi network. Check the password and try again."
         )
     if "activation failed" in lowered and "password" in lowered:
-        return (
-            "Billy could not join this Wi-Fi network. Check the password and try again."
-        )
+        return f"{device_name()} could not join this Wi-Fi network. Check the password and try again."
     if "no network with ssid" in lowered:
-        return "Billy could not find that Wi-Fi network. Scan again and try once more."
+        return f"{device_name()} could not find that Wi-Fi network. Scan again and try once more."
     if "ssid not found" in lowered:
-        return "Billy could not find that Wi-Fi network. Scan again and try once more."
+        return f"{device_name()} could not find that Wi-Fi network. Scan again and try once more."
     if "connection profile creation failed" in lowered:
-        return "Billy could not save this Wi-Fi network. Try again."
+        return f"{device_name()} could not save this Wi-Fi network. Try again."
     if "timed out" in lowered:
-        return "Billy could not join this Wi-Fi network in time. Try again in a moment."
+        return f"{device_name()} could not join this Wi-Fi network in time. Try again in a moment."
 
-    return message or "Billy could not join this Wi-Fi network. Try again."
+    return message or f"{device_name()} could not join this Wi-Fi network. Try again."
 
 
 def _wifi_connect(
@@ -1046,7 +1049,51 @@ def _voice_options(provider_name: str) -> list[str]:
                 f"[config] No realtime provider available for '{provider_name}': {e}"
             )
             voices = []
+    if provider_name == "gpt-live":
+        # The custom voices as saved now (the provider may predate the save).
+        voices = list(voices) + [
+            voice["id"] for voice in _custom_voices() if voice["id"] not in voices
+        ]
     return voices
+
+
+def _custom_voices() -> list[dict]:
+    from core.live_voices import parse
+
+    return parse(_config_value_for_ui("OPENAI_LIVE_CUSTOM_VOICES"))
+
+
+def _voice_labels() -> dict:
+    """Display names of the custom voices, by ID (persona voice choices)."""
+    return {voice["id"]: f"{voice['name']} (custom)" for voice in _custom_voices()}
+
+
+@bp.post("/voices/custom")
+def create_custom_voice():
+    """Create a GPT-Live voice from a description (Settings > Voice).
+
+    The voice is made at OpenAI with the saved API key and returned for the
+    custom voice list; it is kept once the settings are saved.
+    """
+    from core.live_voices import MAX_VOICES, VoiceError, create
+
+    # JSON only: a cross-site form cannot send it without a CORS preflight.
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON"}), 415
+    data = request.get_json(silent=True) or {}
+    if len(_custom_voices()) >= MAX_VOICES:
+        return jsonify({"error": f"At most {MAX_VOICES} custom voices"}), 400
+    try:
+        voice = create(
+            _config_value_for_ui("OPENAI_API_KEY"),
+            data.get("name"),
+            data.get("description"),
+            data.get("script"),
+        )
+    except VoiceError as exc:
+        return jsonify({"error": str(exc)}), 400
+    logger.info(f"Created custom voice '{voice['name']}' ({voice['id']}).")
+    return jsonify({"voice": voice})
 
 
 def _page_context(current_page: str) -> dict:
@@ -1054,6 +1101,9 @@ def _page_context(current_page: str) -> dict:
         "current_page": current_page,
         "config": {k: _config_value_for_ui(k) for k in CONFIG_KEYS}
         | {
+            # A persona's fallback voice: one every OpenAI provider has.
+            "VOICE_FALLBACK_OPTIONS": _voice_options("openai"),
+            "VOICE_LABELS": _voice_labels(),
             "VOICE_OPTIONS": _voice_options(
                 _config_value_for_ui("REALTIME_AI_PROVIDER")
             ),
@@ -1241,6 +1291,63 @@ def software_rollback():
     return _software_action('rollback')
 
 
+DEVICE_SOFTWARE_MAX_BYTES = 64 * 1024**2
+
+
+@bp.get('/software/device')
+def device_software_status():
+    from billy_runtime.device_software import installed
+
+    return (
+        jsonify(installed=installed(PROJECT_ROOT)),
+        200,
+        {'Cache-Control': 'no-store'},
+    )
+
+
+@bp.post('/software/device')
+def install_device_software():
+    """Install device software from an uploaded package file.
+
+    The files are swapped in at once; Billy uses them after a restart, which
+    the page starts when this succeeds.
+    """
+    # Browsers cannot submit this custom header from a cross-site HTML form.
+    if request.headers.get('X-Billy-Update') != '1':
+        return jsonify(error='Reload the settings page before installing'), 403
+    from billy_runtime.device_software import install
+
+    upload = request.files.get('file')
+    if upload is None or not upload.filename:
+        return jsonify(error='Choose a device software file'), 400
+    incoming = (
+        Path(PROJECT_ROOT) / 'state' / f'device-software-{uuid.uuid4().hex}.tar.gz'
+    )
+    try:
+        incoming.parent.mkdir(parents=True, exist_ok=True)
+        size = 0
+        with incoming.open('xb') as target:
+            while chunk := upload.stream.read(1024 * 1024):
+                size += len(chunk)
+                if size > DEVICE_SOFTWARE_MAX_BYTES:
+                    return jsonify(
+                        error='This file is too large for device software'
+                    ), 400
+                target.write(chunk)
+        manifest = install(incoming, PROJECT_ROOT, get_current_version())
+    except ValueError as exc:
+        return jsonify(error=f'{exc}.'), 400
+    except OSError as exc:
+        logger.error(f'Device software installation failed: {exc}')
+        return jsonify(error='Could not install the device software.'), 500
+    finally:
+        incoming.unlink(missing_ok=True)
+    logger.info(
+        f"Device software installed: {manifest['title']} {manifest['version']}", '🔌'
+    )
+    return jsonify(installed=manifest)
+
+
 @bp.route("/release-note")
 def release_note():
     current = get_current_version()
@@ -1330,6 +1437,10 @@ def save():
                 except (TypeError, ValueError):
                     parsed = 0.2
                 value = str(max(0.0, min(1.0, parsed)))
+            elif key == "OPENAI_LIVE_CUSTOM_VOICES":
+                from core.live_voices import normalize
+
+                value = normalize(value)
             old_value = str(existing_env.get(key, ""))
             new_value = str(value)
             updates[key] = value
@@ -1433,6 +1544,10 @@ def wifi_networks():
 
         networks: list[dict[str, str | int | bool]] = []
         seen: set[str] = set()
+        from billy_runtime import theme
+
+        # This Billy's own setup hotspot (the device's name, theme.json).
+        own_hotspots = {WIFI_UNIFIED_HOTSPOT_SSID, theme.load()["hotspot_ssid"]}
         for raw_line in result.stdout.splitlines():
             line = raw_line.strip()
             if not line:
@@ -1443,7 +1558,7 @@ def wifi_networks():
             ssid = parts[0].strip()
             if not ssid or ssid in seen:
                 continue
-            if ssid == WIFI_UNIFIED_HOTSPOT_SSID:
+            if ssid in own_hotspots:
                 continue
             seen.add(ssid)
             signal = parts[1].strip()
@@ -1987,6 +2102,9 @@ def get_config():
     # Get basic configuration
     config_data = {k: _config_value_for_ui(k, core_config) for k in CONFIG_KEYS}
 
+    # A persona's fallback voice: one every OpenAI provider has (Realtime).
+    config_data["VOICE_FALLBACK_OPTIONS"] = _voice_options("openai")
+    config_data["VOICE_LABELS"] = _voice_labels()
     config_data["VOICE_OPTIONS"] = _voice_options(
         config_data.get("REALTIME_AI_PROVIDER", "openai")
     )

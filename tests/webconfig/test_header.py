@@ -9,14 +9,22 @@ from conftest import definitions
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 
-def test_context_uses_os_hostname():
+def test_context_uses_os_hostname(monkeypatch):
+    from billy_runtime import theme
+
+    monkeypatch.setattr(theme, 'load', lambda: dict(theme.DEFAULTS))
     system = SimpleNamespace(
         uname=Mock(return_value=SimpleNamespace(nodename='billy-kitchen'))
     )
     context = definitions(
         'application/webconfig/app/__init__.py', ['header_context'], {'os': system}
     )
-    assert context.header_context() == {'device_hostname': 'billy-kitchen'}
+    assert context.header_context() == {
+        'device_hostname': 'billy-kitchen',
+        'device_name': 'Billy-kitchen',
+        'product_name': 'Billy Bassistant',
+        'persona_icon': 'set_meal',
+    }
 
 
 @pytest.mark.parametrize(

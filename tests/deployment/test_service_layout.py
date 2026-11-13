@@ -167,7 +167,7 @@ def test_unchanged_service_commands_update_recover_and_rollback(tmp_path, layout
                     'raise RuntimeError("Broken candidate application")\n'
                 )
             updates.activate(root, record, updates.baseline(root), trial=True)
-            wait_for(url, 'Billy recovery')
+            wait_for(url, ' recovery</h1>')
             generation = updates.activate(
                 root, updates.baseline(root), record, trial=False
             )

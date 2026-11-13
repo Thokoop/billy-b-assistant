@@ -292,7 +292,9 @@ def test_web_factory_and_server_initialize_before_profiles_routes_and_background
         # The standalone app factory must also initialize providers.
         if factory_first:
             app = web.create_app()
-            assert len(app.blueprints) == 9
+            # The route blueprints plus the theme's assets (app/theme.py).
+            assert len(app.blueprints) == 10
+            assert 'theme' in app.blueprints
             assert events == [
                 'background',
                 'background',

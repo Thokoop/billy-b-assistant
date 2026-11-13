@@ -7,7 +7,7 @@
                 <div class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4 xl:mb-0">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-lg text-zinc-200 flex items-center">
-                            <span class="material-icons mr-2 text-emerald-400">set_meal</span>
+                            <span class="material-icons mr-2 text-emerald-400">{{ persona_icon|default('set_meal') }}</span>
                             Personas
                         </h3>
                      <button type="button" 
@@ -56,7 +56,7 @@
                                     <input type="text" 
                                            id="persona-display-name" 
                                            name="persona-display-name"
-                                           placeholder="e.g., Friendly Billy"
+                                           placeholder="e.g., Friendly {{ device_name|default('Billy') }}"
                                            class="field mt-1">
                                 </div>
                             </div>
@@ -101,6 +101,30 @@
                                 <select id="VOICE" name="VOICE"
                                         class="field">
                                     {% for voice in config.get('VOICE_OPTIONS', []) %}
+                                        <option value="{{ voice }}">{{ config.get('VOICE_LABELS', {}).get(voice) or voice | capitalize }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Fallback voice: only for a voice the Realtime voices lack -->
+                        <div id="voice-fallback-row" hidden>
+                            <label for="VOICE_FALLBACK" class="flex justify-between items-center text-sm text-zinc-300 mb-1">
+                                Fallback voice
+                                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                      onclick="toggleTooltip(this)" role="button" tabindex="0"
+                                      onkeydown="if (event.key === 'Enter' || event.key === ' ') toggleTooltip(this, event)"
+                                      aria-label="About the fallback voice">help_outline</span>
+                            </label>
+                            <div class="relative">
+                                <div data-tooltip>
+                                    This voice is only available with GPT-Live. When another provider is used
+                                    (OpenAI Realtime, or when GPT-Live is unavailable), this persona speaks with the
+                                    fallback voice. Without one, the provider's default voice is used.
+                                </div>
+                                <select id="VOICE_FALLBACK" name="VOICE_FALLBACK" class="field">
+                                    <option value="">Provider default</option>
+                                    {% for voice in config.get('VOICE_FALLBACK_OPTIONS', []) %}
                                         <option value="{{ voice }}">{{ voice | capitalize }}</option>
                                     {% endfor %}
                                 </select>
@@ -119,7 +143,7 @@
                             <!-- Tooltip -->
                             <div class="relative">
                                 <div data-tooltip>
-                                    Controls how Billy's mouth moves during speech.<br>
+                                    Controls how {{ device_name|default('Billy') }}'s mouth moves during speech.<br>
                                     <b>Lower values:</b> More snappy, quick movements<br>
                                     <b>Higher values:</b> Smoother, more fluid movements
                                 </div>
@@ -296,24 +320,6 @@
         <!-- Content -->
         <div class="flex-1 overflow-y-auto p-6">
             <div class="space-y-4">
-                <!-- Persona Name Input -->
-                <div>
-                    <label for="new-persona-name" class="flex justify-between items-center text-sm text-zinc-300">
-                        <span>Name <span class="text-rose-400">*</span></span>
-                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1 text-base"
-                              onclick="toggleTooltip(this)">help_outline</span>
-                    </label>
-                    <div class="relative">
-                        <div data-tooltip class="w-64">
-                            The persona will refer to itself using this name. The folder will be created in ./personas/
-                        </div>
-                        <input type="text" 
-                               id="new-persona-name" 
-                               placeholder="e.g., Friendly Billy"
-                               class="field mt-1">
-                    </div>
-                </div>
-                
                 <!-- Template Selection -->
                 <div>
                     <label class="block text-sm text-zinc-300 mb-1">
@@ -326,13 +332,29 @@
             </div>
         </div>
         
-        <!-- Footer -->
-        <div class="border-t border-zinc-700 p-4 flex-shrink-0 flex justify-end">
-            <button type="button" 
-                    onclick="window.PersonaForm.createPersonaFromModal()" 
-                    class="primary-action bg-emerald-600 text-white">
-                Create Persona
-            </button>
+        <!-- Footer: the name last, next to the button it unlocks -->
+        <div class="border-t border-zinc-700 p-4 flex-shrink-0">
+            <label for="new-persona-name" class="flex justify-between items-center text-sm text-zinc-300 mb-1">
+                <span>Name <span class="text-rose-400">*</span></span>
+                <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1 text-base"
+                      onclick="toggleTooltip(this)">help_outline</span>
+            </label>
+            <div class="relative">
+                <div data-tooltip class="w-64">
+                    The persona will refer to itself using this name. The folder will be created in ./personas/
+                </div>
+                <div class="flex items-center gap-3">
+                    <input type="text"
+                           id="new-persona-name"
+                           placeholder="e.g., Friendly {{ device_name|default('Billy') }}"
+                           class="field flex-1 min-w-0">
+                    <button type="button" id="create-persona-submit" disabled
+                            onclick="window.PersonaForm.createPersonaFromModal()"
+                            class="primary-action bg-emerald-600 text-white shrink-0">
+                        Create Persona
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </div>

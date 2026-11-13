@@ -290,6 +290,7 @@ def request_session_start(
     opening: dict | None = None,
     situation: str | None = None,
     persona: str | None = None,
+    song: str | None = None,
 ) -> bool:
     """Start a conversation on behalf of ``source`` (for example a device).
 
@@ -307,9 +308,17 @@ def request_session_start(
 
     ``persona`` uses that persona for this conversation only; the user's own
     persona returns when it ends. An unknown name keeps the user's persona.
+
+    ``song`` plays that song instead of a conversation, as song mode does,
+    with the same session events: the session ends when the song does, and
+    request_session_stop() stops the song.
     """
     return trigger_session_start(
-        source=source, opening=opening, situation=situation, persona=persona
+        source=source,
+        opening=opening,
+        situation=situation,
+        persona=persona,
+        song=song,
     )
 
 
@@ -559,6 +568,7 @@ def trigger_session_start(
     opening: dict | None = None,
     situation: str | None = None,
     persona: str | None = None,
+    song: str | None = None,
 ):
     global \
         is_active, \
@@ -688,9 +698,12 @@ def trigger_session_start(
         _set_persona(persona)
         my_session_id = _open_session_events(source)
 
-        if config.RUN_MODE == "song":
+        if song or config.RUN_MODE == "song":
             logger.info(
-                f"{source} trigger received (song mode). Playing a song...", "🎵"
+                f"{source} trigger received: playing {song}."
+                if song
+                else f"{source} trigger received (song mode). Playing a song...",
+                "🎵",
             )
 
             def run_session():
@@ -699,7 +712,7 @@ def trigger_session_start(
                 try:
                     if _shutdown_requested.is_set():
                         return
-                    song_name = song_manager.pick_random_song()
+                    song_name = song or song_manager.pick_random_song()
                     if not song_name:
                         logger.warning(
                             "Song mode is active, but no songs are available.", "⚠️"
@@ -891,7 +904,11 @@ def _force_wifi_setup():
             check=True,
             timeout=120,
         )
-        logger.success("Wi-Fi setup hotspot opened: Billy_Bassistant", "📶")
+        from billy_runtime import theme
+
+        logger.success(
+            f"Wi-Fi setup hotspot opened: {theme.load()['hotspot_ssid']}", "📶"
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         logger.error(f"Could not open Wi-Fi setup hotspot: {exc}")
         flash_status_led_state("error", 5.0)

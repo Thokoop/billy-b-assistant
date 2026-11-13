@@ -65,6 +65,13 @@ def app_with_panel(monkeypatch, tmp_path):
             'hint': 'Lift the handset.',
             'mic_label': 'Handset',
         },
+        'speaker_volume': {
+            'steps': ['Quiet', 'Normal', 'Loud'],
+            'get': lambda: 1,
+            'set': lambda index: True,
+            'label': 'Handset Volume',
+            'hint': 'Louder for an old handset.',
+        },
         'fixed_settings': {
             'MIC_PREFERENCE': 'demo_mic',
             'SPEAKER_PREFERENCE': 'demo_out',
@@ -204,6 +211,27 @@ def test_device_hides_wake_word_tail_flap_and_gain(app_with_panel):
     assert 'data-mic-label="Handset"' in html
 
 
+def test_device_volume_steps_on_the_audio_page(app_with_panel):
+    app, _ = app_with_panel
+    html = app.test_client().get('/settings/audio').text
+    start = html.index('<!-- Speaker Volume Slider -->')
+    section = html[start : html.index('id="section-mqtt"', start)]
+    assert 'Handset Volume' in section
+    assert 'class="settings-step-bar"' in section
+    assert section.count('data-step-dot=') == 3
+    assert 'max="2"' in section
+    assert 'Louder for an old handset.' in section
+
+
+def test_fish_audio_page_keeps_the_mixer_slider(monkeypatch):
+    module, _ = load_device_panels(monkeypatch, None)
+    app = Flask(
+        'fish-volume', template_folder=str(ROOT / 'application/webconfig/templates')
+    )
+    module.install(app)
+    assert app.config['DEVICE_SPEAKER_VOLUME'] is None
+
+
 def test_audio_tests_open_and_release_the_device_path():
     import contextlib
     import threading
@@ -247,3 +275,83 @@ def test_speaker_test_plays_on_a_named_alsa_device():
     assert f._named_alsa_pcm('USB Audio (hw:2,0)') is None
     assert f._named_alsa_pcm('missing') is None
     assert f._named_alsa_pcm(None) is None
+
+
+def _volume_app(hooks):
+    from flask import request
+
+    app = Flask('device-volume')
+    app.config['DEVICE_SPEAKER_VOLUME'] = hooks
+    bp = Blueprint('audio_volume', __name__)
+    amixer = Mock(side_effect=AssertionError('no amixer for this speaker'))
+    definitions(
+        'application/webconfig/app/routes/audio.py',
+        ['_device_speaker_volume', 'volume', '_device_volume_route'],
+        {
+            'bp': bp,
+            'jsonify': jsonify,
+            'request': request,
+            'subprocess': SimpleNamespace(check_output=amixer, check_call=amixer),
+        },
+    )
+    app.register_blueprint(bp)
+    return app.test_client()
+
+
+def test_device_volume_steps_replace_the_mixer():
+    # A device with its own volume steps (speaker_volume): the Audio page's
+    # control picks a step through the device instead of calling amixer.
+    state = {'index': 1}
+
+    def set_step(index):
+        state['index'] = index
+        return True, ''
+
+    steps = ['quiet', 'normal', 'loud']
+    client = _volume_app({
+        'steps': steps,
+        'get': lambda: state['index'],
+        'set': set_step,
+    })
+    assert client.get('/volume').json == {
+        'volume': 1,
+        'steps': steps,
+        'label': 'normal',
+        'message': '',
+        'control': 'device',
+    }
+    answer = client.post('/volume', json={'volume': 2}).json
+    assert (answer['volume'], answer['label'], state['index']) == (2, 'loud', 2)
+    assert client.post('/volume', json={'volume': 3}).status_code == 400
+    assert client.post('/volume', json={}).status_code == 400
+
+
+def test_device_volume_step_that_fails_is_reported():
+    client = _volume_app({
+        'steps': ['a', 'b'],
+        'get': lambda: 9,  # out of range: shown as the nearest step
+        'set': lambda index: (False, 'Not connected'),
+    })
+    assert client.get('/volume').json['volume'] == 1
+    answer = client.post('/volume', json={'volume': 0})
+    assert answer.status_code == 409
+    assert answer.json == {'error': 'Not connected'}
+
+
+def test_panel_can_offer_its_own_volume_steps(monkeypatch):
+    hooks = {'steps': ['-6 dB', '0 dB'], 'get': lambda: 0, 'set': lambda i: True}
+    panel = {
+        'id': 'demo',
+        'template': 'x.html',
+        'speaker_volume': {**hooks, 'label': 'Level'},
+    }
+    module, _ = load_device_panels(monkeypatch, panel)
+    app = Flask('volume-panel')
+    module.install(app)
+    volume = app.config['DEVICE_SPEAKER_VOLUME']
+    assert volume['steps'] == ['-6 dB', '0 dB']
+    assert (volume['label'], volume['hint']) == ('Level', '')
+    # Fewer than two steps or no hooks: no device volume, the mixer stays.
+    assert module._speaker_volume({'steps': ['x'], 'get': len, 'set': len}) is None
+    assert module._speaker_volume({'steps': ['x', 'y']}) is None
+    assert module._speaker_volume(True) is None

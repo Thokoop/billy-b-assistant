@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Songs | Billy Bassistant{% endblock %}
+{% block title %}Songs | {{ product_name|default('Billy Bassistant') }}{% endblock %}
 
 {% block header %}
 {% include "components/header.html" %}
@@ -34,7 +34,7 @@
 
                 <div class="p-4">
                     <div id="songs-list-view">
-                        <p class="text-sm text-zinc-400 mb-4">Manage custom songs for Billy to perform</p>
+                        <p class="text-sm text-zinc-400 mb-4">Manage custom songs for {{ device_name|default('Billy') }} to perform</p>
                         <div id="songs-grid" class="grid grid-cols-1 gap-4">
                         </div>
 
@@ -121,7 +121,7 @@
                                 </label>
                                 <div class="relative">
                                     <div data-tooltip>
-                                        Keywords help Billy understand when to play this song.<br>
+                                        Keywords help {{ device_name|default('Billy') }} understand when to play this song.<br>
                                         Include song title, artist name, genre, mood, or themes.
                                     </div>
                                     <input type="text" id="song-keywords" name="keywords"

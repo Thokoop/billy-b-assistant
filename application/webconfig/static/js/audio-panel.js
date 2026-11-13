@@ -34,10 +34,31 @@ const AudioPanel = (() => {
         bindSpeakerVolumeSlider();
     }
 
-    function updateSpeakerVolumeUi(value) {
+    // The device's own volume steps (Design System 3.6, stepped control)
+    // instead of the 0–100 mixer bar: the Audio page renders the dots.
+    function speakerVolumeSteps() {
+        return document.getElementById("speaker-volume-bar")
+            ?.classList.contains("settings-step-bar") || false;
+    }
+
+    function updateSpeakerVolumeUi(value, stepLabel) {
         const speakerSlider = document.getElementById("speaker-volume");
         const fill = document.getElementById("speaker-volume-fill");
         if (!speakerSlider || !fill) return;
+
+        if (speakerVolumeSteps()) {
+            const max = Math.max(1, Number(speakerSlider.max) || 1);
+            const index = Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
+            speakerSlider.value = String(index);
+            fill.style.width = `${(index / max) * 100}%`;
+            fill.dataset.value = String(index);
+            const bar = document.getElementById("speaker-volume-bar");
+            const label = document.getElementById("speaker-volume-label");
+            if (stepLabel !== undefined && label) label.textContent = stepLabel;
+            bar?.setAttribute("aria-valuenow", String(index + 1));
+            if (label) bar?.setAttribute("aria-valuetext", label.textContent);
+            return;
+        }
 
         const volume = Math.max(0, Math.min(100, Number(value) || 0));
         speakerSlider.value = String(volume);
@@ -53,6 +74,8 @@ const AudioPanel = (() => {
             speakerSlider.dataset.audioBound === "true"
             && speakerBar.dataset.audioBound === "true"
         ) return;
+        const stepped = speakerVolumeSteps();
+        let stepLabels = [];
 
         if (speakerBar.dataset.audioBound !== "true") {
             speakerBar.dataset.audioBound = "true";
@@ -65,7 +88,10 @@ const AudioPanel = (() => {
                     Math.max((event.clientX - rect.left) / rect.width, 0),
                     1,
                 );
-                speakerSlider.value = String(Math.round(ratio * 100));
+                const max = Number(speakerSlider.max) || 100;
+                const value = String(Math.round(ratio * max));
+                if (value === speakerSlider.value && stepped) return;
+                speakerSlider.value = value;
                 speakerSlider.dispatchEvent(new Event("input", {bubbles: true}));
             };
 
@@ -80,20 +106,42 @@ const AudioPanel = (() => {
             const stopDragging = () => { dragging = false; };
             speakerBar.addEventListener("pointerup", stopDragging);
             speakerBar.addEventListener("pointercancel", stopDragging);
+            if (stepped) {
+                speakerBar.addEventListener("keydown", (event) => {
+                    const step = {ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1}[event.key];
+                    if (!step) return;
+                    event.preventDefault();
+                    const max = Number(speakerSlider.max) || 1;
+                    const next = Math.max(0, Math.min(max, Number(speakerSlider.value) + step));
+                    if (String(next) === speakerSlider.value) return;
+                    speakerSlider.value = String(next);
+                    speakerSlider.dispatchEvent(new Event("input", {bubbles: true}));
+                });
+            }
         }
 
         if (speakerSlider.dataset.audioBound !== "true") {
             speakerSlider.dataset.audioBound = "true";
             speakerSlider.addEventListener("input", () => {
-                updateSpeakerVolumeUi(speakerSlider.value);
+                const value = parseInt(speakerSlider.value, 10);
+                updateSpeakerVolumeUi(value, stepped ? stepLabels[value] : undefined);
                 clearTimeout(speakerVolumeDebounceTimeout);
                 speakerVolumeDebounceTimeout = setTimeout(() => {
                     fetch("/volume", {
                         method: "POST",
                         headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({volume: parseInt(speakerSlider.value, 10)}),
-                    }).catch(error => console.error("Failed to set speaker volume:", error));
-                }, 500);
+                        body: JSON.stringify({volume: value}),
+                    })
+                        .then(response => response.json().then(data => ({ok: response.ok, data})))
+                        .then(({ok, data}) => {
+                            if (!ok) throw new Error(data.error || "Could not set the volume");
+                            if (data.message) showNotification(data.message, "info", 6000);
+                        })
+                        .catch(error => {
+                            console.error("Failed to set speaker volume:", error);
+                            if (stepped) showNotification(error.message, "error");
+                        });
+                }, stepped ? 300 : 500);
             });
         }
 
@@ -104,7 +152,8 @@ const AudioPanel = (() => {
                 return response.json();
             }))
             .then(data => {
-                if (data.volume !== undefined) updateSpeakerVolumeUi(data.volume);
+                if (Array.isArray(data.steps)) stepLabels = data.steps;
+                if (data.volume !== undefined) updateSpeakerVolumeUi(data.volume, data.label);
             })
             .catch(error => console.error("Failed to load speaker volume:", error));
     }
@@ -122,21 +171,21 @@ const AudioPanel = (() => {
             const selectedSpeakerPreference = speakerSelect ? String(speakerSelect.value || "") : "";
             const data = await ServiceStatus.fetchStatus();
             if (data.status === "active") {
-                showNotification("Stopping Billy service for speaker test...", "warning");
+                showNotification(`Stopping ${deviceName()} service for speaker test...`, "warning");
                 
                 // Stop the Billy service
                 const stopResponse = await fetch("/stop-billy", {method: "POST"});
                 if (!stopResponse.ok) {
                     const reason = `HTTP ${stopResponse.status}`;
                     console.error("Failed to stop Billy service:", reason);
-                    showNotification(`Failed to stop Billy service: ${reason}`, "error");
+                    showNotification(`Failed to stop ${deviceName()} service: ${reason}`, "error");
                     return;
                 }
                 
                 // Wait a moment for the service to stop
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 
-                showNotification("Billy service stopped. Running speaker test...", "success");
+                showNotification(`${deviceName()} service stopped. Running speaker test...`, "success");
             }
             
             announceDeviceAudioTest();
@@ -167,7 +216,7 @@ const AudioPanel = (() => {
             await fetch("/config/auto-refresh", {method: "POST"});
             if (saveData && saveData.audio_restart_required) {
                 await fetch("/restart-billy", {method: "POST"});
-                showNotification(`${key === "MIC_PREFERENCE" ? "Microphone" : "Speaker"} updated – Billy restarted`, "success");
+                showNotification(`${key === "MIC_PREFERENCE" ? "Microphone" : "Speaker"} updated – ${deviceName()} restarted`, "success");
             }
             return true;
         } catch (error) {
@@ -283,12 +332,12 @@ const AudioPanel = (() => {
                 serviceWasRunning = (data.status === "active");
                 
                 if (serviceWasRunning) {
-                    showNotification("Stopping Billy service for mic test...", "warning");
+                    showNotification(`Stopping ${deviceName()} service for mic test...`, "warning");
                     await fetch("/stop-billy", {method: "POST"});
                     serviceStoppedForMicTest = true;
                     // Wait a moment for the service to stop
                     await new Promise(resolve => setTimeout(resolve, 2000));
-                    showNotification("Billy service stopped. Starting mic test...", "success");
+                    showNotification(`${deviceName()} service stopped. Starting mic test...`, "success");
                 }
                 
                 announceDeviceAudioTest();
@@ -442,13 +491,13 @@ const AudioPanel = (() => {
                 if (micRecordingServiceWasRunning) {
                     micRecordingServiceWasRunning = false;
                     try {
-                        showNotification("Mic recording finished. Restarting Billy service...", "warning");
+                        showNotification(`Mic recording finished. Restarting ${deviceName()} service...`, "warning");
                         await fetch("/restart-billy", {method: "POST"});
-                        showNotification("Billy service restarted", "success");
+                        showNotification(`${deviceName()} service restarted`, "success");
                         ServiceStatus.fetchStatus();
                     } catch (error) {
                         console.error("Failed to restart Billy service:", error);
-                        showNotification("Mic recording finished, but Billy service restart failed", "error");
+                        showNotification(`Mic recording finished, but ${deviceName()} service restart failed`, "error");
                     }
                 }
             }
@@ -480,7 +529,7 @@ const AudioPanel = (() => {
             const data = await ServiceStatus.fetchStatus();
             micRecordingServiceWasRunning = data.status === "active";
             if (micRecordingServiceWasRunning) {
-                showNotification("Stopping Billy service for mic recording...", "warning");
+                showNotification(`Stopping ${deviceName()} service for mic recording...`, "warning");
                 await fetch("/stop-billy", {method: "POST"});
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
@@ -516,7 +565,7 @@ const AudioPanel = (() => {
             const serviceIsActive = serviceStatus.status === "active";
             shouldRestart = serviceIsActive || serviceStoppedForMicTest || serviceWasRunning;
             if (serviceIsActive) {
-                showNotification("Stopping Billy service for mic recording playback...", "warning");
+                showNotification(`Stopping ${deviceName()} service for mic recording playback...`, "warning");
                 await fetch("/stop-billy", {method: "POST"});
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
@@ -651,16 +700,44 @@ const AudioPanel = (() => {
         const slider = document.getElementById("mic-gain");
         const fill = document.getElementById("mic-gain-fill");
         if (!label || !slider || !fill) return;
+        // A device without an adjustable microphone (e.g. the phone) hides
+        // the row (device_panels.py "hide"): nothing to read.
+        if (slider.closest('[data-hardware-feature="mic-gain"]')?.hidden) return;
         try {
             const data = await window.BootstrapData?.take("mic_gain")
                 || await (await fetch("/mic-gain")).json();
-            if (data.gain !== undefined) {
+            if (data && data.gain !== undefined) {
+                setMicGainAvailable(true);
                 updateMicGainUi(data.gain, data);
             } else {
-                label.textContent = "Unavailable";
+                // No USB microphone with a gain control (available: false),
+                // or the gain could not be read: no slider to move.
+                setMicGainAvailable(false, data && data.available === false
+                    ? "This microphone has no adjustable gain."
+                    : (data && data.error) || "Could not read the microphone gain.");
             }
         } catch (err) {
             label.textContent = "Error";
+        }
+    }
+
+    function setMicGainAvailable(available, reason = "") {
+        const label = document.getElementById("mic-gain-value");
+        const slider = document.getElementById("mic-gain");
+        const bar = document.getElementById("mic-gain-bar");
+        const fill = document.getElementById("mic-gain-fill");
+        if (!label || !slider || !bar || !fill) return;
+        slider.disabled = !available;
+        bar.classList.toggle("opacity-50", !available);
+        bar.classList.toggle("pointer-events-none", !available);
+        bar.toggleAttribute("aria-disabled", !available);
+        bar.title = available ? "" : reason;
+        if (!available) {
+            label.textContent = "—";
+            label.title = reason;
+            fill.style.width = "0%";
+        } else {
+            label.title = "";
         }
     }
 

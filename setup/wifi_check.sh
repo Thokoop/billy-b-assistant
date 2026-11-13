@@ -11,7 +11,17 @@ LEGACY_CAPTIVE_PORTAL_DNSMASQ_CONF="/etc/dnsmasq.d/billy-captive-portal.conf"
 NM_DNSMASQ_SHARED_DIR="/etc/NetworkManager/dnsmasq-shared.d"
 UNIFIED_CAPTIVE_PORTAL_DNSMASQ_CONF="$NM_DNSMASQ_SHARED_DIR/billy-captive-portal.conf"
 UNIFIED_HOTSPOT_CON_NAME="Billy-Onboarding-Hotspot"
-UNIFIED_HOTSPOT_SSID="Billy_Bassistant"
+# The setup hotspot's name: Billy_Bassistant, or the installed device's own
+# (theme.json, billy_runtime/theme.py). Read without the device's Python code.
+theme_value() {
+  local code
+  code="$(readlink -e "$PROJECT_ROOT/current-source" 2>/dev/null || echo "$PROJECT_ROOT")"
+  BILLY_INSTALL_ROOT="${BILLY_INSTALL_ROOT:-$PROJECT_ROOT}" timeout 10 python3 -c \
+    'import sys; sys.path.insert(0, sys.argv[1]); from billy_runtime.theme import main; raise SystemExit(main(sys.argv[2:]))' \
+    "$code" "$1" 2>/dev/null
+}
+UNIFIED_HOTSPOT_SSID="$(theme_value hotspot_ssid)"
+[ -n "$UNIFIED_HOTSPOT_SSID" ] || UNIFIED_HOTSPOT_SSID="Billy_Bassistant"
 UNIFIED_HOTSPOT_IP="10.42.0.1/24"
 
 # Test override: set TEST_FORCE_OFFLINE=1 to force the "no internet" branch

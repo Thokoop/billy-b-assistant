@@ -20,36 +20,36 @@ const LogPanel = (() => {
     const logsVisible = () => !isLogHidden && !document.hidden;
 
     const rebootBilly = async () => {
-        if (!confirm("Are you sure you want to reboot Billy? This will reboot the whole system.")) return;
+        if (!confirm(`Are you sure you want to reboot ${deviceName()}? This will reboot the whole system.`)) return;
         try {
             const res = await fetch('/reboot', {method: 'POST'});
             const data = await res.json();
             if (data.status === "ok") {
-                showNotification("Billy is rebooting!", "success");
+                showNotification(`${deviceName()} is rebooting!`, "success");
                 setTimeout(() => { location.reload(); }, 15000);
             } else {
                 showNotification(data.error || "Reboot failed", "error");
             }
         } catch (err) {
             console.error("Failed to reboot Billy:", err);
-            showNotification("Failed to reboot Billy", "error");
+            showNotification(`Failed to reboot ${deviceName()}`, "error");
         }
     };
 
     const shutdownBilly = async () => {
-        if (!confirm("Are you sure you want to shutdown Billy?\n\nThis will power off the Raspberry Pi but one or more of the motors may remain engaged.\nTo fully power down, make sure to also switch off or unplug the power supply after shutdown.")) return;
+        if (!confirm(`Are you sure you want to shutdown ${deviceName()}?\n\nThis will power off the Raspberry Pi but one or more of the motors may remain engaged.\nTo fully power down, make sure to also switch off or unplug the power supply after shutdown.`)) return;
         try {
             const res = await fetch('/shutdown', {method: 'POST'});
             const data = await res.json();
             if (data.status === "ok") {
-                showNotification("Billy is shutting down!", "success");
+                showNotification(`${deviceName()} is shutting down!`, "success");
                 setTimeout(() => { location.reload(); }, 3000);
             } else {
                 showNotification(data.error || "Shutdown failed", "error");
             }
         } catch (err) {
             console.error("Failed to shutdown Billy:", err);
-            showNotification("Failed to shutdown Billy", "error");
+            showNotification(`Failed to shutdown ${deviceName()}`, "error");
         }
     };
 
@@ -185,7 +185,7 @@ const LogPanel = (() => {
             });
             const data = await res.json();
             if (data.status === "ok") {
-                showNotification(`Log level changed to ${selectedLevel}. Restarting Billy`, "success");
+                showNotification(`Log level changed to ${selectedLevel}. Restarting ${deviceName()}`, "success");
                 
                 // Restart both Billy service and webconfig service
                 setTimeout(async () => {
@@ -491,7 +491,7 @@ const LogPanel = (() => {
 
     const saveEnv = async () => {
         if (envLoading || !envRevision) return;
-        if (!confirm("Are you sure you want to overwrite the .env file? This may affect how Billy runs.")) return;
+        if (!confirm(`Are you sure you want to overwrite the .env file? This may affect how ${deviceName()} runs.`)) return;
         try {
             const res = await fetch('/save-env', {
                 method: 'POST',

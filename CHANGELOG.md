@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.9.0] — Unreleased
+
+### Added
+
+- **Extra Software From a File** (Beta): Software → System components → View component details can install extra software from a single file. It is kept apart from Billy's own software, so software updates keep it; the previous version is kept as well.
+- **Billy's Name Everywhere**: The web interface, recovery page, Wi-Fi setup and Home Assistant now call Billy by his hostname, as the header already did, so a renamed Billy reads right everywhere. The product name, setup hotspot name, persona presets and images (status logo, loading image, favicon) can be themed with a `theme/theme.json`; anything left out stays Billy's.
+- **Fallback Voice for a Persona**: A persona with a voice only GPT-Live has (such as Nira or Flitz) can pick a fallback voice. When another provider is used — OpenAI Realtime, or when GPT-Live is not available — the persona speaks with that voice instead of the provider's default. The field only appears for such a voice.
+- **Custom GPT-Live Voices**: Voices made with OpenAI's custom voices (from a description or a recording) can be added in the Custom voices section of Voice & AI with a name, their voice ID, an optional accent and an optional description. **Create from description** makes a new voice there through OpenAI's API, with the saved key. They appear in every persona's voice list, and wake-up clips are recorded in them too; GPT-Live gets the voice by its ID, with its description and accent in the instructions. Voices made from a description only work with GPT-Live, so give those personas a fallback voice.
+- **More GPT-Live Voices**: Calandria, Compas, Destello, Halo, Hornero, Luciernaga and Pearl, from OpenAI's current list.
+- **GPT-Live Conversation Style**: With GPT-Live, Voice & AI settings offer Listening sounds (off, occasional, frequent: short "mm-hm" sounds while you talk) and Ignore background talk (Billy only responds when spoken to, not to a TV, music or people nearby). Defaults: occasional, on. Settings in `.env`: `LIVE_BACKCHANNELS`, `LIVE_IGNORE_BACKGROUND`. How much Billy says follows the persona's Talkative trait.
+
+### Changed
+
+- **Create New Persona**: The name field sits right above Create Persona, which stays disabled until a name is filled in; Enter creates the persona.
+- **Voice & AI Settings**: Grouped in sections: provider and models, Custom voices (GPT-Live only) and Conversation, which holds the conversation toggles and sliders. Toggles stay level when a label wraps onto two lines.
+- **GPT-Live Turn-Taking**: Billy follows OpenAI's GPT-Live prompting guidance more closely: he stops at once when you say stop or wait or correct him, does not pick up an answer you replaced, and leaves you room to think instead of finishing your sentences. Messages sent by the app (an MQTT "say" prompt, the opening of a conversation or a generated clip) are no longer presented to the model as words you said.
+
+### Fixed
+
+- **Persona Voice of Another Provider**: Saving a persona while another provider is selected no longer replaces its voice with the first voice of the list.
+- **Microphone Gain Without a USB Microphone**: The Audio page no longer reports an error when there is no USB microphone with an adjustable gain; the gain slider is shown as unavailable instead.
+- **Tooltips Near the Save Bar**: A tooltip near the bottom of a settings page now opens above the save bar instead of behind it.
+
+---
+
 ## [2.8.0] — 2026-11-04
 
 ### Added

@@ -301,12 +301,28 @@ def _discovery_device():
         from .devices import active_device_model
 
         model = active_device_model() or model
+    with contextlib.suppress(Exception):
+        from billy_runtime import theme
+
+        # A device with a theme names its product (theme.json).
+        if theme.theme_dir() is not None:
+            model = theme.load()["product_name"]
     return {
         "identifiers": [f"billy_{MQTT_DEVICE_ID}"],
         "name": MQTT_DEVICE_ID,
         "model": model,
         "manufacturer": "ThingsFromThom",
     }
+
+
+def _entity_name(suffix: str) -> str:
+    """ "Billy State" for the fish (existing entities); else the device's name."""
+    label = (
+        "Billy"
+        if MQTT_DEVICE_ID == "billy"
+        else MQTT_DEVICE_ID[:1].upper() + MQTT_DEVICE_ID[1:]
+    )
+    return f"{label} {suffix}"
 
 
 def _play_ringtone_preview(payload: bytes):
@@ -347,7 +363,7 @@ def mqtt_send_discovery():
 
     # Sensor for Billy's state
     payload_sensor = {
-        "name": "Billy State",
+        "name": _entity_name("State"),
         "unique_id": "billy_state",
         "state_topic": "billy/state",
         "icon": "mdi:fish",
@@ -356,7 +372,7 @@ def mqtt_send_discovery():
     _announce(mqtt_client, "homeassistant/sensor/billy/state/config", payload_sensor)
 
     payload_mood_sensor = {
-        "name": "Billy Mood",
+        "name": _entity_name("Mood"),
         "unique_id": "billy_mood",
         "state_topic": "billy/mood",
         "json_attributes_topic": "billy/mood/state",
@@ -369,7 +385,7 @@ def mqtt_send_discovery():
 
     # Button to send shutdown command
     payload_button = {
-        "name": "Billy Shutdown",
+        "name": _entity_name("Shutdown"),
         "unique_id": "billy_shutdown",
         "command_topic": "billy/command",
         "payload_press": "shutdown",
@@ -379,7 +395,7 @@ def mqtt_send_discovery():
 
     # Button to restart Billy service
     payload_button_restart = {
-        "name": "Billy Restart",
+        "name": _entity_name("Restart"),
         "unique_id": "billy_restart",
         "command_topic": "billy/command",
         "payload_press": "restart-billy",
@@ -391,7 +407,7 @@ def mqtt_send_discovery():
 
     # Button to reboot the system
     payload_button_reboot = {
-        "name": "Billy Reboot",
+        "name": _entity_name("Reboot"),
         "unique_id": "billy_reboot",
         "command_topic": "billy/command",
         "payload_press": "reboot",
@@ -403,7 +419,7 @@ def mqtt_send_discovery():
 
     # Button to toggle listening
     payload_button_listen = {
-        "name": "Billy Listen",
+        "name": _entity_name("Listen"),
         "unique_id": "billy_listen",
         "command_topic": "billy/command",
         "payload_press": "listen",
@@ -415,7 +431,7 @@ def mqtt_send_discovery():
 
     # Single text entity
     payload_text_input = {
-        "name": "Billy Say",
+        "name": _entity_name("Say"),
         "unique_id": "billy_say",
         "command_topic": "billy/say",
         "mode": "text",
@@ -426,7 +442,7 @@ def mqtt_send_discovery():
 
     # Single text entity for playing songs
     payload_song_input = {
-        "name": "Billy Song",
+        "name": _entity_name("Song"),
         "unique_id": "billy_song",
         "command_topic": "billy/song",
         "mode": "text",
@@ -437,7 +453,7 @@ def mqtt_send_discovery():
 
     # Sensor for the last song Billy played (e.g. offline Song mode picks)
     payload_last_song_sensor = {
-        "name": "Billy Last Song",
+        "name": _entity_name("Last Song"),
         "unique_id": "billy_last_song",
         "state_topic": "billy/song/last",
         "icon": "mdi:music",

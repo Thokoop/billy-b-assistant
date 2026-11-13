@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "components/status-badge.html" import status_badge, badge_info %}
 
-{% block title %}Library | Billy Bassistant{% endblock %}
+{% block title %}Library | {{ product_name|default('Billy Bassistant') }}{% endblock %}
 
 {% block header %}
 {% include "components/header.html" %}
@@ -32,7 +32,7 @@
                                               onclick="toggleTooltip(this)">help_outline</span>
                                         <div id="knowledge-folders-tooltip" data-tooltip
                                              style="top:calc(100% + 0.4rem);left:0;width:min(24rem,calc(100vw - 2rem));max-width:calc(100vw - 2rem);max-height:60vh;overflow:auto;white-space:normal;overflow-wrap:break-word;word-break:normal;z-index:60;">
-                                            Group related knowledge so Billy can find it more reliably.
+                                            Group related knowledge so {{ device_name|default('Billy') }} can find it more reliably.
                                         </div>
                                     </span>
                                 </label>
@@ -97,7 +97,7 @@
                             </label>
                             <div class="relative">
                                 <div data-tooltip>
-                                    Add keywords that should route Billy to this folder first.
+                                    Add keywords that should route {{ device_name|default('Billy') }} to this folder first.
                                 </div>
                                 <textarea id="knowledge-trigger-topics" rows="2"
                                           class="field mt-1"

@@ -809,3 +809,41 @@ def test_the_shipped_manifest_offers_bluetooth_calls_on_bookworm_only():
         packages.optional_components(manifest, {**MACHINE, 'distribution': 'trixie'})
         == []
     )
+
+
+def _installed_device(root, name='phone'):
+    folder = root / 'private' / name
+    (folder / 'setup').mkdir(parents=True)
+    (folder / '__init__.py').write_text('')
+    (folder / 'setup/component.json').write_text(
+        json.dumps({'name': 'Installed setup', 'packages': [], 'script': 'install.sh'})
+    )
+    (folder / 'setup/install.sh').write_text('true\n')
+    return folder
+
+
+def test_device_installed_in_the_root_survives_release_changes(env):
+    folder = _installed_device(env.root)
+    (env.root / '.env').write_text('BILLY_DEVICE=phone\n')
+    component = packages.device_component(env.source, env.root)
+    assert component['name'] == 'Installed setup'
+    assert component['setup'] == folder / 'setup'
+
+
+@pytest.mark.parametrize('content', [None, 'OTHER=1\n', 'BILLY_DEVICE=\n'])
+def test_without_billy_device_the_one_installed_device_is_used(env, content):
+    if content is not None:
+        (env.root / '.env').write_text(content)
+    assert packages.configured_device(env.root) == 'fish'
+    _installed_device(env.root)
+    assert packages.configured_device(env.root) == 'phone'
+    _installed_device(env.root, 'tv')
+    # Two devices: no guessing.
+    assert packages.configured_device(env.root) == 'fish'
+
+
+def test_explicit_fish_wins_over_an_installed_device(env):
+    _installed_device(env.root)
+    (env.root / '.env').write_text('BILLY_DEVICE=fish\n')
+    assert packages.configured_device(env.root) == 'fish'
+    assert packages.device_component(env.source, env.root) is None

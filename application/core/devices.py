@@ -7,8 +7,12 @@ resolved in this order:
 1. an installed entry point in the ``billy.devices`` group with that name;
 2. a ``package.module:attribute`` import path;
 3. a plain name (``BILLY_DEVICE=<name>``): the ``DEVICE`` attribute of the
-   ``private.<name>`` package, for devices kept out of this repository in
-   ``application/private/<name>``.
+   ``private.<name>`` package, for devices kept out of this repository. It is
+   loaded from ``<install root>/private/<name>`` (kept across software
+   updates), else from ``application/private/<name>`` (development).
+
+Without ``BILLY_DEVICE`` the one device in ``<install root>/private/`` is
+used, if there is exactly one (core.config).
 
 Such a device folder may also ship a system component (packages and a setup
 script, ``setup/component.json``) that Billy's system-component installer runs;
@@ -37,6 +41,9 @@ configured.
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import sys
+import types
 from collections.abc import Callable
 from importlib import metadata
 
@@ -57,10 +64,13 @@ class DeviceControls:
         opening: dict | None = None,
         situation: str | None = None,
         persona: str | None = None,
+        song: str | None = None,
     ) -> bool:
-        """Start a conversation; see button.request_session_start."""
+        """Start a conversation, or play ``song``; see button.request_session_start."""
         from . import button
 
+        if song:
+            return button.request_session_start(source, song=song)
         return button.request_session_start(
             source, opening=opening, situation=situation, persona=persona
         )
@@ -146,6 +156,43 @@ class DeviceControls:
         return {"text": text, "kind": kind, "interactive": interactive}
 
 
+def _import_private(name: str):
+    """``private.<name>``, from the install root when it is installed there.
+
+    The install root's copy survives software updates, which replace the
+    release (and with it application/private/), so it comes first.
+    """
+    module_name = f"private.{name}"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    from billy_runtime.paths import DEVICE_NAME, devices_root
+
+    folder = devices_root() / name
+    if not DEVICE_NAME.fullmatch(name) or not (folder / "__init__.py").is_file():
+        return importlib.import_module(module_name)
+    parent = sys.modules.get("private")
+    if parent is None:
+        try:
+            parent = importlib.import_module("private")
+        except ModuleNotFoundError:
+            # No application/private/ in this release: an empty namespace.
+            parent = types.ModuleType("private")
+            parent.__path__ = []
+            sys.modules["private"] = parent
+    spec = importlib.util.spec_from_file_location(
+        module_name, folder / "__init__.py", submodule_search_locations=[str(folder)]
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(module_name, None)
+        raise
+    setattr(parent, name, module)
+    return module
+
+
 def _resolve(name: str):
     try:
         entry_points = metadata.entry_points(group=ENTRY_POINT_GROUP)
@@ -156,13 +203,16 @@ def _resolve(name: str):
             return entry_point.load()
     if ":" in name:
         module_name, _, attribute = name.partition(":")
+        parts = module_name.split(".")
+        if len(parts) > 1 and parts[0] == "private":
+            _import_private(parts[1])
         target = importlib.import_module(module_name)
         for part in attribute.split("."):
             target = getattr(target, part)
         return target
     if name.replace("_", "").isalnum():
         try:
-            package = importlib.import_module(f"private.{name}")
+            package = _import_private(name)
         except ModuleNotFoundError as exc:
             if exc.name not in {"private", f"private.{name}"}:
                 raise
@@ -198,6 +248,11 @@ def webconfig_panel(name: str) -> dict | None:
         audio_test    optional hooks for the Audio page's speaker/microphone
                       tests: {"open": f(timeout) -> (ok, message), "close": f(),
                       "hint", "mic_label", "speaker_label"}
+        speaker_volume  optional fixed volume steps of the device's own
+                      output, shown on the Audio page instead of the mixer
+                      slider: {"steps": [labels, quiet to loud],
+                      "get": f() -> step index, "set": f(index) -> (ok,
+                      message), "label", "hint"}
     """
     if not name or name == "fish":
         return None

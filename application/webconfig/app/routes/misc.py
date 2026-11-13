@@ -9,6 +9,8 @@ import uuid
 from core.logger import logger
 from flask import Blueprint, jsonify, request
 
+from ..theme import device_name
+
 
 bp = Blueprint("misc", __name__)
 _service_restart_lock = threading.Lock()
@@ -172,7 +174,7 @@ def restart_billy_only():
             target=_restart_billy_only_in_background,
             daemon=True,
         ).start()
-        return jsonify({"status": "ok", "message": "Restarting Billy..."})
+        return jsonify({"status": "ok", "message": f"Restarting {device_name()}..."})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -182,7 +184,10 @@ def stop_billy_only():
     """Stop only billy.service (not the webconfig), used for audio tests."""
     try:
         subprocess.Popen(["sudo", "systemctl", "stop", "billy.service"])
-        return jsonify({"status": "ok", "message": "Stopping Billy service..."})
+        return jsonify({
+            "status": "ok",
+            "message": f"Stopping {device_name()} service...",
+        })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -390,7 +395,7 @@ def health():
 def reboot_billy():
     try:
         subprocess.call(["sudo", "shutdown", "-r", "now"])
-        return jsonify({"status": "ok", "message": "Billy rebooting"})
+        return jsonify({"status": "ok", "message": f"{device_name()} rebooting"})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -399,7 +404,7 @@ def reboot_billy():
 def shutdown_billy():
     try:
         subprocess.call(["sudo", "shutdown", "-h", "now"])
-        return jsonify({"status": "ok", "message": "Billy shutting down"})
+        return jsonify({"status": "ok", "message": f"{device_name()} shutting down"})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 

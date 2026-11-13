@@ -78,11 +78,11 @@ def test_independent_recovery_and_normal_process_handoff(tmp_path, mode):
 
             asyncio.run(check_websocket())
             (tmp_path / 'mode').write_text('runtime-hang')
-            wait_for(url, 'Billy recovery', timeout=25)
+            wait_for(url, ' recovery</h1>', timeout=25)
         else:
-            wait_for(url, 'Billy recovery')
+            wait_for(url, ' recovery</h1>')
             time.sleep(3)
-            wait_for(url, 'Billy recovery')
+            wait_for(url, ' recovery</h1>')
         assert proc.poll() is None
     finally:
         proc.terminate()
@@ -174,7 +174,7 @@ def test_real_web_entrypoint_survives_broken_app_import(tmp_path):
             stderr=log,
         )
         try:
-            wait_for(f'http://127.0.0.1:{port}/settings', 'Billy recovery')
+            wait_for(f'http://127.0.0.1:{port}/settings', ' recovery</h1>')
             deadline = time.monotonic() + 4
             while (
                 'Broken profile import fixture' not in (tmp_path / 'output').read_text()

@@ -439,7 +439,8 @@ def playback_worker(chunk_ms):
                         move_head("off")
                         movements.head_out = False
                         head_move_active = False
-                        logger.verbose("🛑 Head move ended")
+                        if movements.MOTORS_ENABLED:
+                            logger.verbose("🛑 Head move ended")
 
                     if not head_move_active and not head_move_queue.empty():
                         move_time, move_duration = head_move_queue.queue[0]  # peek
@@ -449,9 +450,10 @@ def playback_worker(chunk_ms):
                             movements.head_out = True
                             head_move_active = True
                             head_move_end_time = now + move_duration
-                            logger.verbose(
-                                f"🐟 Head move started for {move_duration:.2f} seconds"
-                            )
+                            if movements.MOTORS_ENABLED:
+                                logger.verbose(
+                                    f"🐟 Head move started for {move_duration:.2f} seconds"
+                                )
 
                     if not tail_move_queue.empty() and not movements.head_out:
                         # Modern (2-motor) hardware shares one bridge between head and
@@ -462,9 +464,10 @@ def playback_worker(chunk_ms):
                         if now - song_start_time >= move_time:
                             tail_move_queue.get()
                             move_tail_async(duration=move_duration)
-                            logger.verbose(
-                                f"🐟 Manual tail move started for {move_duration:.2f} seconds"
-                            )
+                            if movements.MOTORS_ENABLED:
+                                logger.verbose(
+                                    f"🐟 Manual tail move started for {move_duration:.2f} seconds"
+                                )
 
                     if item is None:
                         logger.info("Received stop signal, cleaning up.", "🧵")
@@ -1160,8 +1163,17 @@ async def play_song(song_name, interrupt_event=None):
     logger.info(
         f"\n🎧 Playing {song_name}"
         + (" (vocals-only)" if not has_full else "")
-        + " with mouth (vocals) flaps"
-        + (" and tail (drums) flaps" if has_drums else " (no drums stem, tail idle)")
+        + (
+            " with mouth (vocals) flaps"
+            + (
+                " and tail (drums) flaps"
+                if has_drums
+                else " (no drums stem, tail idle)"
+            )
+            # A device without motors just plays the song.
+            if movements.MOTORS_ENABLED
+            else ""
+        )
     )
 
     try:

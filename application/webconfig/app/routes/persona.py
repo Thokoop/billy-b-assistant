@@ -223,6 +223,8 @@ def save_persona():
             "description": meta_data.get("description", ""),
             "instructions": meta_data.get("instructions", ""),
             "voice": meta_data.get("voice", data.get("VOICE", "ballad")),
+            # Used when the provider lacks "voice" (persona_manager.py).
+            "voice_fallback": str(meta_data.get("voice_fallback") or ""),
             "mouth_articulation": meta_data.get(
                 "mouth_articulation", data.get("MOUTH_ARTICULATION", "5")
             ),

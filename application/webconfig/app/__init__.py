@@ -14,7 +14,18 @@ except ModuleNotFoundError:
 
 def header_context():
     # The device name comes from the OS, also when the UI is opened by IP.
-    return {'device_hostname': os.uname().nodename}
+    from billy_runtime import theme
+
+    hostname = os.uname().nodename
+    current = theme.load()
+    return {
+        'device_hostname': hostname,
+        # The name the interface calls this Billy by: the hostname, so a
+        # renamed device or another character reads right (theme.py).
+        'device_name': theme.display_name(current, hostname),
+        'product_name': current['product_name'],
+        'persona_icon': current['persona_icon'],
+    }
 
 
 def create_app() -> Flask:
@@ -54,6 +65,10 @@ def create_app() -> Flask:
     app.register_blueprint(knowledge_bp)
     app.register_blueprint(misc_bp)
     app.register_blueprint(songs_bp)
+
+    from .theme import bp as theme_bp
+
+    app.register_blueprint(theme_bp)
 
     # An extension device may add its own settings section (core.devices).
     from .device_panels import install as install_device_panels

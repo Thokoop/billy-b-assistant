@@ -12,7 +12,7 @@
                         </h3>
                         <button type="button" 
                                 class="secondary-action secondary-action--hover--emerald h-11 w-11 p-0 shrink-0"
-                                title="Start a conversation with Billy to create a new profile"
+                                title="Start a conversation with {{ device_name|default('Billy') }} to create a new profile"
                                 onclick="window.UserProfilePanel.showNewProfileInfo()">
                             <span class="material-icons">add</span>
                         </button>
@@ -53,7 +53,7 @@
                                 </label>
                                 <div class="relative">
                                     <div data-tooltip>
-                                        How your name appears in the interface. Useful if Billy mispronounces your name (e.g., "Tom" instead of "Thom").
+                                        How your name appears in the interface. Useful if {{ device_name|default('Billy') }} mispronounces your name (e.g., "Tom" instead of "Thom").
                                     </div>
                                     <input type="text" id="display-name-input-main" class="field mt-1" placeholder="Enter display name">
                                 </div>
@@ -68,7 +68,7 @@
                                 </label>
                                 <div class="relative">
                                     <div data-tooltip>
-                                        The internal ID Billy stores this profile under. Renaming it here renames the stored file too - the Display Name above is what's actually shown in the interface.
+                                        The internal ID {{ device_name|default('Billy') }} stores this profile under. Renaming it here renames the stored file too - the Display Name above is what's actually shown in the interface.
                                     </div>
                                     <div class="flex items-center gap-2 mt-1">
                                         <div id="profile-id-display-main"

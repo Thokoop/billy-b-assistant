@@ -49,7 +49,7 @@ window.Ringtones = (() => {
             const tones = data.ringtones || [];
             container.innerHTML = tones.length
                 ? tones.map(rowHtml).join("")
-                : `<div class="text-sm text-zinc-400 italic py-2">No ringtones. Billy stays silent while your phone rings; add one, or restore the defaults.</div>`;
+                : `<div class="text-sm text-zinc-400 italic py-2">No ringtones. ${deviceName()} stays silent while your phone rings; add one, or restore the defaults.</div>`;
         } catch (err) {
             showNotification(err.message, "error");
         }

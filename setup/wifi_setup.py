@@ -1,3 +1,4 @@
+import socket
 import subprocess
 import threading
 import time
@@ -9,6 +10,9 @@ from flask import Flask, redirect, render_template_string, request
 app = Flask(__name__)
 
 wifi_request = {}
+# The name the pages call this Billy by: its hostname, like the web interface.
+HOST = (socket.gethostname() or "billy").split(".", 1)[0]
+NAME = HOST[:1].upper() + HOST[1:]
 ONBOARDING_FLAG = Path(__file__).resolve().parent / ".wifi_onboarding_active"
 
 FORM_TEMPLATE = """
@@ -17,7 +21,7 @@ FORM_TEMPLATE = """
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Connect Billy to Wi-Fi</title>
+  <title>Connect {{ name }} to Wi-Fi</title>
   <style>
     body {
       background-color: #111;
@@ -67,7 +71,7 @@ FORM_TEMPLATE = """
   </script>
 </head>
 <body>
-<h2>Connect Billy to Wi-Fi</h2>
+<h2>Connect {{ name }} to Wi-Fi</h2>
 <form method="POST">
   <label>SSID:
     <input name="ssid" required />
@@ -130,15 +134,15 @@ CONNECTING_TEMPLATE = """
       fetch("/", { method: "HEAD", cache: "no-store" }).catch(() => {
         document.body.innerHTML = `
           <h2>✅ Wi-Fi connected!</h2>
-          <p>Billy is now online and the hotspot is turned off.</p>
-          <p>You may now return to the main app at <code>billy.local</code>.</p>
+          <p>{{ name }} is now online and the hotspot is turned off.</p>
+          <p>You may now return to the main app at <code>{{ host }}.local</code>.</p>
         `;
       });
     }, 3000);
   </script>
 </head>
 <body>
-  <h2>✅ Billy is connecting to <code>{{ ssid }}</code></h2>
+  <h2>✅ {{ name }} is connecting to <code>{{ ssid }}</code></h2>
   <p>You may lose connection shortly. Please reconnect to your Wi-Fi and visit <code>billy.local</code>.</p>
 </body>
 </html>
@@ -158,7 +162,7 @@ def onboarding():
 
         return redirect("http://192.168.4.1:8080/connecting")
 
-    return render_template_string(FORM_TEMPLATE)
+    return render_template_string(FORM_TEMPLATE, name=NAME, host=HOST)
 
 
 @app.route("/connecting")
@@ -168,7 +172,7 @@ def connecting():
         return redirect("/")
 
     threading.Thread(target=handle_connection, daemon=True).start()
-    return render_template_string(CONNECTING_TEMPLATE, ssid=ssid)
+    return render_template_string(CONNECTING_TEMPLATE, ssid=ssid, name=NAME, host=HOST)
 
 
 def handle_connection():

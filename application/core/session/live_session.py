@@ -184,12 +184,15 @@ class LiveSession:
             self.monitor = asyncio.create_task(self.watch_playback())
             self.caption_task = asyncio.create_task(self.publish_transcript())
             if s.kickoff_text and s.kickoff_kind != 'literal':
-                # Typed requests belong to Responses, not a fabricated voice turn.
+                # Typed requests belong to Responses, not a fabricated voice
+                # turn. They come from the app (an MQTT "say" prompt, a
+                # device), not from the person: a developer message, so the
+                # model does not believe the user said it.
                 await self.send({
                     'type': 'response.item.create',
                     'item': {
                         'type': 'message',
-                        'role': 'user',
+                        'role': 'developer',
                         'content': [{'type': 'input_text', 'text': s.kickoff_text}],
                     },
                 })

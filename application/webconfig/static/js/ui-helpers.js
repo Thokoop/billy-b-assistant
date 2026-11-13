@@ -1,4 +1,10 @@
 // ===================== UI HELPERS =====================
+// The name the interface calls this Billy by (the hostname; theme.py).
+function deviceName() {
+    return (typeof document !== 'undefined' && document.body?.dataset?.deviceName) || 'Billy';
+}
+if (typeof window !== 'undefined') window.deviceName = deviceName;
+
 // Shared temporary notifications below the header.
 const NotificationBar = (() => {
     let persistent = null;
@@ -307,7 +313,7 @@ const LoadingOverlay = (() => {
         }, 200);
     };
 
-    const show = (message = "Restarting Billy... reconnecting interface.") => {
+    const show = (message = `Restarting ${deviceName()}... reconnecting interface.`) => {
         const overlay = document.getElementById(overlayId);
         const text = document.getElementById(textId);
         if (!overlay) return;
@@ -448,7 +454,7 @@ const LoadingOverlay = (() => {
                 }
                 if (!announcedWaitingForBilly) {
                     announcedWaitingForBilly = true;
-                    show("Web interface is back. Waiting for Billy to start...");
+                    show(`Web interface is back. Waiting for ${deviceName()} to start...`);
                 }
             }
 

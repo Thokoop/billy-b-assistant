@@ -13,7 +13,7 @@ function setup({mounted=true,live=null}={}){
  const timers=new Map(),requests=[],labels=new Map();let serial=0;
  const h={root:mounted?section():null,live,info:null};
  const win=target(),doc=target();Object.assign(doc,{hidden:false,readyState:'loading',getElementById:id=>id==='bluetooth-settings'?h.root:labels.get(id)||null,createElement:()=>element()});
- const c={window:win,document:doc,console,AbortSignal,AbortController,CustomEvent:class{constructor(type,options={}){this.type=type;Object.assign(this,options);}},setInterval(fn){const id=++serial;timers.set(id,fn);return id;},clearInterval(id){timers.delete(id);},setTimeout(fn){const id=++serial;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},fetch(url,options){requests.push({url,options});return h.fetch(url,options);}};
+ const c={window:win,document:doc,console,deviceName:()=>"Billy",AbortSignal,AbortController,CustomEvent:class{constructor(type,options={}){this.type=type;Object.assign(this,options);}},setInterval(fn){const id=++serial;timers.set(id,fn);return id;},clearInterval(id){timers.delete(id);},setTimeout(fn){const id=++serial;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},fetch(url,options){requests.push({url,options});return h.fetch(url,options);}};
  h.fetch=async()=>({ok:true,json:async()=>state()});win.billyWebSocket={getBluetoothStatus:()=>h.live,getDeviceInfo:()=>h.info};
  Object.assign(h,{c,timers,requests,labels,run:source=>vm.runInContext(source,c),status(data){h.live=data;win.dispatchEvent({type:'billy:bluetooth:status',detail:data});},device(data){h.info=data;win.dispatchEvent({type:'billy:device-info:status',detail:data});}});vm.createContext(c);return h;
 }

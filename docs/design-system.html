@@ -232,6 +232,24 @@
           </div>
         </div>
         <p class="ds-note">Icon buttons (<code>button-icon</code>); a <code>w-11</code> spacer keeps the columns aligned when a row lacks an action.</p>
+        <div class="ds-label mt-4">Editable rows with column labels and a one-at-a-time choice</div>
+        <div class="flex gap-4 mb-1 text-xs text-zinc-400">
+          <span style="width: 8rem">Number</span>
+          <span style="flex: 1 1 12rem">Connects to</span>
+        </div>
+        <div class="flex gap-4 mb-2">
+          <input type="text" class="field" style="width: 8rem" value="200" aria-label="Number">
+          <select class="field" style="flex: 1 1 12rem" aria-label="Connects to"><option>billy-b</option></select>
+          <button type="button" class="secondary-action secondary-action--hover--emerald secondary-action--active button-icon shrink-0" aria-pressed="true" aria-label="Auto-dial this number"><span class="material-icons" aria-hidden="true">phone_forwarded</span></button>
+          <button type="button" class="secondary-action secondary-action--hover--rose button-icon shrink-0" aria-label="Remove"><span class="material-icons" aria-hidden="true">delete</span></button>
+        </div>
+        <div class="flex gap-4">
+          <input type="text" class="field" style="width: 8rem" value="300" aria-label="Number">
+          <select class="field" style="flex: 1 1 12rem" aria-label="Connects to"><option>The active persona</option></select>
+          <button type="button" class="secondary-action secondary-action--hover--emerald button-icon shrink-0" aria-pressed="false" aria-label="Auto-dial this number"><span class="material-icons" aria-hidden="true">phone_forwarded</span></button>
+          <button type="button" class="secondary-action secondary-action--hover--rose button-icon shrink-0" aria-label="Remove"><span class="material-icons" aria-hidden="true">delete</span></button>
+        </div>
+        <p class="ds-note">Column labels: one <code>text-xs text-zinc-400</code> line with the fields' widths, hidden while the list is empty. A choice for one row at a time: an icon button with <code>aria-pressed</code>, <code>secondary-action--active</code> when chosen; pressing it again clears the choice.</p>
         <div class="ds-label ds-label--dev mt-4">Exception: empty state</div>
         <div class="flex min-h-[18rem] items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 px-6 text-center text-zinc-400 ds-dev" style="min-height:5rem">No custom songs yet</div>
       </div>

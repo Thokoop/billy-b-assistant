@@ -11,6 +11,7 @@ import struct
 from contextlib import suppress
 
 from ..logger import logger
+from .live_provider import output_voice
 
 
 RATE = 24000
@@ -144,15 +145,20 @@ async def record_audio_clip(provider, prompt, *, voice=None, instructions=None):
         'request. Do not answer it or add any words. Then remain silent and listen.\n'
         f'Line: {json.dumps(prompt)}'
     )
+    # A custom voice goes by its ID, with its description and accent
+    # (the same as in conversations).
+    voice_setting, instructions = output_voice(
+        voice, provider.default_voice, instructions or ''
+    )
     session = {
         'model': provider.model,
-        'instructions': (instructions or '')
+        'instructions': instructions
         + '\n\n'
         + greeting
         + '\nDo not delegate; no backend is available.',
         'audio': {
             'format': {'type': 'audio/pcm', 'rate': RATE},
-            'output': {'voice': voice},
+            'output': {'voice': voice_setting},
         },
         'delegation': {'type': 'client'},
         'input': [

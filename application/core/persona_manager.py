@@ -4,6 +4,7 @@ Handles loading and switching between different personality configurations.
 """
 
 import configparser
+import contextlib
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,6 +21,13 @@ class PersonaManager:
         self.personas_dir = Path("personas")
         self.personas_dir.mkdir(exist_ok=True)
         self.persona_presets_dir = Path("persona_presets")
+        # A device with its own character ships its own presets (theme.py).
+        with contextlib.suppress(Exception):
+            from billy_runtime import theme
+
+            self.persona_presets_dir = (
+                theme.persona_presets() or self.persona_presets_dir
+            )
         self.current_persona = "default"  # Default persona
         self._persona_cache: dict[str, dict[str, Any]] = {}
 
@@ -208,18 +216,31 @@ class PersonaManager:
         if not persona_data:
             return default_voice
 
-        raw_voice = str(persona_data.get("meta", {}).get("voice", "")).strip().lower()
+        meta = persona_data.get("meta", {})
+        exact_voice = str(meta.get("voice", "")).strip()
+        raw_voice = exact_voice.lower()
         if not raw_voice:
             return default_voice
+        # A custom voice keeps its ID's case; named voices are lowercase.
+        if exact_voice in supported_voices:
+            return exact_voice
+        if raw_voice in supported_voices:
+            return raw_voice
 
-        if raw_voice not in supported_voices:
-            logger.warning(
-                f"Persona '{persona_name}' has unsupported voice '{raw_voice}'. "
-                f"Using provider default '{default_voice}'."
+        # A voice of another provider (e.g. a GPT-Live voice while Realtime
+        # runs): the persona's own fallback voice, else the provider default.
+        fallback = str(meta.get("voice_fallback", "")).strip().lower()
+        if fallback in supported_voices:
+            logger.info(
+                f"Persona '{persona_name}': voice '{raw_voice}' is not available "
+                f"here, using its fallback voice '{fallback}'."
             )
-            return default_voice
-
-        return raw_voice
+            return fallback
+        logger.warning(
+            f"Persona '{persona_name}' has unsupported voice '{raw_voice}'. "
+            f"Using provider default '{default_voice}'."
+        )
+        return default_voice
 
     def get_current_persona_voice(self) -> str:
         """Get the voice setting for the current persona."""

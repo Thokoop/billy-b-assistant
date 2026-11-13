@@ -110,6 +110,25 @@ def test_native_live_voice_with_paced_silence_no_backend_and_finalization(clips,
     asyncio.run(run())
 
 
+def test_custom_voice_clip_uses_the_voice_id_and_its_description(clips):
+    # OpenAI rejects a custom voice ID sent as a name ("Voice session access
+    # denied"): clips send {"id": ...} like conversations do.
+    clips.isolated.config.OPENAI_LIVE_CUSTOM_VOICES = (
+        'Italo|voice_italo1|Italian English|A warm, expressive voice'
+    )
+
+    async def run():
+        ws = Socket([audio(pcm(0, 0.5) + pcm(900, 0.2) + pcm(0, 2.1))])
+        await record(clips, ws, 'voice_italo1')
+        session = ws.sent[0]['session']
+        assert session['audio']['output'] == {'voice': {'id': 'voice_italo1'}}
+        assert 'Cheeky London accent.' in session['instructions']
+        assert 'Voice: A warm, expressive voice' in session['instructions']
+        assert 'Speak Italian English.' in session['instructions']
+
+    asyncio.run(run())
+
+
 def test_short_pause_does_not_cut_speech_and_no_more_audio_ends_recording(clips):
     async def run():
         ws = Socket([audio(pcm(700, 0.1) + pcm(0, 0.5))])

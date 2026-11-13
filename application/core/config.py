@@ -7,7 +7,7 @@ import re
 
 from dotenv import load_dotenv
 
-from billy_runtime.paths import INSTALL_ROOT
+from billy_runtime.paths import INSTALL_ROOT, default_device
 from billy_runtime.release_policy import update_channel
 
 from .persona import (
@@ -123,6 +123,23 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-realtime-2.1-mini")
 OPENAI_LIVE_MODEL = os.getenv("OPENAI_LIVE_MODEL", "gpt-live-1").strip()
 OPENAI_LIVE_BACKEND_MODEL = os.getenv("OPENAI_LIVE_BACKEND_MODEL", "gpt-6-luna").strip()
+# Custom GPT-Live voices: "Name|voice_id|accent;..." (core/live_voices.py).
+OPENAI_LIVE_CUSTOM_VOICES = os.getenv("OPENAI_LIVE_CUSTOM_VOICES", "").strip()
+
+
+def _choice(name: str, default: str, choices: set[str]) -> str:
+    value = (os.getenv(name, default) or "").strip().lower()
+    return value if value in choices else default
+
+
+# GPT-Live conversation style (Voice & AI settings, GPT-Live only): how often
+# Billy makes listening sounds while you talk, and whether he ignores talk that
+# is not meant for him (TV, people nearby). How much he says is the persona's
+# (its Talkative trait).
+LIVE_BACKCHANNELS = _choice(
+    "LIVE_BACKCHANNELS", "occasional", {"off", "occasional", "frequent"}
+)
+LIVE_IGNORE_BACKGROUND = os.getenv("LIVE_IGNORE_BACKGROUND", "true").lower() == "true"
 CONVERSATION_STATE_ENABLED_MODELS = {
     "gpt-realtime",
     "gpt-realtime-mini",
@@ -183,8 +200,9 @@ BILLY_PINS = os.getenv("BILLY_PINS", "new").strip().lower()
 # === Device profile ===
 # "fish" is the built-in Big Mouth Billy Bass. Any other value names an
 # extension device (see core.devices): an installed ``billy.devices`` entry
-# point, or a ``package.module:attribute`` import path.
-BILLY_DEVICE = (os.getenv("BILLY_DEVICE", "fish") or "").strip() or "fish"
+# point, or a ``package.module:attribute`` import path. Not set: the one
+# device installed in <install root>/private/, if there is exactly one.
+BILLY_DEVICE = (os.getenv("BILLY_DEVICE") or "").strip() or default_device()
 if BILLY_DEVICE.lower() == "fish":
     BILLY_DEVICE = "fish"
 
