@@ -384,6 +384,47 @@ def test_topic_registered_while_connected_subscribes_and_announces(mqtt_topics):
     assert m._dispatch_extra_topic('billy/x', '') is False
 
 
+def test_state_topic_is_announced_but_not_subscribed(mqtt_topics):
+    # A sensor the device publishes itself: handler None (devices.mqtt_publish).
+    import json
+
+    m, ns, client = mqtt_topics.module, mqtt_topics.ns, mqtt_topics.client
+    ns['mqtt_client'], ns['mqtt_connected'] = client, True
+
+    unregister = m.register_topic(
+        'billy/phone/last_dialed',
+        None,
+        discovery=(
+            'homeassistant/sensor/billy/phone_last_dialed/config',
+            {'state_topic': 'billy/phone/last_dialed'},
+        ),
+    )
+    client.subscribe.assert_not_called()
+    topic, payload = client.publish.call_args.args
+    assert topic == 'homeassistant/sensor/billy/phone_last_dialed/config'
+    assert json.loads(payload)['state_topic'] == 'billy/phone/last_dialed'
+    assert m._dispatch_extra_topic('billy/phone/last_dialed', '23') is False
+
+    unregister()
+    client.unsubscribe.assert_not_called()
+    assert 'billy/phone/last_dialed' not in ns['_extra_topics']
+
+
+def test_device_publishes_a_retained_state(monkeypatch):
+    import core
+    from core.devices import DeviceControls
+
+    # core.mqtt needs paho; a stand-in is enough to see what is published.
+    publish = Mock()
+    fake = SimpleNamespace(mqtt_publish=publish)
+    monkeypatch.setitem(sys.modules, 'core.mqtt', fake)
+    monkeypatch.setattr(core, 'mqtt', fake, raising=False)
+    DeviceControls().mqtt_publish('billy/phone/last_dialed', 23)
+    publish.assert_called_once_with(
+        'billy/phone/last_dialed', '23', retain=True, retry=False
+    )
+
+
 def test_failing_topic_handler_is_contained(mqtt_topics):
     m = mqtt_topics.module
     m.register_topic('billy/x', Mock(side_effect=RuntimeError('boom')))

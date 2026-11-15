@@ -58,7 +58,7 @@
     <a href="#elevation">Elevation</a><a href="#focus">Focus</a><a href="#cards">Cards</a><a href="#buttons">Buttons</a>
     <a href="#fields">Fields</a><a href="#help">Help</a><a href="#toggle">Toggle &amp; slider</a>
     <a href="#selection">Selection card</a><a href="#badges">Badges</a><a href="#notify">Notifications</a>
-    <a href="#modal">Modal</a><a href="#menus">Menus</a><a href="#lists">Lists</a>
+    <a href="#modal">Modal</a><a href="#menus">Menus</a><a href="#lists">Lists</a><a href="#handover">Handover</a>
   </nav>
 
   <!-- ============ Colour ============ -->
@@ -334,7 +334,7 @@
           <label for="ds-key" class="block text-sm text-zinc-300">API key</label>
           <div class="relative">
             <input id="ds-key" type="password" class="field mt-1 pr-10" value="sk-example">
-            <button type="button" class="input-reveal-button absolute text-zinc-400" style="right:.5rem;top:calc(50% + .125rem);transform:translateY(-50%) hover:text-white" aria-label="Show key" data-ds-reveal="ds-key">
+            <button type="button" class="input-reveal-button absolute text-zinc-400" style="right:.5rem;top:calc(50% + .125rem);transform:translateY(-50%); hover:text-white" aria-label="Show key" data-ds-reveal="ds-key">
               <span class="material-icons" aria-hidden="true">visibility</span>
             </button>
           </div>
@@ -536,6 +536,27 @@
         </ol>
         <div class="ds-label mt-2">Summary</div>
         <dl class="wifi-summary"><div><dt>Network</dt><dd>Home</dd></div><div><dt>Security</dt><dd>WPA2</dd></div></dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Handover ============ -->
+  <section id="handover" class="ds-section">
+    <h2 class="ds-h2">Handover</h2>
+    <div class="handover">
+      <div class="handover-content" inert aria-hidden="true">
+        <div class="card">
+          <h4 class="card-title">Persona</h4>
+          <p class="text-sm text-zinc-300">The page's own content, dimmed and inert.</p>
+        </div>
+      </div>
+      <div class="handover-notice">
+        <section class="handover-card" aria-labelledby="ds-handover-title">
+          <span class="material-icons handover-icon" aria-hidden="true">home</span>
+          <h2 id="ds-handover-title" class="text-lg text-white">Home Assistant does the talking</h2>
+          <p class="text-sm text-zinc-300">Billy is set to Home Assistant Assist: it is the speaker and microphone for Home Assistant's own assistant, with no Billy AI in between. Personas give Billy's own AI its voice and character, so they are not used now.</p>
+          <a href="#handover" class="secondary-action secondary-action--hover--cyan"><span class="material-icons" aria-hidden="true">record_voice_over</span>Change voice provider</a>
+        </section>
       </div>
     </div>
   </section>

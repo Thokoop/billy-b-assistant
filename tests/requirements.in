@@ -7,4 +7,5 @@ flask-sock==0.7.0
 simple-websocket==1.1.0
 websockets==17.1
 dbus-next==0.2.3
+cryptography==50.0.2
 python-dotenv==1.2.3

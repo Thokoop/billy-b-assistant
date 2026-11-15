@@ -1,5 +1,6 @@
 """Provider-aware controls must agree before and after JavaScript loads."""
 
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -41,7 +42,7 @@ def render(config, category='voice', template='components/settings-form.html'):
         return render_template(template, config=config, settings_category=category)
 
 
-@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live'])
+@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live', 'home-assistant'])
 def test_only_applicable_conversation_controls_are_shown(provider):
     controls = Controls(render({'REALTIME_AI_PROVIDER': provider}))
     for name in [
@@ -49,33 +50,46 @@ def test_only_applicable_conversation_controls_are_shown(provider):
         'FOLLOW_UP_RETRY_LIMIT',
         'AEC_BARGE_IN_SNR_DB',
     ]:
-        assert controls.available(name) == (provider != 'gpt-live')
+        assert controls.available(name) == (provider in {'openai', 'xai'})
         assert 'disabled' not in controls.controls[name][0]
     for name in ['OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL']:
         assert controls.available(name) == (provider == 'gpt-live')
     assert controls.available('OPENAI_MODEL') == (provider == 'openai')
     assert controls.available('XAI_MODEL') == (provider == 'xai')
-    assert controls.available('OPENAI_API_KEY') == (provider != 'xai')
+    assert controls.available('OPENAI_API_KEY') == (provider in {'openai', 'gpt-live'})
+    assert controls.available('XAI_API_KEY') == (provider == 'xai')
     assert controls.available('WEB_SEARCH_ENABLED') == (provider == 'openai')
-    # Voice interruption needs echo cancellation under every provider.
-    assert controls.available('AEC_ENABLED')
-    assert controls.available('MOOD_INSTRUCTIONS_ENABLED')
+    # Voice interruption needs echo cancellation under every AI provider;
+    # Home Assistant answers half-duplex and injects no mood.
+    assert controls.available('AEC_ENABLED') == (provider != 'home-assistant')
+    assert controls.available('MOOD_INSTRUCTIONS_ENABLED') == (
+        provider != 'home-assistant'
+    )
+    # The satellite port is in the Home Assistant category, shown for its mode.
+    ha_controls = Controls(render({'REALTIME_AI_PROVIDER': provider}, 'home-assistant'))
+    assert ha_controls.available('HA_SATELLITE_PORT') == (provider == 'home-assistant')
+    assert not controls.available('HA_SATELLITE_PORT')
+    assert ('hidden' in controls.controls['ha-assist-voice-note'][0]) == (
+        provider != 'home-assistant'
+    )
     assert ('hidden' in controls.controls['mood-live-label'][0]) == (
         provider != 'gpt-live'
     )
     assert ('hidden' in controls.controls['mood-realtime-label'][0]) == (
-        provider == 'gpt-live'
+        provider not in {'openai', 'xai'}
     )
 
 
-@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live'])
+@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live', 'home-assistant'])
 def test_audio_settings_hide_only_what_live_never_uses(provider):
     controls = Controls(render({'REALTIME_AI_PROVIDER': provider}, 'audio'))
     # Live reads these itself: idle timeout and speech threshold.
     for name in ['MIC_TIMEOUT_SECONDS', 'SILENCE_THRESHOLD']:
         assert controls.available(name)
     # Live replaces the Realtime timeout loop that flaps the tail.
-    assert controls.available('MIC_TIMEOUT_TAIL_FLAP') == (provider != 'gpt-live')
+    assert controls.available('MIC_TIMEOUT_TAIL_FLAP') == (
+        provider in {'openai', 'xai'}
+    )
     assert 'disabled' not in controls.controls['MIC_TIMEOUT_TAIL_FLAP'][0]
 
 
@@ -122,7 +136,7 @@ def test_live_mood_control_still_saves_its_value(enabled):
     )
 
 
-@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live'])
+@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live', 'home-assistant'])
 def test_live_conversation_style_is_only_shown_for_gpt_live(provider):
     controls = Controls(render({'REALTIME_AI_PROVIDER': provider}))
     for name in ['LIVE_BACKCHANNELS', 'LIVE_IGNORE_BACKGROUND']:
@@ -155,18 +169,21 @@ class VoiceDocs(HTMLParser):
             self.links[attrs['data-voice-docs']] = attrs
 
 
-@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live'])
+@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live', 'home-assistant'])
 def test_voice_help_links_to_the_selected_providers_docs(provider):
     html = render(
         {'REALTIME_AI_PROVIDER': provider, 'VOICE_OPTIONS': ['marin']},
         template='components/persona-form.html',
     )
     links = VoiceDocs(html).links
-    assert set(links) == {'openai', 'xai', 'gpt-live'}
+    assert set(links) == {'openai', 'xai', 'gpt-live', 'home-assistant'}
     assert [name for name, attrs in links.items() if 'hidden' not in attrs] == [
         provider
     ]
-    for attrs in links.values():
+    for name, attrs in links.items():
+        if name == 'home-assistant':
+            assert 'href' not in attrs  # a note: the voice is chosen in HA
+            continue
         assert attrs['href'].startswith((
             'https://developers.openai.com/',
             'https://docs.x.ai/',
@@ -175,7 +192,7 @@ def test_voice_help_links_to_the_selected_providers_docs(provider):
         assert 'noopener' in attrs['rel']
 
 
-@pytest.mark.parametrize('provider', ['openai', 'gpt-live'])
+@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live', 'home-assistant'])
 def test_settings_form_divs_are_balanced(provider):
     # A stray </div> closes the settings panel early and moves the save bar
     # into the navigation column.
@@ -314,3 +331,135 @@ def test_custom_voice_rows_have_no_surface_of_their_own():
     template = html.split('id="live-custom-voice-row"', 1)[1].split('</template>')[0]
     row = template.split('data-custom-voice-row', 1)[0]
     assert 'bg-' not in row and 'rounded' not in row
+
+
+class ProviderBlocks(HTMLParser):
+    def __init__(self, html):
+        super().__init__()
+        self.blocks = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if 'data-api-provider' in attrs:
+            self.blocks.append(attrs)
+
+
+@pytest.mark.parametrize('category', ['voice', 'audio'])
+@pytest.mark.parametrize('provider', ['openai', 'xai', 'gpt-live', 'home-assistant'])
+def test_server_rendering_matches_provider_script(provider, category):
+    # settings-form.js shows exactly the blocks whose data-api-provider lists
+    # the provider; the first render must agree so nothing flashes or hides.
+    blocks = ProviderBlocks(render({'REALTIME_AI_PROVIDER': provider}, category)).blocks
+    assert blocks
+    for attrs in blocks:
+        listed = attrs['data-api-provider'].split()
+        assert ('hidden' in attrs) == (provider not in listed), attrs
+
+
+def test_home_assistant_provider_explains_setup_with_this_devices_name():
+    app = Flask(__name__, template_folder=str(ROOT / 'application/webconfig/templates'))
+    with app.test_request_context('/settings'):
+        html = render_template(
+            'components/settings-form.html',
+            config={
+                'REALTIME_AI_PROVIDER': 'home-assistant',
+                'HA_SATELLITE_PORT': '',
+                'HA_TOKEN': 'synthetic',
+            },
+            settings_category='home-assistant',
+            device_hostname='Kitchen-Fish.lan',
+            device_name='Kitchen-fish',
+        )
+    assert (
+        '<option value="home-assistant" data-needs-ha-token selected>'
+        'Home Assistant Assist</option>' in html
+    )
+    controls = Controls(html)
+    port, _ = controls.controls['HA_SATELLITE_PORT']
+    assert port['value'] == '6053' and port['name'] == 'HA_SATELLITE_PORT'
+    assert controls.available('ha-assist-setup')
+    setup = html.split('id="ha-assist-setup"', 1)[1].split('</div>', 1)[0]
+    assert '<strong>kitchen-fish</strong>' in setup
+    assert '<span class="font-mono">kitchen-fish.local</span>' in setup
+    # The keys of the AI providers stay in the form so switching back keeps them.
+    assert controls.controls['OPENAI_API_KEY'][0]['name'] == 'OPENAI_API_KEY'
+
+
+# ----- pages Billy's own assistant uses, in Home Assistant mode ---------------
+
+
+HANDOVER_PAGES = {
+    'personas': "Personas give Billyphone's own AI",
+    'profiles': "Profiles and their memories are for Billyphone's own AI",
+    'songs': 'Songs started from Home Assistant or MQTT, and Song mode, still play',
+    'library': "The library is knowledge for Billyphone's own AI",
+}
+
+
+@pytest.mark.parametrize('page', sorted(HANDOVER_PAGES))
+@pytest.mark.parametrize('provider', ['home-assistant', 'gpt-live', 'openai'])
+def test_pages_hand_over_to_home_assistant(page, provider):
+    from jinja2 import ChoiceLoader, DictLoader, FileSystemLoader
+
+    templates = ROOT / 'application/webconfig/templates'
+    source = (templates / f'{page}.html').read_text()
+    # Only the page's own <main>; base.html and its includes need the full app.
+    main = source[source.index('<main') : source.index('</main>') + len('</main>')]
+    imports = '\n'.join(
+        line for line in source.splitlines() if line.startswith('{% from ')
+    )
+    app = Flask(__name__)
+    app.jinja_env.loader = ChoiceLoader([
+        DictLoader({'page': imports + '\n' + main}),
+        FileSystemLoader(templates),
+    ])
+    with app.test_request_context(f'/{page}'):
+        html = render_template(
+            'page',
+            config={'REALTIME_AI_PROVIDER': provider},
+            device_name='Billyphone',
+            current_page=page,
+        )
+    import html as html_lib
+
+    html = html_lib.unescape(html)
+    handed_over = provider == 'home-assistant'
+    assert ('data-handover' in html) is handed_over
+    assert (HANDOVER_PAGES[page] in html) is handed_over
+    if handed_over:
+        content = html.split('class="handover-content"', 1)[1].split('>', 1)[0]
+        assert 'inert' in content and 'aria-hidden="true"' in content
+        assert 'with no Billyphone AI in between' in html
+        assert '{device}' not in html
+        assert 'href="/settings/voice"' in html
+    assert f'data-page="{page}"' in html
+
+
+@pytest.mark.parametrize(
+    ('provider', 'token', 'disabled', 'label'),
+    [
+        (
+            'openai',
+            '',
+            True,
+            'Home Assistant Assist (add a Home Assistant token first)',
+        ),
+        ('openai', 'synthetic', False, 'Home Assistant Assist'),
+        # Already chosen: stays selectable, and the form asks for the token.
+        (
+            'home-assistant',
+            '',
+            False,
+            'Home Assistant Assist (add a Home Assistant token first)',
+        ),
+    ],
+)
+def test_home_assistant_assist_needs_a_token_to_be_chosen(
+    provider, token, disabled, label
+):
+    html = render({'REALTIME_AI_PROVIDER': provider, 'HA_TOKEN': token})
+    match = re.search(r'<option value="home-assistant"([^>]*)>([^<]*)</option>', html)
+    assert match
+    assert (' disabled' in match[1]) is disabled
+    assert match[2].strip() == label

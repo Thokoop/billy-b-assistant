@@ -65,7 +65,19 @@ def _register_providers() -> None:
 
     available_providers = set(voice_provider_registry.get_available_providers())
 
-    if not available_providers:
+    if REALTIME_AI_PROVIDER == "home-assistant":
+        # Home Assistant answers through Billy's satellite connection
+        # (core.ha_satellite); no AI provider key is needed or selected.
+        logger.info(
+            "Voice provider: Home Assistant Assist (no AI provider key needed)", "🏠"
+        )
+        if available_providers:
+            voice_provider_registry.set_default_provider(
+                "openai"
+                if "openai" in available_providers
+                else next(iter(available_providers))
+            )
+    elif not available_providers:
         # No API keys are set - provide helpful error message with diagnostics
         env_exists = os.path.exists(ENV_PATH) if ENV_PATH else False
         env_path_info = (

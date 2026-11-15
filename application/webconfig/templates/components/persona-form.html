@@ -97,6 +97,10 @@
                                     <a data-voice-docs="xai" href="https://docs.x.ai/docs/guides/voice"
                                        target="_blank" rel="noopener noreferrer" class="underline font-medium"
                                        {% if voice_provider != 'xai' %}hidden{% endif %}>xAI voices &#8599;</a>
+                                    <span data-voice-docs="home-assistant" {% if voice_provider != 'home-assistant' %}hidden{% endif %}>
+                                        With Home Assistant Assist, Home Assistant speaks with its own pipeline's
+                                        voice; this voice is kept for the AI voice providers.
+                                    </span>
                                 </div>
                                 <select id="VOICE" name="VOICE"
                                         class="field">

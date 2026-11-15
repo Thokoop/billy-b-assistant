@@ -39,6 +39,9 @@ def signal_handler(sig, frame):
     from core.devices import stop_active_device
 
     stop_active_device()
+    from core.ha_satellite.service import stop_service
+
+    stop_service()
     stop_mqtt()
     core.button.stop_background_services()
     shutdown_playback_worker()
@@ -78,6 +81,10 @@ def main():
         # or MQTT command can take the audio hardware over.
         bluetooth_watcher.start()
         threading.Thread(target=start_mqtt, daemon=True).start()
+        # Home Assistant voice satellite, only for REALTIME_AI_PROVIDER=home-assistant.
+        from core.ha_satellite.service import start_service
+
+        threading.Thread(target=start_service, daemon=True).start()
         start_active_device()
         mark_ready()
         from billy_runtime.worker import ready as report_runtime_ready
@@ -98,6 +105,9 @@ def run():
         from core.devices import stop_active_device
 
         stop_active_device()
+        from core.ha_satellite.service import stop_service
+
+        stop_service()
         core.button.stop_background_services()
         shutdown_playback_worker()
         from core.movements import cleanup_gpio

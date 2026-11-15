@@ -145,6 +145,16 @@ class DeviceControls:
 
         return mqtt.register_topic(topic, handler, discovery=discovery)
 
+    def mqtt_publish(self, topic: str, value: str, retain: bool = True) -> None:
+        """Publish a state on Billy's connection (e.g. a sensor's value).
+
+        Announce the entity with ``mqtt_topic(topic, None, discovery=...)``.
+        Skipped quietly while MQTT is off or disconnected.
+        """
+        from . import mqtt
+
+        mqtt.mqtt_publish(topic, str(value), retain=retain, retry=False)
+
     def parse_say_payload(self, payload: str) -> dict:
         """Read a payload the way ``billy/say`` does, as an ``opening``."""
         from .mqtt import _parse_say_payload

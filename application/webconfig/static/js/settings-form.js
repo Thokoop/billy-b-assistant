@@ -1347,10 +1347,32 @@ const SettingsForm = (() => {
         return optionsReady;
     };
 
+    // Home Assistant Assist needs the Home Assistant token: without one the
+    // option cannot be chosen, and keeping it selected makes the token required.
+    const HA_OPTION_LABEL = "Home Assistant Assist";
+    const syncHomeAssistantProvider = (providerSelect, provider) => {
+        const option = providerSelect.querySelector("option[data-needs-ha-token]");
+        const token = document.getElementById("HA_TOKEN");
+        if (!option || !token) return;
+        const hasToken = token.value.trim() !== "";
+        const selected = provider === "home-assistant";
+        option.disabled = !hasToken && !selected;
+        option.textContent = hasToken
+            ? HA_OPTION_LABEL
+            : `${HA_OPTION_LABEL} (add a Home Assistant token first)`;
+        token.required = selected;
+        token.setCustomValidity(
+            selected && !hasToken
+                ? "Home Assistant Assist needs a Home Assistant token."
+                : ""
+        );
+    };
+
     const syncApiProviderFields = () => {
         const providerSelect = document.getElementById("REALTIME_AI_PROVIDER");
         if (!providerSelect) return;
         const provider = String(providerSelect.value || "openai").trim().toLowerCase();
+        syncHomeAssistantProvider(providerSelect, provider);
         document.querySelectorAll("[data-api-provider]").forEach((element) => {
             const match = element.dataset.apiProvider.split(/\s+/).includes(provider);
             element.classList.toggle("hidden", !match);
@@ -1366,7 +1388,107 @@ const SettingsForm = (() => {
         if (providerSelect.dataset.providerFieldsBound === "true") return;
         providerSelect.dataset.providerFieldsBound = "true";
         providerSelect.addEventListener("change", syncApiProviderFields);
+        document.getElementById("HA_TOKEN")?.addEventListener("input", syncApiProviderFields);
         bindLiveCustomVoices();
+        bindHaSatelliteEncryption();
+    };
+
+    // Home Assistant satellite encryption. Home Assistant normally sets the
+    // key itself; the key is kept outside the settings form (and its global
+    // save) so a draft can never erase it. Shown only on request.
+    const bindHaSatelliteEncryption = () => {
+        const panel = document.getElementById("ha-satellite-encryption");
+        if (!panel || panel.dataset.bound === "true") return;
+        panel.dataset.bound = "true";
+        const status = document.getElementById("ha-satellite-encryption-status");
+        const show = document.getElementById("ha-satellite-key-show");
+        const reset = document.getElementById("ha-satellite-key-reset");
+        const keyField = document.getElementById("ha-satellite-key");
+        const name = deviceName();
+        const messages = {
+            none: `Not set yet. Home Assistant sets a key automatically when it adds ${name}; until then the connection is not encrypted.`,
+            set: "On. Home Assistant's connection is encrypted; unencrypted connections are refused.",
+            damaged: "The stored key is damaged, so Home Assistant cannot connect. Reset the key to let Home Assistant set a new one.",
+        };
+
+        const render = (state) => {
+            panel.dataset.state = state;
+            status.textContent = messages[state] || "Could not read the encryption state.";
+            show.hidden = state !== "set";
+            reset.hidden = state === "none" || !messages[state];
+            if (state !== "set") {
+                keyField.value = "";
+                keyField.hidden = true;
+                show.textContent = "Show key";
+            }
+        };
+
+        const refresh = async () => {
+            try {
+                const data = await requestJson("/ha-satellite/encryption", {
+                    accept: (body, res) => res.ok && typeof body?.state === "string",
+                    error: "Could not read the encryption state",
+                });
+                render(data.state);
+            } catch (error) {
+                render("unknown");
+            }
+        };
+
+        show.addEventListener("click", async () => {
+            if (!keyField.hidden) {
+                keyField.value = "";
+                keyField.hidden = true;
+                show.textContent = "Show key";
+                return;
+            }
+            show.disabled = true;
+            try {
+                const data = await requestJson("/ha-satellite/encryption/key", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: "{}",
+                    accept: (body, res) => res.ok && typeof body?.key === "string",
+                    error: "Could not read the encryption key",
+                });
+                keyField.value = data.key;
+                keyField.hidden = false;
+                keyField.focus();
+                keyField.select();
+                show.textContent = "Hide key";
+            } catch (error) {
+                showNotification(error.message, "error", 5000);
+            } finally {
+                show.disabled = false;
+            }
+        });
+
+        reset.addEventListener("click", async () => {
+            if (!window.confirm(
+                `Reset ${name}'s encryption key?\n\nHome Assistant can no longer connect with the old key. ` +
+                "It will ask you to confirm the change, then sets a new key automatically."
+            )) return;
+            reset.disabled = true;
+            try {
+                const data = await requestJson("/ha-satellite/encryption/reset", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: "{}",
+                    accept: (body, res) => res.ok && body?.state === "none",
+                    error: "Could not reset the encryption key",
+                });
+                render(data.state);
+                showNotification("Encryption key reset", "success", 3000);
+            } catch (error) {
+                showNotification(error.message, "error", 5000);
+            } finally {
+                reset.disabled = false;
+            }
+        });
+
+        render("loading");
+        status.textContent = "Checking…";
+        refresh();
     };
 
     // Custom GPT-Live voices: rows of name, voice ID, accent and description,

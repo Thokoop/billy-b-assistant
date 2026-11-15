@@ -187,6 +187,9 @@ XAI_MODEL = os.getenv("XAI_MODEL", "grok-voice-latest").strip()
 
 # === Provider Config ===
 REALTIME_AI_PROVIDER = os.getenv("REALTIME_AI_PROVIDER", "openai").strip().lower()
+# REALTIME_AI_PROVIDER=home-assistant: Home Assistant's Assist pipeline answers
+# conversations and Billy is an ESPHome-protocol voice satellite on this port.
+HA_SATELLITE_PORT = int(os.getenv("HA_SATELLITE_PORT", "6053"))
 
 # === Modes ===
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

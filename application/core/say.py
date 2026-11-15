@@ -37,6 +37,18 @@ async def say(text: str, *, interactive: bool | None = None):
         logger.info("Ignoring SAY: Bluetooth audio owns the speaker and mic.", "🔕")
         return
 
+    if REALTIME_AI_PROVIDER == "home-assistant":
+        # Billy has no voice of its own here; Home Assistant speaks through
+        # the assist_satellite.announce action instead.
+        from .logger import logger
+
+        logger.info(
+            "Ignoring SAY: with Home Assistant as voice provider, use "
+            "assist_satellite.announce.",
+            "🔕",
+        )
+        return
+
     kind, cleaned = _classify_kind(text)
 
     # Literal MQTT "say" should default to one-shot announcement unless

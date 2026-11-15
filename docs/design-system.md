@@ -21,6 +21,7 @@ Sources of truth:
 | Page shell, footer navigation | `templates/base.html` |
 | Header, toolbar, power menu | `templates/components/header.html` |
 | Status badge macro | `templates/components/status-badge.html` |
+| Handover macro | `templates/components/handover.html` |
 | Notification bar, tooltips, dropdowns | `static/js/ui-helpers.js` |
 | Compiled CSS (generated, do not edit) | `static/css/styles.css`, built with `npm run build:css` |
 
@@ -255,18 +256,21 @@ both look the same.
 
 - A settings panel with several groups uses `settings-card settings-card--sections`.
   The panel then has no card of its own: every group is a separate `.card`,
-  stacked with `space-y-4`, and the panel title (`.settings-panel-title`) sits
+  stacked with `space-y-4` (`flex flex-col gap-4` when a card can be hidden,
+  so it leaves no gap), and the panel title (`.settings-panel-title`) sits
   inside the first card, never on its own above the cards. A device panel
   template renders `{{ panel_heading }}` at the top of its first section; it
   holds the title for the first device panel and is empty otherwise. The Device panel
   (device-profile sections plus a "General" card), the Software panel, the
   Bluetooth panel (devices, plus a Ringtones card on the fish) and the Voice & AI
   panel (provider and models, a GPT-Live-only "Custom voices" card and a
-  "Conversation" card) work this way. Later cards are titled with
+  "Conversation" card) and the Home Assistant panel (connection, plus a "Voice
+  satellite" card shown only with Home Assistant Assist) work this way. Later cards are titled with
   `h4.card-title`. A card whose blocks depend on the provider spaces them with
   `flex flex-col gap-4`, not margins on the blocks, so hidden blocks leave no gap.
 - A small subgroup inside a card (the wake-word file upload, the "Create from
-  description" form under Custom voices) is separated by a hairline:
+  description" form under Custom voices, Encryption in the "Voice satellite"
+  card) is separated by a hairline:
   `.card-divider` (a zinc-700 top border with 16px above and below). It gets no
   background of its own.
 - **Collapsible section**: add `collapsible-section`. The heading is an `h3`
@@ -555,6 +559,35 @@ loading image come from `/theme/images/…` (see 4.5), never `/static/images/…
 The "back" link at the top of the library, songs, persona and profile pages:
 `group self-start inline-flex items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 backdrop-blur-xs`
 with an `arrow_back` icon at `text-lg` that nudges left on hover.
+
+### 3.15 Handover
+
+Shown on a page that Billy's own assistant uses while another assistant answers
+instead. Today that is Home Assistant Assist (`REALTIME_AI_PROVIDER=home-assistant`)
+on the Personas, Profiles, Songs and Library pages. The page keeps rendering, so
+nothing is lost and switching back needs no reload, but it is dimmed and inert,
+and one notice explains why and links to the voice provider setting.
+
+```jinja
+{% from "components/handover.html" import handover with context %}
+{% call handover("Personas give {device}'s own AI its voice and character, so they are not used now.") %}
+    …page content…
+{% endcall %}
+```
+
+- `.handover` wraps the page; `.handover-content` holds the page with `inert`
+  and `aria-hidden`, at 30% opacity and greyed out.
+- `.handover-notice` covers it at z-index 20 (content level, below the save bar
+  and dock). Its `.handover-card` sticks 6rem below the top while the page
+  scrolls: a nearly opaque `.card` look (`bg-zinc-900/90`), centred text, a
+  cyan `home` icon (`.handover-icon`), an `h2` title, a shared sentence on what
+  the mode is (the device as Home Assistant's speaker and microphone, with no
+  AI of its own in between), the page's own sentence on what it is for and what
+  still works (`{device}` becomes the device name), and a
+  `secondary-action--hover--cyan` link to `/settings/voice`.
+- The macro reads `config`, so import it `with context`. With any other
+  provider it renders the page unchanged.
+- Under `.reduce-motion` the card drops its blur and uses a solid zinc-900.
 
 ---
 

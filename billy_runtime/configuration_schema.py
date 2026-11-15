@@ -12,6 +12,7 @@ from .configuration import ConfigError
 
 INTEGERS = {
     'MQTT_PORT': (1, 65535),
+    'HA_SATELLITE_PORT': (1, 65535),
     'MIC_TIMEOUT_SECONDS': (1, 3600),
     'CHUNK_MS': (1, 1000),
     'FOLLOW_UP_RETRY_LIMIT': (0, 100),
@@ -60,7 +61,7 @@ BOOLEANS = set([
 ])
 ENUMS = {
     'UPDATE_CHANNEL': {'stable', 'rc', 'beta'},
-    'REALTIME_AI_PROVIDER': {'openai', 'xai', 'gpt-live'},
+    'REALTIME_AI_PROVIDER': {'openai', 'xai', 'gpt-live', 'home-assistant'},
     'BILLY_MODEL': {'modern', 'classic'},
     'BILLY_PINS': {'new', 'legacy'},
     'MOTORS_ENABLED': {'auto', 'true', 'false'},

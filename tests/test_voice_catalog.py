@@ -316,3 +316,26 @@ def test_saved_persona_keeps_its_fallback_voice(tmp_path, monkeypatch):
     saved.read(tmp_path / 'personas' / 'demo' / 'persona.ini')
     assert saved['META']['voice'] == 'nira'
     assert saved['META']['voice_fallback'] == 'coral'
+
+
+def test_home_assistant_provider_keeps_realtime_voices_for_personas(
+    providers, monkeypatch
+):
+    # Home Assistant picks its own voice, so personas keep editing the voice
+    # they use again once an AI provider is selected; no warning is logged.
+    registry = Mock()
+    registry.get_provider.side_effect = ValueError('not registered')
+    logger = Mock()
+    functions = definitions(
+        'application/webconfig/app/routes/system.py',
+        ['_voice_options', '_custom_voices'],
+        {
+            '__package__': 'webconfig.app.routes',
+            'voice_provider_registry': registry,
+            'core_config': SimpleNamespace(OPENAI_LIVE_CUSTOM_VOICES=''),
+            'logger': logger,
+            'os': os,
+        },
+    )
+    assert set(functions._voice_options('home-assistant')) == EXPECTED_REALTIME
+    logger.warning.assert_not_called()

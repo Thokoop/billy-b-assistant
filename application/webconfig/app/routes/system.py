@@ -63,6 +63,7 @@ CONFIG_KEYS = [
     "OPENAI_LIVE_CUSTOM_VOICES",
     "XAI_MODEL",
     "REALTIME_AI_PROVIDER",
+    "HA_SATELLITE_PORT",
     "BILLY_MODEL",
     "BILLY_PINS",
     "MIC_TIMEOUT_SECONDS",
@@ -1040,7 +1041,9 @@ def _voice_options(provider_name: str) -> list[str]:
             from core.providers.live_provider import LIVE_VOICES
 
             voices = list(LIVE_VOICES)
-        elif provider_name == "openai":
+        elif provider_name in {"openai", "home-assistant"}:
+            # Home Assistant chooses its own voice; personas keep an OpenAI
+            # voice for when another provider is selected again.
             from core.providers.openai_provider import OpenAIProvider
 
             voices = OpenAIProvider(api_key="").get_supported_voices()
@@ -1094,6 +1097,52 @@ def create_custom_voice():
         return jsonify({"error": str(exc)}), 400
     logger.info(f"Created custom voice '{voice['name']}' ({voice['id']}).")
     return jsonify({"voice": voice})
+
+
+def _ha_satellite_keys():
+    from core.ha_satellite.keystore import KeyStore
+
+    return KeyStore()
+
+
+def _ha_satellite_key_state(store) -> str:
+    if store.damaged:
+        return "damaged"
+    return "set" if store.get() is not None else "none"
+
+
+@bp.get("/ha-satellite/encryption")
+def ha_satellite_encryption():
+    """Whether Home Assistant has set the satellite's encryption key."""
+    return jsonify({"state": _ha_satellite_key_state(_ha_satellite_keys())})
+
+
+@bp.post("/ha-satellite/encryption/key")
+def ha_satellite_encryption_key():
+    """The key, for adding Billy to Home Assistant by hand (JSON POST only)."""
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON"}), 415
+    key = _ha_satellite_keys().get_text()
+    if key is None:
+        return jsonify({"error": "No encryption key is set"}), 404
+    response = jsonify({"key": key})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.post("/ha-satellite/encryption/reset")
+def ha_satellite_encryption_reset():
+    """Forget the key; the satellite applies this within a few seconds."""
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON"}), 415
+    store = _ha_satellite_keys()
+    try:
+        store.clear()
+    except OSError as exc:
+        logger.warning(f"Could not reset the satellite encryption key: {exc}")
+        return jsonify({"error": "The encryption key could not be reset"}), 500
+    logger.info("Home Assistant satellite encryption key reset from the web UI.")
+    return jsonify({"state": _ha_satellite_key_state(store)})
 
 
 def _page_context(current_page: str) -> dict:
@@ -1357,6 +1406,18 @@ def release_note():
     return jsonify(RELEASE_NOTE)
 
 
+def _ha_token_error(values) -> str | None:
+    """Why these settings cannot be saved: Assist without a Home Assistant token."""
+    provider = str(values.get("REALTIME_AI_PROVIDER") or "").strip().lower()
+    token = str(values.get("HA_TOKEN") or "").strip()
+    if provider == "home-assistant" and not token:
+        return (
+            "Home Assistant Assist needs a Home Assistant token. "
+            "Add one in the Home Assistant settings first."
+        )
+    return None
+
+
 @bp.route("/save", methods=["POST"])
 def save():
     from flask import current_app
@@ -1425,11 +1486,12 @@ def save():
                     else:
                         raw_value = str(max(0, parsed))
                 value = raw_value or "max"
-            elif key == "MQTT_PORT":
+            elif key in {"MQTT_PORT", "HA_SATELLITE_PORT"}:
+                default_port = 1883 if key == "MQTT_PORT" else 6053
                 try:
                     parsed = int(str(value).strip())
                 except (TypeError, ValueError):
-                    parsed = 1883
+                    parsed = default_port
                 value = str(max(1, min(65535, parsed)))
             elif key == "STATUS_LED_BRIGHTNESS":
                 try:
@@ -1454,6 +1516,10 @@ def save():
         updates['SHOW_RC_VERSIONS'] = (
             'False' if updates['UPDATE_CHANNEL'] == 'stable' else 'True'
         )
+    if {"REALTIME_AI_PROVIDER", "HA_TOKEN"} & updates.keys() and (
+        error := _ha_token_error({**existing_env, **updates})
+    ):
+        return jsonify({"error": error}), 400
     try:
         patch_env(ENV_PATH, updates)
     except ConfigError as exc:

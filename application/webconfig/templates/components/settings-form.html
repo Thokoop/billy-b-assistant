@@ -157,7 +157,8 @@
                             {% for provider, title, description, docs in [
                                 ('openai', 'OpenAI Realtime', 'Listens, responds and uses tools with one OpenAI voice model. Requires an OpenAI API key.', 'https://developers.openai.com/api/docs/guides/realtime'),
                                 ('gpt-live', 'OpenAI GPT-Live', 'A voice model handles the conversation while a separate model handles requests and tools. Uses your OpenAI API key.', 'https://developers.openai.com/api/docs/guides/live'),
-                                ('xai', 'xAI (Grok)', 'Voice conversations powered by Grok. Requires an xAI API key.', 'https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech')
+                                ('xai', 'xAI (Grok)', 'Voice conversations powered by Grok. Requires an xAI API key.', 'https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech'),
+                                ('home-assistant', 'Home Assistant Assist', (device_name|default('Billy')) ~ ' becomes the speaker and microphone for Home Assistant\'s own voice assistant, with no ' ~ (device_name|default('Billy')) ~ ' AI in between. Home Assistant hears you, answers and speaks, and can do so fully locally. Personas, profiles, memories and the library are not used. No AI provider key is needed, but a Home Assistant token is (Home Assistant settings).', 'https://www.home-assistant.io/voice_control/')
                             ] %}
                             <div data-api-provider="{{ provider }}"{% if config.get('REALTIME_AI_PROVIDER', 'openai') != provider %} hidden{% endif %}>
                                 <p><strong>{{ title }}</strong><br>{{ description }}</p>
@@ -181,13 +182,18 @@
                     <option value="xai" {% if config.get('REALTIME_AI_PROVIDER') == 'xai' %}selected{% endif %}>
                         xAI
                     </option>
+                    {#- Needs the Home Assistant token (Home Assistant settings);
+                        settings-form.js keeps this in step with the token field. -#}
+                    {% set ha_selected = config.get('REALTIME_AI_PROVIDER') == 'home-assistant' %}
+                    {% set ha_ready = config.get('HA_TOKEN', '')|trim %}
+                    <option value="home-assistant" data-needs-ha-token {% if ha_selected %}selected{% elif not ha_ready %}disabled{% endif %}>Home Assistant Assist{% if not ha_ready %} (add a Home Assistant token first){% endif %}</option>
                 </select>
             </div>
 
-            <div class="relative api-provider-only {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}"
+            {% set openai_key_hidden = config.get('REALTIME_AI_PROVIDER', 'openai') in ('xai', 'home-assistant') %}
+            <div class="relative api-provider-only {% if openai_key_hidden %}hidden{% endif %}"
                  data-api-provider="openai gpt-live"
-                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}hidden{% endif %}
-                 {% if config.get('REALTIME_AI_PROVIDER', 'openai') == 'xai' %}style="display:none"{% endif %}>
+                 {% if openai_key_hidden %}hidden style="display:none"{% endif %}>
                 <label for="OPENAI_API_KEY"
                        class="flex justify-between items-center text-sm text-zinc-300 relative">
                     OpenAI API Key
@@ -257,7 +263,19 @@
                     </button>
                 </div>
             </div>
+
             </div>
+
+            <p class="api-provider-only text-sm text-zinc-300" data-api-provider="home-assistant"
+               id="ha-assist-voice-note"
+               {% if config.get('REALTIME_AI_PROVIDER') != 'home-assistant' %}hidden style="display:none"{% endif %}>
+                {{ device_name|default('Billy') }} hands the conversation to Home Assistant: it is the speaker and
+                microphone for Home Assistant's own assistant, with no {{ device_name|default('Billy') }} AI in
+                between. The Assist pipeline chosen for this device in Home Assistant hears you, answers and
+                picks the voice. Setup, the satellite port and encryption are under
+                <a href="/settings/home-assistant" data-page-link data-page="settings"
+                   class="text-cyan-400 underline">Home Assistant</a>.
+            </p>
 
             <div class="block api-provider-only {% if config.get('REALTIME_AI_PROVIDER', 'openai') != 'xai' %}hidden{% endif %}"
                  data-api-provider="xai"
@@ -524,9 +542,15 @@
 
           <section class="card" aria-labelledby="title-voice-conversation">
             <h4 id="title-voice-conversation" class="card-title mb-4">Conversation</h4>
+            <p class="api-provider-only text-sm text-zinc-400" data-api-provider="home-assistant"
+               {% if config.get('REALTIME_AI_PROVIDER') != 'home-assistant' %}hidden style="display:none"{% endif %}>
+                Home Assistant's Assist pipeline decides how conversations go. {{ device_name|default('Billy') }}
+                listens until Home Assistant hears the end of your sentence, then answers; press the button to
+                interrupt an answer.
+            </p>
             <div class="api-settings-grid">
                 <div class="api-provider-only" data-api-provider="openai xai"
-                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                     {% if config.get('REALTIME_AI_PROVIDER', 'openai') not in ('openai', 'xai') %}hidden style="display:none"{% endif %}>
                     <label for="TURN_EAGERNESS"
                            class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Turn Detection Eagerness
@@ -552,7 +576,7 @@
                 </div>
 
                 <div class="api-provider-only" data-api-provider="openai xai"
-                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                     {% if config.get('REALTIME_AI_PROVIDER', 'openai') not in ('openai', 'xai') %}hidden style="display:none"{% endif %}>
                     <label for="FOLLOW_UP_RETRY_LIMIT"
                            class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Follow-up Retry Limit
@@ -580,7 +604,7 @@
                 </div>
 
                 <div class="api-provider-only" data-api-provider="openai xai"
-                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                     {% if config.get('REALTIME_AI_PROVIDER', 'openai') not in ('openai', 'xai') %}hidden style="display:none"{% endif %}>
                     <label for="AEC_BARGE_IN_SNR_DB-bar"
                            class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Interruption sensitivity
@@ -635,7 +659,8 @@
                     </div>
                 </div>
 
-                <div class="api-toggle-setting">
+                <div class="api-toggle-setting api-provider-only" data-api-provider="openai xai gpt-live"
+                     {% if config.get('REALTIME_AI_PROVIDER') == 'home-assistant' %}hidden style="display:none"{% endif %}>
                     <label for="AEC_ENABLED"
                            class="flex justify-between items-center text-sm text-zinc-300 relative">
                         Voice interruption
@@ -646,7 +671,7 @@
                         <div data-tooltip>
                             Lets you speak while {{ device_name|default('Billy') }} is talking. Echo cancellation reduces
                             {{ device_name|default('Billy') }}'s own voice in the microphone; compatible audio support is required.
-                            <span data-api-provider="openai xai" {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                            <span data-api-provider="openai xai" {% if config.get('REALTIME_AI_PROVIDER', 'openai') not in ('openai', 'xai') %}hidden style="display:none"{% endif %}>
                                 Interruption sensitivity controls how much speech is needed before {{ device_name|default('Billy') }} stops talking.
                             </span>
                             <span data-api-provider="gpt-live" {% if config.get('REALTIME_AI_PROVIDER') != 'gpt-live' %}hidden style="display:none"{% endif %}>
@@ -666,11 +691,12 @@
                     </div>
                 </div>
 
-                <div class="api-toggle-setting">
+                <div class="api-toggle-setting api-provider-only" data-api-provider="openai xai gpt-live"
+                     {% if config.get('REALTIME_AI_PROVIDER') == 'home-assistant' %}hidden style="display:none"{% endif %}>
                     <label for="MOOD_INSTRUCTIONS_ENABLED" id="mood-setting-label"
                            class="flex justify-between items-center text-sm text-zinc-300 relative">
                         <span id="mood-live-label" data-api-provider="gpt-live" {% if config.get('REALTIME_AI_PROVIDER') != 'gpt-live' %}hidden style="display:none"{% endif %}>Mood at conversation start</span>
-                        <span id="mood-realtime-label" data-api-provider="openai xai" {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>Mood in responses</span>
+                        <span id="mood-realtime-label" data-api-provider="openai xai" {% if config.get('REALTIME_AI_PROVIDER', 'openai') not in ('openai', 'xai') %}hidden style="display:none"{% endif %}>Mood in responses</span>
                         <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
                               onclick="toggleTooltip(this)">help_outline</span>
                     </label>
@@ -682,7 +708,7 @@
                                 Mood is not automatically analysed after each speaking turn.
                                 Turn this off to leave mood out of the starting instructions.
                             </span>
-                            <span data-api-provider="openai xai" {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                            <span data-api-provider="openai xai" {% if config.get('REALTIME_AI_PROVIDER', 'openai') not in ('openai', 'xai') %}hidden style="display:none"{% endif %}>
                                 Mood updates during the conversation can change the tone and use extra tokens.
                                 Turning this off keeps mood tracking active without adding it to the instructions.
                             </span>
@@ -1276,7 +1302,7 @@
                 </div>
 
                 <div class="flex-1/3 flex flex-col api-provider-only" data-api-provider="openai xai"
-                     {% if config.get('REALTIME_AI_PROVIDER') == 'gpt-live' %}hidden style="display:none"{% endif %}>
+                     {% if config.get('REALTIME_AI_PROVIDER', 'openai') not in ('openai', 'xai') %}hidden style="display:none"{% endif %}>
                 <div class="flex flex-1 flex-col" data-hardware-feature="motors" {% if "motors" in device_hidden %}hidden{% endif %}>
                     <label for="MIC_TIMEOUT_TAIL_FLAP"
                            class="flex justify-between items-center text-sm text-zinc-300">
@@ -1532,8 +1558,11 @@
         </div>
 
         <!-- Home Assistant -->
-        <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"
+        <div class="settings-card settings-card--sections mb-4"
              id="section-ha" data-settings-panel aria-labelledby="title-section-ha" {% if settings_category|default('voice', true) != 'home-assistant' %}hidden{% endif %}>
+          {#- Gaps, not margins: the satellite card is hidden outside its mode. #}
+          <div class="flex flex-col gap-4">
+          <section class="card">
             <h3 id="title-section-ha" class="settings-panel-title" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">home</span>
                 <span>Home Assistant</span>
@@ -1619,6 +1648,65 @@
                     </select>
                 </div>
             </div>
+
+          </section>
+
+          <section class="card api-provider-only space-y-4" data-api-provider="home-assistant"
+                   id="ha-satellite-settings" aria-labelledby="title-ha-satellite"
+                   {% if config.get('REALTIME_AI_PROVIDER') != 'home-assistant' %}hidden style="display:none"{% endif %}>
+                <h4 id="title-ha-satellite" class="card-title">Voice satellite</h4>
+                {% set ha_node = (device_hostname|default('billy')).split('.')[0]|lower %}
+                <div class="relative">
+                    <label for="HA_SATELLITE_PORT"
+                           class="flex justify-between items-center text-sm text-zinc-300 relative">
+                        Satellite port
+                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                              onclick="toggleTooltip(this)">help_outline</span>
+                    </label>
+                    <div class="relative">
+                        <div data-tooltip>
+                            The port Home Assistant's ESPHome integration connects to. Keep 6053 unless another
+                            service on {{ device_name|default('Billy') }} already uses it.
+                        </div>
+                        <input type="number" min="1" max="65535" step="1" class="field mt-1"
+                               id="HA_SATELLITE_PORT" name="HA_SATELLITE_PORT"
+                               value="{{ config.get('HA_SATELLITE_PORT') or '6053' }}">
+                    </div>
+                </div>
+                <div class="text-sm text-zinc-300 space-y-2" id="ha-assist-setup">
+                    <p>
+                        {{ device_name|default('Billy') }} joins Home Assistant as a voice satellite. After saving and
+                        restarting, open <strong>Settings &rarr; Devices &amp; services</strong> in Home Assistant:
+                        {{ device_name|default('Billy') }} is discovered as <strong>{{ ha_node }}</strong>
+                        (ESPHome). If it does not appear, add the ESPHome integration with host
+                        <span class="font-mono">{{ ha_node }}.local</span> and the port above.
+                    </p>
+                    <p class="text-xs text-zinc-400">
+                        Your wake word and button start a conversation; Home Assistant can also make
+                        {{ device_name|default('Billy') }} announce messages.
+                    </p>
+                    <div id="ha-satellite-encryption" class="card-divider space-y-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="min-w-0">
+                                <div class="text-sm text-zinc-300">Encryption</div>
+                                <p id="ha-satellite-encryption-status" class="text-xs text-zinc-400"
+                                   role="status" aria-live="polite">Checking…</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button type="button" id="ha-satellite-key-show"
+                                        class="secondary-action secondary-action--hover--cyan" hidden>Show key</button>
+                                <button type="button" id="ha-satellite-key-reset"
+                                        class="secondary-action secondary-action--hover--rose" hidden>Reset key</button>
+                            </div>
+                        </div>
+                        {#- No name: the key is not part of the saved settings. #}
+                        <input type="text" readonly id="ha-satellite-key" class="field font-mono"
+                               aria-label="Encryption key for Home Assistant" autocomplete="off"
+                               spellcheck="false" hidden>
+                    </div>
+                </div>
+          </section>
+          </div>
         </div>
 
         <div class="settings-card bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 p-4 rounded-lg shadow-lg mb-4"

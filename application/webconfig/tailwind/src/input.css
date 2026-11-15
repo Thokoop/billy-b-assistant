@@ -42,6 +42,43 @@
 .settings-card.settings-card--sections { padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .reduce-motion .card { backdrop-filter: none; -webkit-backdrop-filter: none; background-color: var(--color-zinc-900, #18181b); }
 
+/* ===================== Handover ===================== */
+/* A page Billy's own assistant uses, while another assistant (Home Assistant
+   Assist) answers: the page stays visible but dimmed and inert, under one
+   notice that says why and links to the setting. components/handover.html */
+.handover { position: relative; min-height: 22rem; }
+.handover-content { opacity: .3; filter: grayscale(.7); pointer-events: none; user-select: none; }
+.handover-notice {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 3rem 1rem 0;
+}
+.handover-notice[hidden] { display: none; }
+.handover-card {
+    position: sticky;
+    top: 6rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .75rem;
+    width: 100%;
+    max-width: 32rem;
+    padding: 1.5rem;
+    text-align: center;
+    border: 1px solid var(--color-zinc-700, #3f3f46);
+    border-radius: .5rem;
+    background-color: rgb(24 24 27 / .9);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / .5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+.handover-icon { font-size: 2.25rem; color: var(--color-cyan-400, #22d3ee); }
+.reduce-motion .handover-card { backdrop-filter: none; -webkit-backdrop-filter: none; background-color: var(--color-zinc-900, #18181b); }
+
 /* ===================== Fields ===================== */
 /* In the components layer so utilities on the element (mt-1, pr-10,
    text-amber-500, h-[50vh]) still win. Inputs and selects share one height,
