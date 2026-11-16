@@ -1,6 +1,7 @@
 {% extends "base.html" %}
+{% from "components/handover.html" import handover with context %}
 
-{% block title %}Songs | Billy Bassistant{% endblock %}
+{% block title %}Songs | {{ product_name|default('Billy Bassistant') }}{% endblock %}
 
 {% block header %}
 {% include "components/header.html" %}
@@ -8,6 +9,7 @@
 
 {% block main_content %}
 <main id="main-content" data-page="songs" class="max-w-6xl mx-auto px-2 md:px-4 pt-4 pb-32">
+    {% call handover("Asking for a song in a conversation needs {device}'s own AI. Songs started from Home Assistant or MQTT, and Song mode, still play.") %}
     <div>
         <div id="songs-split-view" data-mobile-split class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             <section data-mobile-split-master class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl overflow-hidden md:sticky md:top-16">
@@ -34,7 +36,7 @@
 
                 <div class="p-4">
                     <div id="songs-list-view">
-                        <p class="text-sm text-zinc-400 mb-4">Manage custom songs for Billy to perform</p>
+                        <p class="text-sm text-zinc-400 mb-4">Manage custom songs for {{ device_name|default('Billy') }} to perform</p>
                         <div id="songs-grid" class="grid grid-cols-1 gap-4">
                         </div>
 
@@ -121,7 +123,7 @@
                                 </label>
                                 <div class="relative">
                                     <div data-tooltip>
-                                        Keywords help Billy understand when to play this song.<br>
+                                        Keywords help {{ device_name|default('Billy') }} understand when to play this song.<br>
                                         Include song title, artist name, genre, mood, or themes.
                                     </div>
                                     <input type="text" id="song-keywords" name="keywords"
@@ -264,20 +266,20 @@
                                         <div class="wf-ruler" id="wf-ruler"></div>
                                         <div class="wf-wave-wrap">
                                             <canvas id="wf-wave" width="800" height="72"></canvas>
-                                            <div class="wf-playhead" id="wf-playhead" style="left:0px"></div>
+                                            <div class="wf-playhead" id="wf-playhead" style="left:0"></div>
                                         </div>
 
                                         <div class="wf-lanes">
                                             <div class="wf-lane-row">
                                                 <div class="wf-lane-label" style="--wf-lane-c:var(--wf-green)"><span class="wf-name"><span class="wf-dot"></span>Head</span></div>
                                                 <div class="wf-lane-track" id="wf-track-head" data-lane="head" style="--wf-lane-c:var(--wf-green)">
-                                                    <div class="wf-playhead" id="wf-playhead-head" style="left:0px"></div>
+                                                    <div class="wf-playhead" id="wf-playhead-head" style="left:0"></div>
                                                 </div>
                                             </div>
                                             <div class="wf-lane-row">
                                                 <div class="wf-lane-label" style="--wf-lane-c:var(--wf-violet)"><span class="wf-name"><span class="wf-dot"></span>Mute mouth</span></div>
                                                 <div class="wf-lane-track" id="wf-track-mute" data-lane="mute" style="--wf-lane-c:var(--wf-violet)">
-                                                    <div class="wf-playhead" id="wf-playhead-mute" style="left:0px"></div>
+                                                    <div class="wf-playhead" id="wf-playhead-mute" style="left:0"></div>
                                                 </div>
                                             </div>
                                             <div class="wf-lane-row">
@@ -289,7 +291,7 @@
                                                     </div>
                                                 </div>
                                                 <div class="wf-lane-track" id="wf-track-tail" data-lane="tail" style="--wf-lane-c:var(--wf-yellow)" data-readonly="false">
-                                                    <div class="wf-playhead" id="wf-playhead-tail" style="left:0px"></div>
+                                                    <div class="wf-playhead" id="wf-playhead-tail" style="left:0"></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -531,6 +533,7 @@
             </div>
         </div>
     </div>
+    {% endcall %}
 </main>
 
 {% include "components/wifi-setup-modal.html" %}

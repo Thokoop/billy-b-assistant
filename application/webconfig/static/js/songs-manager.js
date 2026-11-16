@@ -178,7 +178,7 @@ const SongsManager = (() => {
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
                             ${statusIcon}
-                            <label class="wf-toggle" title="${isEnabled ? 'Enabled - Billy can play this' : 'Disabled - Billy will skip this'}"
+                            <label class="wf-toggle" title="${isEnabled ? `Enabled - ${deviceName()} can play this` : `Disabled - ${deviceName()} will skip this`}"
                                    onclick="event.stopPropagation()">
                                 <input type="checkbox" ${isEnabled ? 'checked' : ''}
                                        onchange="window.SongsManager.toggleSongEnabled('${song.name}', this.checked)">

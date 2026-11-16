@@ -185,7 +185,7 @@ def settings_api(tmp_path, monkeypatch):
     thread = Mock()
     definitions(
         'application/webconfig/app/routes/system.py',
-        ['save'],
+        ['save', '_ha_token_error'],
         {
             'bp': bp,
             'request': request,
@@ -193,7 +193,13 @@ def settings_api(tmp_path, monkeypatch):
             'os': os,
             'dotenv_values': dotenv_values,
             'ENV_PATH': str(path),
-            'CONFIG_KEYS': ['UPDATE_CHANNEL', 'SHOW_RC_VERSIONS', 'FLASK_PORT'],
+            'CONFIG_KEYS': [
+                'UPDATE_CHANNEL',
+                'SHOW_RC_VERSIONS',
+                'FLASK_PORT',
+                'REALTIME_AI_PROVIDER',
+                'HA_TOKEN',
+            ],
             'BOOLEAN_CONFIG_KEYS': set(),
             'DEVICE_CONFIG_KEYS': set(),
             'update_channel': policy.update_channel,
@@ -309,3 +315,24 @@ def test_incomplete_tag_lookup_preserves_last_complete_snapshot(metadata, failur
     assert functions.fetch_latest_tag() is None
     assert ns['KNOWN_RELEASE_TAGS'] == previous
     assert ns['_fetch_github_json'].call_count <= 10
+
+
+def test_home_assistant_assist_needs_a_home_assistant_token(settings_api):
+    client, path, _ = settings_api
+    before = path.read_bytes()
+    response = client.post(
+        '/save', json={'REALTIME_AI_PROVIDER': 'home-assistant', 'HA_TOKEN': ' '}
+    )
+    assert response.status_code == 400
+    assert 'Home Assistant token' in response.json['error']
+    assert path.read_bytes() == before
+    response = client.post(
+        '/save',
+        json={'REALTIME_AI_PROVIDER': 'home-assistant', 'HA_TOKEN': 'synthetic'},
+    )
+    assert response.status_code == 200
+    # Clearing the token while Assist stays selected is refused as well.
+    assert client.post('/save', json={'HA_TOKEN': ''}).status_code == 400
+    assert dotenv_values(path)['HA_TOKEN'] == 'synthetic'
+    # Saves that touch neither are not blocked by it.
+    assert client.post('/save', json={'UPDATE_CHANNEL': 'beta'}).status_code == 200

@@ -14,7 +14,7 @@ const MotorPanel = (() => {
                     showNotification(`Tested ${motor}`, "success", 1500);
                     if (data.service_was_active) {
                         showNotification(
-                            "Billy was stopped for hardware test. Please restart Billy again when done.",
+                            `${deviceName()} was stopped for hardware test. Please restart ${deviceName()} again when done.`,
                             "warning",
                             7000
                         );
@@ -40,7 +40,7 @@ const MotorPanel = (() => {
                 showNotification("Status LED test completed", "success", 1500);
                 if (data.service_was_active) {
                     showNotification(
-                        "Billy was stopped for hardware test. Please restart Billy again when done.",
+                        `${deviceName()} was stopped for hardware test. Please restart ${deviceName()} again when done.`,
                         "warning",
                         7000
                     );

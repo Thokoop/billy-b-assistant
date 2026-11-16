@@ -125,6 +125,23 @@ def test_registration_preserves_provider_selection_and_wakewords(
     )
 
 
+@pytest.mark.parametrize('openai', [True, False])
+def test_home_assistant_provider_needs_no_key(providers, openai):
+    providers.config.OPENAI_API_KEY = 'test-openai' if openai else ''
+    providers.config.XAI_API_KEY = ''
+    providers.config.REALTIME_AI_PROVIDER = 'home-assistant'
+    providers.module.initialize_providers()
+    # Home Assistant is not a realtime provider; keys stay usable for clips.
+    assert providers.voice.get_available_providers() == (
+        ['openai', 'gpt-live'] if openai else []
+    )
+    assert providers.voice.default_provider == ('openai' if openai else None)
+    assert not any(
+        'API key' in str(call.args[0])
+        for call in providers.logger.warning.call_args_list
+    )
+
+
 def test_repeated_initialization_preserves_instances_and_runtime_selection(providers):
     providers.module.initialize_providers()
     original = dict(providers.voice.providers)
@@ -292,7 +309,9 @@ def test_web_factory_and_server_initialize_before_profiles_routes_and_background
         # The standalone app factory must also initialize providers.
         if factory_first:
             app = web.create_app()
-            assert len(app.blueprints) == 9
+            # The route blueprints plus the theme's assets (app/theme.py).
+            assert len(app.blueprints) == 10
+            assert 'theme' in app.blueprints
             assert events == [
                 'background',
                 'background',

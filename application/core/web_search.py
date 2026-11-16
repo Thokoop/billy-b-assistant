@@ -51,7 +51,7 @@ def web_search(args: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": False,
             "query": query,
-            "summary": "Searching the internet is not set up on this Billy.",
+            "summary": "Searching the internet is not set up on this device.",
             "error": "Missing OpenAI API key",
         }
 

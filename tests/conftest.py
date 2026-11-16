@@ -8,7 +8,10 @@ PortAudio, logger and config. No API keys, sound devices or Pi are needed.
 import ast
 import atexit
 import importlib.util
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, Mock
@@ -17,6 +20,37 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _use_test_installation():
+    """Keep the suite away from the checkout's own installation data.
+
+    In a checkout INSTALL_ROOT is the repository itself, so core.config would
+    load the developer's real .env (API keys, MQTT broker) into os.environ and
+    tests could read or write its profiles and state. billy_runtime.paths
+    resolves INSTALL_ROOT once, at import: point it at an empty temporary
+    installation for this process, then remove the variable again so Billy
+    workers that tests start still resolve their own root.
+    """
+    if 'billy_runtime.paths' in sys.modules:
+        raise RuntimeError('billy_runtime.paths was imported before conftest.py')
+    root = Path(tempfile.mkdtemp(prefix='billy-test-install-'))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    # Shipped with every installation; startup copies it as the default.
+    shutil.copy2(ROOT / 'persona.ini.example', root / 'persona.ini.example')
+    previous = os.environ.get('BILLY_INSTALL_ROOT')
+    os.environ['BILLY_INSTALL_ROOT'] = str(root)
+    try:
+        import billy_runtime.paths  # noqa: F401  (resolves INSTALL_ROOT now)
+    finally:
+        if previous is None:
+            os.environ.pop('BILLY_INSTALL_ROOT', None)
+        else:
+            os.environ['BILLY_INSTALL_ROOT'] = previous
+    return root
+
+
+TEST_INSTALL_ROOT = _use_test_installation()
 
 
 def definitions(relative, names, namespace, *, cls=None):

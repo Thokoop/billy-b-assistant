@@ -86,6 +86,150 @@ def live(isolated, audio_module, monkeypatch):
     )
 
 
+def test_custom_voice_is_sent_by_id_with_its_accent(live):
+    # OpenAI custom voices: {"id": ...} instead of a name, accent asked for in
+    # the instructions (core/live_voices.py).
+    live.isolated.config.OPENAI_LIVE_CUSTOM_VOICES = (
+        'Ada|voice_Ab12cd|British English;Bob|voice_bob99|;bad entry;Marin|marin|'
+    )
+    voices = importlib.import_module('isolated_core.live_voices')
+    assert voices.current() == [
+        {
+            'name': 'Ada',
+            'id': 'voice_Ab12cd',
+            'accent': 'British English',
+            'description': '',
+        },
+        {'name': 'Bob', 'id': 'voice_bob99', 'accent': '', 'description': ''},
+    ]
+    p = live.provider.LiveProvider('key', backend_model='gpt-6-luna')
+    assert p.get_supported_voices()[-2:] == ['voice_Ab12cd', 'voice_bob99']
+    ada = p.session_config('# Role\nBe kind.', [], voice='voice_Ab12cd')
+    assert ada['audio']['output'] == {'voice': {'id': 'voice_Ab12cd'}}
+    assert ada['instructions'].endswith('Speak British English.')
+    bob = p.session_config('# Role\nBe kind.', [], voice='voice_bob99')
+    assert bob['audio']['output'] == {'voice': {'id': 'voice_bob99'}}
+    assert 'Speak' not in bob['instructions']
+    # Named voices stay strings; an unknown one is the default.
+    assert p.session_config('x', [], voice='vesper')['audio']['output'] == {
+        'voice': 'vesper'
+    }
+    assert p.session_config('x', [], voice='voice_gone')['audio']['output'] == {
+        'voice': 'marin'
+    }
+
+
+def test_custom_voices_value_is_normalized(live):
+    # What /save stores: valid entries only, named voices and duplicates out.
+    voices = importlib.import_module('isolated_core.live_voices')
+    raw = ' Ada | voice_a1 | British  English ;Ada2|voice_a1|;Echo|echo|;x|1bad|;|voice_q|;Ok|voice_ok'
+    assert voices.normalize(raw) == 'Ada|voice_a1|British English;Ok|voice_ok|'
+    assert voices.normalize('') == ''
+    assert voices.find('voice_ok', voices.parse(raw)) == {
+        'name': 'Ok',
+        'id': 'voice_ok',
+        'accent': '',
+        'description': '',
+    }
+
+
+def test_custom_voice_description_is_kept_and_given_to_live(live):
+    # OpenAI: give GPT-Live the original description of a prompt voice.
+    voices = importlib.import_module('isolated_core.live_voices')
+    raw = 'Gil|voice_gil1||A gravelly,  slow voice;Old|voice_old1|Irish English'
+    assert voices.normalize(raw) == (
+        'Gil|voice_gil1||A gravelly, slow voice;Old|voice_old1|Irish English'
+    )
+    live.isolated.config.OPENAI_LIVE_CUSTOM_VOICES = raw
+    p = live.provider.LiveProvider('key', backend_model='gpt-6-luna')
+    gil = p.session_config('# Role\nBe kind.', [], voice='voice_gil1')
+    assert gil['audio']['output'] == {'voice': {'id': 'voice_gil1'}}
+    assert gil['instructions'].endswith('Voice: A gravelly, slow voice')
+    old = p.session_config('# Role\nBe kind.', [], voice='voice_old1')
+    assert 'Voice:' not in old['instructions']
+
+
+class Response:
+    def __init__(self, status_code, data):
+        self.status_code = status_code
+        self.data = data
+
+    def json(self):
+        if self.data is None:
+            raise ValueError('not JSON')
+        return self.data
+
+
+def test_voice_is_created_from_a_description(live):
+    voices = importlib.import_module('isolated_core.live_voices')
+    post = Mock(
+        return_value=Response(200, {'object': 'audio.voice', 'id': 'voice_new1'})
+    )
+    voice = voices.create(
+        'sk-test', ' Grumpy|fish ', 'A gravelly; slow voice.', 'Hello there.', post=post
+    )
+    assert voice == {
+        'name': 'Grumpy fish',
+        'id': 'voice_new1',
+        'accent': '',
+        'description': 'A gravelly slow voice.',
+    }
+    (url,), kwargs = post.call_args
+    assert url == 'https://api.openai.com/v1/audio/voices'
+    assert kwargs['headers'] == {'Authorization': 'Bearer sk-test'}
+    assert kwargs['json'] == {
+        'type': 'prompt',
+        'name': 'Grumpy fish',
+        'prompt': 'A gravelly slow voice.',
+        'model': 'auto',
+        'script_hint': 'Hello there.',
+    }
+    assert kwargs['timeout']
+    voices.create('sk-test', 'Plain', 'A calm adult voice.', post=post)
+    assert 'script_hint' not in post.call_args.kwargs['json']
+
+
+@pytest.mark.parametrize(
+    'args, message',
+    [
+        (('', 'Ada', 'A calm adult voice.'), 'API key'),
+        (('sk', '', 'A calm adult voice.'), 'name'),
+        (('sk', 'x' * 41, 'A calm adult voice.'), 'name'),
+        (('sk', 'Ada', 'short'), 'Describe'),
+        (('sk', 'Ada', 'A calm adult voice.', 'x' * 2001), 'script'),
+    ],
+)
+def test_voice_creation_rejects_bad_input_without_calling_openai(live, args, message):
+    voices = importlib.import_module('isolated_core.live_voices')
+    post = Mock()
+    with pytest.raises(voices.VoiceError, match=message):
+        voices.create(*args, post=post)
+    post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    'response, message',
+    [
+        (
+            Response(404, {'error': {'message': 'Not found'}}),
+            'no access to custom voices: Not found',
+        ),
+        (Response(401, None), 'refused the API key'),
+        (Response(500, {}), 'HTTP 500'),
+        (Response(200, {'id': ''}), 'did not return a voice ID'),
+    ],
+)
+def test_voice_creation_reports_openai_failures(live, response, message):
+    voices = importlib.import_module('isolated_core.live_voices')
+    with pytest.raises(voices.VoiceError, match=message):
+        voices.create(
+            'sk', 'Ada', 'A calm adult voice.', post=Mock(return_value=response)
+        )
+    unreachable = Mock(side_effect=OSError('down'))
+    with pytest.raises(voices.VoiceError, match='Could not reach OpenAI'):
+        voices.create('sk', 'Ada', 'A calm adult voice.', post=unreachable)
+
+
 def test_live_configuration_is_not_realtime(live):
     tools = [
         {
@@ -1043,6 +1187,30 @@ def test_mood_setting_changes_live_startup_instructions(
     assert (
         'Playful mood marker' in session['delegation']['responses']['instructions']
     ) == enabled
+
+
+@pytest.mark.parametrize(
+    'backchannels, ignore, expected, absent',
+    [
+        ('occasional', True, ['occasional listening sounds', 'nearby'], []),
+        ('off', False, ['Do not make listening sounds'], ['nearby']),
+    ],
+)
+def test_live_conversation_style_follows_the_gpt_live_settings(
+    live, backchannels, ignore, expected, absent
+):
+    config = live.isolated.config
+    config.LIVE_BACKCHANNELS = backchannels
+    config.LIVE_IGNORE_BACKGROUND = ignore
+    voice, _ = live.provider.split_instructions('Be Billy', [])
+    for text in expected:
+        assert text in voice
+    for text in absent:
+        assert text not in voice
+    # Reply length is the persona's (its Talkative trait), not a setting.
+    assert 'Reply length' not in voice
+    # The turn-taking rules come before delegation, which stays last.
+    assert voice.index('Interruption policy:') < voice.index('Delegation policy:')
 
 
 def test_live_transcripts_go_to_captions_without_journal_fragments(live):

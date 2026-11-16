@@ -1,0 +1,38 @@
+{#- Pages the device's own assistant uses, shown inert while Home Assistant
+    Assist answers instead. Import ``with context`` (it reads ``config``).
+    ``detail`` says what this page is for and what still works; "{device}"
+    in it becomes the device name.
+
+    {% from "components/handover.html" import handover with context %}
+    {% call handover("Personas shape {device}'s own AI, so they are not used now.") %}
+        …page content…
+    {% endcall %}
+-#}
+{% macro handover(detail) -%}
+{%- if config.get('REALTIME_AI_PROVIDER') == 'home-assistant' -%}
+{%- set device = device_name|default('Billy') -%}
+<div class="handover" data-handover>
+    <div class="handover-content" inert aria-hidden="true">
+        {{ caller() }}
+    </div>
+    <div class="handover-notice">
+        <section class="handover-card" aria-labelledby="handover-title">
+            <span class="material-icons handover-icon" aria-hidden="true">home</span>
+            <h2 id="handover-title" class="text-lg text-white">Home Assistant does the talking</h2>
+            <p class="text-sm text-zinc-300">
+                {{ device }} is set to Home Assistant Assist: it is the speaker and microphone for Home
+                Assistant's own assistant, with no {{ device }} AI in between.
+                {{ detail|replace('{device}', device) }}
+            </p>
+            <a href="/settings/voice" data-page-link data-page="settings"
+               class="secondary-action secondary-action--hover--cyan">
+                <span class="material-icons" aria-hidden="true">record_voice_over</span>
+                Change voice provider
+            </a>
+        </section>
+    </div>
+</div>
+{%- else -%}
+{{ caller() }}
+{%- endif -%}
+{%- endmacro %}

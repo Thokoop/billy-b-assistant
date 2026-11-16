@@ -125,19 +125,19 @@ const ServiceStatus = (() => {
         updateBluetoothIndicator(window.billyWebSocket?.getBluetoothStatus?.());
         statusEl.classList.remove("text-emerald-500", "text-amber-500", "text-rose-500");
 
-        let logoSrc = "/static/images/status-inactive.png";
+        let logoSrc = "/theme/images/status-inactive.png";
         if (status === "active") {
-            logoSrc = "/static/images/status-active.png";
+            logoSrc = "/theme/images/status-active.png";
         } else if (status === "inactive") {
-            logoSrc = "/static/images/status-inactive.png";
+            logoSrc = "/theme/images/status-inactive.png";
         } else if (status === "failed") {
-            logoSrc = "/static/images/status-inactive.png"; // fallback
+            logoSrc = "/theme/images/status-inactive.png"; // fallback
         } else if (status === "restarting" || status === "starting") {
             // Avoid fetching transient assets during service restart window.
-            logoSrc = "/static/images/status-active.png";
+            logoSrc = "/theme/images/status-active.png";
         } else if (status === "stopping") {
             // Keep using stable icon to avoid request failures while stopping.
-            logoSrc = "/static/images/status-inactive.png";
+            logoSrc = "/theme/images/status-inactive.png";
         }
 
         const transientStatus =
@@ -219,7 +219,7 @@ const ServiceStatus = (() => {
             }
             setRestartButtonLoading(true);
             if (window.LoadingOverlay && window.LoadingOverlay.show) {
-                window.LoadingOverlay.show("Restarting Billy and web interface... waiting for reconnect.");
+                window.LoadingOverlay.show(`Restarting ${deviceName()} and web interface... waiting for reconnect.`);
             }
         }
 

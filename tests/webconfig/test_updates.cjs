@@ -21,7 +21,7 @@ function setup() {
             addEventListener(type,fn){this[type]=fn;}};
     };
     let status={rollback_available:true,job:{}},post=async()=>({job:{id:'new',state:'queued'}});
-    const ctx={console,AbortController,TypeError,Date:{now:()=>now},CustomEvent:class{},confirm:()=>true,
+    const ctx={console,deviceName:()=>"Billy",AbortController,TypeError,Date:{now:()=>now},CustomEvent:class{},confirm:()=>true,
         location:{reload(){reloads++;}},sessionStorage:{removeItem(){}},showNotification:(...args)=>notices.push(args),
         setTimeout(fn,ms){timers.set(++id,{fn,at:now+ms});return id;},clearTimeout(id){timers.delete(id);},
         document:{createElement:()=>element(),getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},dispatchEvent(){}},
@@ -116,7 +116,8 @@ test('central component status uses shared polling and repair submits one protec
  assert.equal(h.elements.get('system-packages-status').textContent,'Components missing');
  const details=h.elements.get('system-packages-details');
  const rows=()=>details.children.map(row=>[row.children[0].textContent,row.children[1].children[1].textContent]);
- assert.deepEqual(rows(),[['libportaudio2','Not installed'],['ffmpeg','Installed']]);
+ // The last row is the device software, with its Install from file button.
+ assert.deepEqual(rows(),[['libportaudio2','Not installed'],['ffmpeg','Installed'],['Device software','None (Billy fish)']]);
  assert.equal(details.children[1].children[1].children[0].attributes['aria-hidden'],'true');
  h.elements.get('toggle-component-details').click();
  assert.equal(h.elements.get('toggle-component-details').attributes['aria-expanded'],'true');
@@ -140,7 +141,7 @@ test('central component status uses shared polling and repair submits one protec
  assert.equal(h.elements.get('system-packages-badge').hidden,true);
  assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
  assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
- assert.deepEqual(rows(),[['libportaudio2','Installed'],['ffmpeg','Installed']]);
+ assert.deepEqual(rows(),[['libportaudio2','Installed'],['ffmpeg','Installed'],['Device software','None (Billy fish)']]);
  assert.equal(h.elements.get('system-packages-details-status').hidden,true);
  assert.equal(h.elements.get('system-packages-status').textContent,'');
  h.status={packages:{state:'unavailable',message:'Check unavailable',repairable:false},job:{}};
@@ -149,7 +150,8 @@ test('central component status uses shared polling and repair submits one protec
  assert.equal(h.elements.get('system-packages-status').textContent,'');
  assert.equal(h.elements.get('system-packages-detail-panel').hidden,false);
  assert.equal(h.elements.get('system-packages-details-status').textContent,'Check unavailable');
- assert.equal(details.children.length,0);
+ // Only the device software row: installing it does not depend on the check.
+ assert.equal(details.children.length,1);
 });
 
 

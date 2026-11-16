@@ -256,3 +256,65 @@ def test_shutdown_command_does_not_wait_for_its_own_network_callback(
         client, None, SimpleNamespace(topic='billy/command', payload=b'restart-billy')
     )
     m.subprocess.Popen.assert_called_once()
+
+
+def _discovery(client, config_topic):
+    import json
+
+    for call in client.publish.call_args_list:
+        if call.args[0] == config_topic:
+            return json.loads(call.args[1])
+    raise AssertionError(f'{config_topic} was not announced')
+
+
+@pytest.mark.parametrize(
+    ('provider', 'state'),
+    [('home-assistant', 'offline'), ('openai', 'online'), ('gpt-live', 'online')],
+)
+def test_say_and_mood_follow_the_voice_provider(runtime, isolated, provider, state):
+    """Home Assistant does the talking in its mode: Say and Mood are unavailable
+    there and available again with an AI provider (a provider change restarts
+    the worker, which publishes the new value on connect)."""
+    m, client = runtime.module, runtime.client
+    isolated.config.REALTIME_AI_PROVIDER = provider
+    m.start_mqtt()
+    assert client.ready.wait(1)
+    m.on_connect(client, None, {}, 0)
+    client.publish.assert_any_call('billy/assistant/available', state, retain=True)
+    for config_topic in (
+        'homeassistant/text/billy/say/config',
+        'homeassistant/sensor/billy/mood/config',
+    ):
+        payload = _discovery(client, config_topic)
+        assert payload['availability_topic'] == 'billy/assistant/available'
+    # Everything else keeps working in either mode.
+    for config_topic in (
+        'homeassistant/sensor/billy/state/config',
+        'homeassistant/button/billy/listen/config',
+        'homeassistant/text/billy/song/config',
+    ):
+        assert 'availability_topic' not in _discovery(client, config_topic)
+    m.stop_mqtt()
+
+
+@pytest.mark.parametrize('provider', ['home-assistant', 'openai'])
+def test_say_is_ignored_before_a_device_rings_in_home_assistant_mode(
+    runtime, isolated, monkeypatch, provider
+):
+    m, client = runtime.module, runtime.client
+    isolated.config.REALTIME_AI_PROVIDER = provider
+    handles = Mock(return_value=True)  # the phone would ring
+    monkeypatch.setitem(
+        sys.modules,
+        'isolated_core.devices',
+        SimpleNamespace(device_handles_say=handles),
+    )
+    monkeypatch.setitem(sys.modules, 'isolated_core.say', SimpleNamespace(say=Mock()))
+    m.start_mqtt()
+    assert client.ready.wait(1)
+    message = SimpleNamespace(
+        topic='billy/say', payload=b'Dinner is ready', retain=False
+    )
+    m.on_message(client, None, message)
+    assert handles.called is (provider != 'home-assistant')
+    m.stop_mqtt()

@@ -30,6 +30,10 @@ def install(app) -> None:
     app.config["DEVICE_AUDIO_TEST"] = next(
         (panel["audio_test"] for panel in panels if panel["audio_test"]), None
     )
+    app.config["DEVICE_SPEAKER_VOLUME"] = next(
+        (panel["speaker_volume"] for panel in panels if panel["speaker_volume"]),
+        None,
+    )
 
     @app.context_processor
     def device_panel_context():
@@ -42,6 +46,7 @@ def install(app) -> None:
             "device_hidden": hidden,
             "device_fixed_settings": app.config.get("DEVICE_FIXED_SETTINGS", {}),
             "device_audio_test": app.config.get("DEVICE_AUDIO_TEST"),
+            "device_speaker_volume": app.config.get("DEVICE_SPEAKER_VOLUME"),
         }
 
 
@@ -81,6 +86,7 @@ def _register(app, panel: dict) -> dict:
             for key, value in (panel.get("fixed_settings") or {}).items()
         },
         "audio_test": _audio_test(panel.get("audio_test")),
+        "speaker_volume": _speaker_volume(panel.get("speaker_volume")),
         "load_context": _safe(context),
     }
 
@@ -101,6 +107,28 @@ def _audio_test(spec):
         "hint": str(spec.get("hint") or ""),
         "mic_label": str(spec.get("mic_label") or ""),
         "speaker_label": str(spec.get("speaker_label") or ""),
+    }
+
+
+def _speaker_volume(spec):
+    """Fixed volume steps of the device's own output (instead of the mixer).
+
+    ``steps`` are the labels from quiet to loud; ``get()`` returns the index
+    of the current step and ``set(index)`` applies one, returning (ok,
+    message). ``label`` replaces "Speaker Volume", ``hint`` is shown below.
+    """
+    if not isinstance(spec, dict):
+        return None
+    steps = [str(step) for step in spec.get("steps") or ()]
+    get, set_ = spec.get("get"), spec.get("set")
+    if len(steps) < 2 or not callable(get) or not callable(set_):
+        return None
+    return {
+        "steps": steps,
+        "get": get,
+        "set": set_,
+        "label": str(spec.get("label") or ""),
+        "hint": str(spec.get("hint") or ""),
     }
 
 

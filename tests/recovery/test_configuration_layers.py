@@ -26,6 +26,7 @@ from billy_runtime.recovery_ui import create_recovery_app
         'CHUNK_MS=0',
         'AEC_ENABLED=not-a-boolean',
         'STATUS_LED_PIN=999',
+        'HA_SATELLITE_PORT=0',
     ],
 )
 def test_only_release_validates_application_values(setting):
@@ -33,6 +34,14 @@ def test_only_release_validates_application_values(setting):
     assert validate_bootstrap(content, complete=True)
     with pytest.raises(ConfigError, match='at line 2'):
         validate(content, complete=True)
+
+
+def test_home_assistant_voice_provider_is_a_release_setting():
+    content = (
+        'FLASK_PORT=8080\nREALTIME_AI_PROVIDER=home-assistant\nHA_SATELLITE_PORT=6053\n'
+    )
+    assert validate_bootstrap(content, complete=True)
+    assert validate(content, complete=True)
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,7 @@ from .configuration import ConfigError
 
 INTEGERS = {
     'MQTT_PORT': (1, 65535),
+    'HA_SATELLITE_PORT': (1, 65535),
     'MIC_TIMEOUT_SECONDS': (1, 3600),
     'CHUNK_MS': (1, 1000),
     'FOLLOW_UP_RETRY_LIMIT': (0, 100),
@@ -45,6 +46,7 @@ BOOLEANS = set([
     'AEC_ENABLED',
     'BLUETOOTH_CALL_AEC',
     'BLUETOOTH_AUTO_SWITCH',
+    'LIVE_IGNORE_BACKGROUND',
     'MOOD_INSTRUCTIONS_ENABLED',
     'WAKE_WORD_ENABLED',
     'STATUS_LED_ENABLED',
@@ -59,11 +61,12 @@ BOOLEANS = set([
 ])
 ENUMS = {
     'UPDATE_CHANNEL': {'stable', 'rc', 'beta'},
-    'REALTIME_AI_PROVIDER': {'openai', 'xai', 'gpt-live'},
+    'REALTIME_AI_PROVIDER': {'openai', 'xai', 'gpt-live', 'home-assistant'},
     'BILLY_MODEL': {'modern', 'classic'},
     'BILLY_PINS': {'new', 'legacy'},
     'MOTORS_ENABLED': {'auto', 'true', 'false'},
     'BLUETOOTH_RINGTONE': {'billy', 'phone', 'off'},
+    'LIVE_BACKCHANNELS': {'off', 'occasional', 'frequent'},
     'TURN_EAGERNESS': {'low', 'medium', 'high'},
     'WAKE_WORD_BACKEND': {'porcupine', 'openwakeword'},
     'CAMERA_HARDWARE': {'none', 'rpi_camera', 'usb_webcam'},

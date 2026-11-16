@@ -163,6 +163,7 @@ def wifi(tmp_path):
             'time': SimpleNamespace(sleep=lambda _: None, monotonic=lambda: 0.0),
             'contextlib': contextlib,
             'setup_follows_client': lambda: after_client,
+            'device_name': lambda: 'Billy',
             'threading': SimpleNamespace(
                 Thread=lambda target, args=(), **_: SimpleNamespace(
                     start=lambda: threads.append((target, args))

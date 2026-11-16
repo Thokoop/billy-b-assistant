@@ -94,6 +94,7 @@ async function setup({onboarding, networks = [], saveReply = {ok: true, ssid: 'H
     country.options = [{value: 'NL', textContent: 'Netherlands (NL)'}];
     const saves = [];
     const ctx = {
+        deviceName: () => "Billy",
         window: {location: {hostname: '10.42.0.1', port: '', href: ''}}, console, setTimeout, clearTimeout,
         document: {
             getElementById: id => nodes[id] || null,

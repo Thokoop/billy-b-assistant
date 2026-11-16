@@ -81,6 +81,31 @@ is_active = False
 session_thread = None
 interrupt_event = threading.Event()
 session_instance: BillySession | None = None
+
+
+def new_session(**kwargs):
+    """The conversation object for the configured voice provider.
+
+    With ``REALTIME_AI_PROVIDER=home-assistant`` Home Assistant's Assist
+    pipeline answers through Billy's satellite connection instead of an AI
+    provider session; it offers the same start/stop/interrupt surface.
+    """
+    if config.REALTIME_AI_PROVIDER == "home-assistant":
+        from .ha_satellite.session import HaAssistSession
+
+        return HaAssistSession(**kwargs)
+    return BillySession(**kwargs)
+
+
+def plays_wake_up_clip():
+    """Whether a new conversation opens with a persona wake-up clip.
+
+    Home Assistant Assist answers with its own pipeline voice, so a persona
+    clip would only delay listening.
+    """
+    return config.REALTIME_AI_PROVIDER != "home-assistant"
+
+
 wakeword_listener = None
 last_button_time = 0
 _button_was_pressed = False
@@ -290,6 +315,7 @@ def request_session_start(
     opening: dict | None = None,
     situation: str | None = None,
     persona: str | None = None,
+    song: str | None = None,
 ) -> bool:
     """Start a conversation on behalf of ``source`` (for example a device).
 
@@ -307,9 +333,17 @@ def request_session_start(
 
     ``persona`` uses that persona for this conversation only; the user's own
     persona returns when it ends. An unknown name keeps the user's persona.
+
+    ``song`` plays that song instead of a conversation, as song mode does,
+    with the same session events: the session ends when the song does, and
+    request_session_stop() stops the song.
     """
     return trigger_session_start(
-        source=source, opening=opening, situation=situation, persona=persona
+        source=source,
+        opening=opening,
+        situation=situation,
+        persona=persona,
+        song=song,
     )
 
 
@@ -321,7 +355,12 @@ def _opening_session_options(opening: dict | None) -> dict:
     if not text:
         return {}
     interactive = opening.get("interactive")
-    return {
+    options = {}
+    announcement = opening.get("announcement")
+    if announcement is not None and not plays_wake_up_clip():
+        # A Home Assistant announcement a device rang for (HaAssistSession).
+        options["announcement"] = announcement
+    return options | {
         "kickoff_text": text,
         "kickoff_kind": "prompt" if opening.get("kind") == "prompt" else "literal",
         "kickoff_to_interactive": interactive is True,
@@ -559,6 +598,7 @@ def trigger_session_start(
     opening: dict | None = None,
     situation: str | None = None,
     persona: str | None = None,
+    song: str | None = None,
 ):
     global \
         is_active, \
@@ -688,9 +728,12 @@ def trigger_session_start(
         _set_persona(persona)
         my_session_id = _open_session_events(source)
 
-        if config.RUN_MODE == "song":
+        if song or config.RUN_MODE == "song":
             logger.info(
-                f"{source} trigger received (song mode). Playing a song...", "🎵"
+                f"{source} trigger received: playing {song}."
+                if song
+                else f"{source} trigger received (song mode). Playing a song...",
+                "🎵",
             )
 
             def run_session():
@@ -699,7 +742,7 @@ def trigger_session_start(
                 try:
                     if _shutdown_requested.is_set():
                         return
-                    song_name = song_manager.pick_random_song()
+                    song_name = song or song_manager.pick_random_song()
                     if not song_name:
                         logger.warning(
                             "Song mode is active, but no songs are available.", "⚠️"
@@ -750,6 +793,10 @@ def trigger_session_start(
                 audio.playback_done_event.set()
                 set_status_led_state("starting")
                 logger.info(f"{source} trigger received with an opening line.", "🗣️")
+            elif not plays_wake_up_clip():
+                audio.playback_done_event.set()
+                set_status_led_state("starting")
+                logger.info(f"{source} trigger received. Listening...", "🎤")
             else:
                 # Clear the playback done event so session waits for wake-up sound
                 audio.playback_done_event.clear()
@@ -766,8 +813,13 @@ def trigger_session_start(
                 global session_instance, is_active, _button_interrupt_armed
                 my_thread = threading.current_thread()
                 try:
-                    session_instance = BillySession(
-                        interrupt_event=interrupt_event, **opening_options
+                    session_options = dict(opening_options)
+                    if source == "wake-word" and not plays_wake_up_clip():
+                        from .wakeword import wake_word_phrase
+
+                        session_options["wake_word_phrase"] = wake_word_phrase()
+                    session_instance = new_session(
+                        interrupt_event=interrupt_event, **session_options
                     )
                     if opening_options.get("autofollowup") == "never":
                         session_instance.run_mode = "dory"  # one-and-done
@@ -891,7 +943,11 @@ def _force_wifi_setup():
             check=True,
             timeout=120,
         )
-        logger.success("Wi-Fi setup hotspot opened: Billy_Bassistant", "📶")
+        from billy_runtime import theme
+
+        logger.success(
+            f"Wi-Fi setup hotspot opened: {theme.load()['hotspot_ssid']}", "📶"
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         logger.error(f"Could not open Wi-Fi setup hotspot: {exc}")
         flash_status_led_state("error", 5.0)

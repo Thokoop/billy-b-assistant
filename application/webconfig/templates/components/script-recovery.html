@@ -35,7 +35,7 @@ window.ScriptLoadRecovery = (() => {
         const overlay = document.getElementById("loading-overlay");
         const text = document.getElementById("loading-overlay-text");
         if (text) {
-            text.textContent = "The interface could not finish loading. Check your connection to Billy and try again. ";
+            text.textContent = "The interface could not finish loading. Check your connection to {{ device_name|default('Billy') }} and try again. ";
             const button = document.createElement("button");
             button.type = "button";
             button.textContent = "Reload interface";

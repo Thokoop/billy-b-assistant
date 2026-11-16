@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>{% block title %}Billy Bassistant{% endblock %}</title>
+    <title>{% block title %}{{ product_name|default('Billy Bassistant') }}{% endblock %}</title>
     <link href="../static/css/styles.css" rel="stylesheet">
-    <link rel="icon" href="../static/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="/theme/favicon.ico" type="image/x-icon">
     {% block extra_head %}{% endblock %}
 </head>
-<body class="text-white font-sans">
+<body class="text-white font-sans" data-device-name="{{ device_name|default('Billy') }}" data-persona-icon="{{ persona_icon|default('set_meal') }}">
     {% set notice = recovery_notice|default({}) %}
     {% block header %}{% endblock %}
     {% block main_content %}{% endblock %}
@@ -24,7 +24,7 @@
                data-page="personas"
                class="{{ nav_item_base }} {% if current_page == 'personas' %}{{ nav_item_active }}{% endif %}"
                title="Personas">
-                <span class="material-icons text-3xl md:!text-4xl">set_meal</span>
+                <span class="material-icons text-3xl md:!text-4xl">{{ persona_icon|default('set_meal') }}</span>
                 <span class="text-xs">Personas</span>
             </a>
 
@@ -69,20 +69,20 @@
     <dialog id="live-captions-dialog" class="live-captions-dialog" aria-label="Session transcript"></dialog>
 
     <!-- Loading Overlay -->
-    <div id="loading-overlay" role="dialog" aria-modal="true" aria-label="Billy maintenance" tabindex="-1"
+    <div id="loading-overlay" role="dialog" aria-modal="true" aria-label="{{ device_name|default('Billy') }} maintenance" tabindex="-1"
         class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center p-6"
         style="z-index: 2147483000;">
         <div class="flex flex-1 min-h-0 w-full flex-col items-center justify-center">
-            <img src="{{ url_for('static', filename='images/status-reloading.gif') }}"
-                 alt="Billy is working on it"
+            <img src="/theme/images/status-reloading.gif"
+                 alt="{{ device_name|default('Billy') }} is working on it"
                  class="w-full max-w-[300px] min-h-0 h-auto object-contain select-none"
                  draggable="false">
             <p id="loading-overlay-text" role="status" aria-live="polite" aria-atomic="true" class="shrink-0 bg-zinc-900/80 border border-zinc-700 rounded-lg px-6 py-5 shadow-2xl w-full max-w-2xl text-sm text-zinc-200 text-center">
-                Restarting Billy... reconnecting interface.
+                Restarting {{ device_name|default('Billy') }}... reconnecting interface.
             </p>
         </div>
         <p id="loading-overlay-hint" hidden class="shrink-0 mt-4 text-sm text-zinc-200 text-center">
-            Billy is taking care of it. Please keep the power connected.
+            {{ device_name|default('Billy') }} is taking care of it. Please keep the power connected.
             You can change settings again when this is finished.
         </p>
     </div>

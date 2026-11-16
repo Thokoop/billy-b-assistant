@@ -115,7 +115,7 @@ def test_real_handoff_broken_candidate_and_rollback_keep_rescue_and_socket(tmp_p
             # Kill the selected worker via a new generation that fails on import.
             (source / 'broken').touch()
             updates.activate(root, record, updates.baseline(root), trial=True)
-            wait_for(url, 'Billy recovery')
+            wait_for(url, ' recovery</h1>')
             assert proc.poll() is None
             updates.activate(root, updates.baseline(root), record, trial=False)
             wait_for(url, 'original', exact=True)
@@ -227,7 +227,7 @@ def test_release_owns_settings_and_incompatible_rollback_preserves_working_relea
             else:
                 raise AssertionError('Worker configuration error was not reported')
             assert store.notice()['kind'] == 'configuration'
-            wait_for(url, 'Billy recovery')
+            wait_for(url, ' recovery</h1>')
             assert (root / '.env').read_text() == newer
             return False
 
@@ -273,6 +273,6 @@ def test_broken_root_schema_does_not_break_release_or_emergency_ui(tmp_path):
             'invalid python syntax!\n'
         )
         updates.activate(root, record, updates.baseline(root), trial=True)
-        wait_for(url, 'Billy recovery')
+        wait_for(url, ' recovery</h1>')
         assert (root / '.env').read_bytes() == before
         assert proc.poll() is None

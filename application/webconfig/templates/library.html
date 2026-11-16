@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% from "components/handover.html" import handover with context %}
 {% from "components/status-badge.html" import status_badge, badge_info %}
 
-{% block title %}Library | Billy Bassistant{% endblock %}
+{% block title %}Library | {{ product_name|default('Billy Bassistant') }}{% endblock %}
 
 {% block header %}
 {% include "components/header.html" %}
@@ -9,6 +10,7 @@
 
 {% block main_content %}
 <main id="main-content" data-page="library" class="max-w-6xl mx-auto px-2 md:px-4 pt-4 pb-32">
+    {% call handover("The library is knowledge for {device}'s own AI, so it is not used now.") %}
     <div>
         <div class="grid grid-cols-1 gap-6">
             <section class="bg-zinc-900/50 backdrop-blur-xs border border-zinc-700 rounded-lg shadow-2xl overflow-hidden">
@@ -32,7 +34,7 @@
                                               onclick="toggleTooltip(this)">help_outline</span>
                                         <div id="knowledge-folders-tooltip" data-tooltip
                                              style="top:calc(100% + 0.4rem);left:0;width:min(24rem,calc(100vw - 2rem));max-width:calc(100vw - 2rem);max-height:60vh;overflow:auto;white-space:normal;overflow-wrap:break-word;word-break:normal;z-index:60;">
-                                            Group related knowledge so Billy can find it more reliably.
+                                            Group related knowledge so {{ device_name|default('Billy') }} can find it more reliably.
                                         </div>
                                     </span>
                                 </label>
@@ -97,7 +99,7 @@
                             </label>
                             <div class="relative">
                                 <div data-tooltip>
-                                    Add keywords that should route Billy to this folder first.
+                                    Add keywords that should route {{ device_name|default('Billy') }} to this folder first.
                                 </div>
                                 <textarea id="knowledge-trigger-topics" rows="2"
                                           class="field mt-1"
@@ -292,6 +294,7 @@
             </section>
         </div>
     </div>
+    {% endcall %}
 </main>
 
 {% include "components/wifi-setup-modal.html" %}

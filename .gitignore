@@ -144,3 +144,5 @@ test/
 # Local navigation into the selected software release
 /current-source
 /.current-source-*
+
+/private/

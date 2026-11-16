@@ -42,6 +42,43 @@
 .settings-card.settings-card--sections { padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .reduce-motion .card { backdrop-filter: none; -webkit-backdrop-filter: none; background-color: var(--color-zinc-900, #18181b); }
 
+/* ===================== Handover ===================== */
+/* A page Billy's own assistant uses, while another assistant (Home Assistant
+   Assist) answers: the page stays visible but dimmed and inert, under one
+   notice that says why and links to the setting. components/handover.html */
+.handover { position: relative; min-height: 22rem; }
+.handover-content { opacity: .3; filter: grayscale(.7); pointer-events: none; user-select: none; }
+.handover-notice {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 3rem 1rem 0;
+}
+.handover-notice[hidden] { display: none; }
+.handover-card {
+    position: sticky;
+    top: 6rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .75rem;
+    width: 100%;
+    max-width: 32rem;
+    padding: 1.5rem;
+    text-align: center;
+    border: 1px solid var(--color-zinc-700, #3f3f46);
+    border-radius: .5rem;
+    background-color: rgb(24 24 27 / .9);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / .5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+.handover-icon { font-size: 2.25rem; color: var(--color-cyan-400, #22d3ee); }
+.reduce-motion .handover-card { backdrop-filter: none; -webkit-backdrop-filter: none; background-color: var(--color-zinc-900, #18181b); }
+
 /* ===================== Fields ===================== */
 /* In the components layer so utilities on the element (mt-1, pr-10,
    text-amber-500, h-[50vh]) still win. Inputs and selects share one height,
@@ -1164,9 +1201,10 @@ button {
 .settings-warning-help .settings-help-panel { border-color: #fbbf2466; }
 .settings-warning-help strong { color: #fcd34d; }
 /* An open tooltip or help panel lifts its card (and the card inside a panel)
-   above the cards after it, but stays below the sticky save bar (z-index 20). */
+   above the cards after it and above the sticky save bar (z-index 20), which
+   would otherwise cover help text near the bottom of the screen. */
 :is(.settings-card, .card):has(.settings-inline-help[open]:not([hidden])),
-:is(.settings-card, .card):has([data-tooltip][data-visible="true"]) { position: relative; z-index: 15; }
+:is(.settings-card, .card):has([data-tooltip][data-visible="true"]) { position: relative; z-index: 25; }
 .tooltips-hidden .settings-mode-help, .tooltips-hidden .api-provider-help { display: none; }
 .api-provider-help > summary { width: 1.25rem; height: 1.25rem; }
 .api-provider-help > summary .material-icons { font-size: 1.25rem; }
@@ -1267,13 +1305,15 @@ button {
 #loading-overlay { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
 
 /* Keep voice models and conversation controls compact within each card. */
-.api-model-panel { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--color-zinc-700); }
 .api-model-grid, .api-settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); align-items: start; gap: 1rem; }
 .api-model-grid > *, .api-settings-grid > * { min-width: 0; }
 .api-field-hint { margin-top: .375rem; color: var(--color-ink-muted); font-size: .75rem; }
 .api-model-note { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #ffffff12; color: var(--color-ink-muted); font-size: .75rem; line-height: 1.5; }
-.api-toggle-setting { position: relative; display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 1.5rem; }
-.api-toggle-setting > label { flex: 1; gap: .375rem; }
+/* Top-aligned: a label that wraps (Mood at conversation start) keeps its help
+   icon and toggle on its first line, level with the other toggles. The 2px
+   centres a 20px text line on the 24px toggle. */
+.api-toggle-setting { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; min-height: 1.5rem; }
+.api-toggle-setting > label { flex: 1; gap: .375rem; align-items: flex-start; padding-top: .125rem; }
 /* A stepped control in the grid centres its bar on the line of the fields beside it. */
 .api-settings-grid .settings-step-bar { margin-top: 1.25rem; }
 .api-toggle-setting > label .material-icons { flex-shrink: 0; }

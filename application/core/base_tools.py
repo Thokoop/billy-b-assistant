@@ -55,7 +55,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "update_personality",
             "type": "function",
-            "description": "Adjusts Billy's personality traits. Accepts numeric values (0-100) or level names (min/low/med/high/max). Call this function when users request personality changes.",
+            "description": "Adjusts your personality traits. Accepts numeric values (0-100) or level names (min/low/med/high/max). Call this function when users request personality changes.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -103,7 +103,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "get_mood",
             "type": "function",
-            "description": "Get Billy's current temporary mood state. Use when users ask how Billy feels, what mood he is in, or why his tone seems different.",
+            "description": "Get your current temporary mood state. Use when users ask how you feel, what mood you are in, or why your tone seems different.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -113,7 +113,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "set_mood",
             "type": "function",
-            "description": "Set Billy's temporary mood without changing persona or long-term personality. Use when users ask Billy to be neutral, calm, cheerful, warm, curious, focused, playful, mischievous, excited, surprised, sleepy, bored, sad, anxious, flustered, annoyed, grumpy, or dramatic.",
+            "description": "Set your temporary mood without changing persona or long-term personality. Use when users ask you to be neutral, calm, cheerful, warm, curious, focused, playful, mischievous, excited, surprised, sleepy, bored, sad, anxious, flustered, annoyed, grumpy, or dramatic.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -182,7 +182,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "identify_user",
             "type": "function",
-            "description": "Call this when someone explicitly introduces themselves by stating their own name (e.g., 'I am Tom', 'My name is Sarah', 'Hey billy it is tom'), or answers your pending identity/spelling clarification. Do NOT call this when someone greets you by name (like 'Hello Billy' or 'Hey Billy'). Use it to select the user's profile, including switching from one known user to another. IMPORTANT: If you're uncertain about the spelling of a name (e.g., 'Thom' vs 'Tom', 'Sarah' vs 'Sara'), set confidence to 'low' to trigger spelling confirmation. A clarification_required result means no profile was selected or created: ask its question and wait for the user's answer. Never assume a similar-sounding name is a new user. An exact transcription may still be ambiguous when similar profiles exist. For an existing candidate, use its exact profile name and existing_user_confirmed=true only after the user confirms that choice in a later turn.",
+            "description": "Call this when someone explicitly introduces themselves by stating their own name (e.g., 'I am Tom', 'My name is Sarah', 'Hey, it is Tom'), or answers your pending identity/spelling clarification. Do NOT call this when someone greets you by your name (like 'Hello' followed by your name). Use it to select the user's profile, including switching from one known user to another. IMPORTANT: If you're uncertain about the spelling of a name (e.g., 'Thom' vs 'Tom', 'Sarah' vs 'Sara'), set confidence to 'low' to trigger spelling confirmation. A clarification_required result means no profile was selected or created: ask its question and wait for the user's answer. Never assume a similar-sounding name is a new user. An exact transcription may still be ambiguous when similar profiles exist. For an existing candidate, use its exact profile name and existing_user_confirmed=true only after the user confirms that choice in a later turn.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -275,7 +275,7 @@ def get_base_tools() -> list[dict[str, Any]]:
                 "something up, search, or check online. For headlines, weather "
                 "and sports call get_news_digest first and only search when that "
                 "returns nothing useful. NEVER search for chat, opinions, jokes, "
-                "general knowledge you already have, or anything about Billy, the "
+                "general knowledge you already have, or anything about yourself, the "
                 "user, or this household. Searching costs money and takes several "
                 "seconds, so when in doubt, answer without it. Acknowledge VERY "
                 "briefly (max 2 words, preferably 'Checking.') before calling."
@@ -298,7 +298,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "describe_scene",
             "type": "function",
-            "description": "Capture one fresh image from Billy's camera. Use this when users ask what Billy can see, to look around, to check what's in front of him, or to describe a scene/object. Do not call this again to analyze an image that has already been attached in the conversation.",
+            "description": "Capture one fresh image from your camera. Use this when users ask what you can see, to look around, to check what's in front of you, or to describe a scene/object. Do not call this again to analyze an image that has already been attached in the conversation.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -325,7 +325,7 @@ def get_base_tools() -> list[dict[str, Any]]:
         {
             "name": "search_local_knowledge",
             "type": "function",
-            "description": "Search the files uploaded to this Billy: PDFs, spreadsheets, notes, manuals and household documents. "
+            "description": "Search the files uploaded to this device: PDFs, spreadsheets, notes, manuals and household documents. "
             + _knowledge_topics_hint()
             + "Check here FIRST, before any feed or web search, whenever the "
             "question touches one of those topics or anything belonging to "
@@ -402,7 +402,7 @@ def get_user_tools() -> list[dict[str, Any]]:
                     },
                     "preferred_persona": {
                         "type": "string",
-                        "description": "User's preferred Billy personality",
+                        "description": "User's preferred personality",
                     },
                     "notes": {
                         "type": "string",
@@ -415,7 +415,7 @@ def get_user_tools() -> list[dict[str, Any]]:
         {
             "name": "switch_persona",
             "type": "function",
-            "description": "Switch Billy's persona mid-session and acknowledge the change",
+            "description": "Switch your persona mid-session and acknowledge the change",
             "parameters": {
                 "type": "object",
                 "properties": {

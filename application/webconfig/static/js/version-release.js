@@ -80,7 +80,7 @@
         });
         refreshSettingsBadge();
         const updateInfo = document.getElementById('software-update-info-text');
-        if (updateInfo) updateInfo.textContent = `${info.latest || 'A new software version'} is available for Billy. Review the release notes before updating.`;
+        if (updateInfo) updateInfo.textContent = `${info.latest || 'A new software version'} is available for ${deviceName()}. Review the release notes before updating.`;
     };
 
     const applyVersionInfo = (data) => {
@@ -101,6 +101,90 @@
         const element = document.getElementById(id);
         if (element) element.textContent = value;
     };
+    // Device software (billy_runtime/device_software.py): the last row of the
+    // component details, with "Install from file". Kept across re-renders.
+    let deviceSoftware = null;
+    let deviceSoftwareRow = null;
+    const buildDeviceSoftwareRow = () => {
+        const row = document.createElement('li');
+        row.className = 'system-component-row';
+        row.id = 'device-software-row';
+        const name = document.createElement('span');
+        name.className = 'system-component-name';
+        name.textContent = 'Device software';
+        const version = document.createElement('span');
+        version.className = 'system-component-version';
+        name.append(version);
+        const status = document.createElement('span');
+        status.className = 'system-component-state';
+        const icon = document.createElement('span');
+        icon.className = 'material-icons';
+        icon.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        const install = document.createElement('button');
+        install.type = 'button';
+        install.className = 'secondary-action secondary-action--hover--emerald button-small';
+        const installIcon = document.createElement('span');
+        installIcon.className = 'material-icons';
+        installIcon.setAttribute('aria-hidden', 'true');
+        installIcon.textContent = 'upload_file';
+        const installLabel = document.createElement('span');
+        installLabel.textContent = 'Install from file';
+        install.append(installIcon, installLabel);
+        install.addEventListener('click', () => document.getElementById('device-software-file')?.click());
+        status.append(icon, label, install);
+        row.append(name, status);
+        return {row, status, icon, label, version, install};
+    };
+    const showDeviceSoftware = () => {
+        if (!deviceSoftwareRow) return;
+        const installed = deviceSoftware;
+        const {status, icon, label, version} = deviceSoftwareRow;
+        status.dataset.state = installed ? 'installed' : 'optional';
+        icon.textContent = installed ? 'check_circle' : 'remove_circle_outline';
+        label.textContent = installed ? installed.title : 'None (Billy fish)';
+        version.textContent = installed?.version ? `Installed version: ${installed.version}` : '';
+    };
+    const loadDeviceSoftware = () => {
+        fetch('/software/device', {cache: 'no-store'})
+            .then((response) => response.json())
+            .then((data) => { deviceSoftware = data.installed || null; showDeviceSoftware(); })
+            .catch(() => {});
+        const input = document.getElementById('device-software-file');
+        if (!input || input.dataset.bound === 'true') return;
+        input.dataset.bound = 'true';
+        input.addEventListener('change', async () => {
+            const file = input.files?.[0];
+            input.value = '';
+            if (!file || !confirm(`Install ${file.name}? ${deviceName()} restarts when it is done. Your settings are kept.`)) return;
+            const body = new FormData();
+            body.append('file', file);
+            const button = deviceSoftwareRow?.install;
+            setButtonLoading(button, true);
+            try {
+                const response = await fetch('/software/device', {
+                    method: 'POST',
+                    headers: {'X-Billy-Update': '1'},
+                    body,
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || 'Could not install the device software.');
+                deviceSoftware = data.installed;
+                showDeviceSoftware();
+                showNotification(`${data.installed.title} ${data.installed.version} installed. Restarting ${deviceName()}…`, 'success', 5000);
+                if (window.ServiceStatus?.handleServiceAction) {
+                    window.ServiceStatus.handleServiceAction('restart');
+                } else {
+                    await fetch('/restart', {method: 'POST'});
+                }
+            } catch (error) {
+                showNotification(error.message, 'error', 8000);
+            } finally {
+                setButtonLoading(button, false);
+            }
+        });
+    };
+
     const renderComponentDetails = (packages) => {
         const list = document.getElementById('system-packages-details');
         if (!list) return;
@@ -174,7 +258,9 @@
             row.append(name, status);
             rows.push(row);
         }
-        list.replaceChildren(...rows);
+        deviceSoftwareRow ||= buildDeviceSoftwareRow();
+        showDeviceSoftware();
+        list.replaceChildren(...rows, deviceSoftwareRow.row);
         const message = document.getElementById('system-packages-details-status');
         if (message) {
             message.textContent = packages.state === 'checking'
@@ -182,7 +268,7 @@
                 : packages.state === 'unavailable'
                 ? (packages.message || 'Component details are unavailable.')
                 : !complete
-                ? 'The full component list is unavailable. Refresh after updating Billy.'
+                ? `The full component list is unavailable. Refresh after updating ${deviceName()}.`
                 : !rows.length ? 'No system components are listed.' : '';
             message.hidden = !message.textContent;
         }
@@ -190,7 +276,7 @@
     const setSoftwareProgress = message => {
         setText('software-operation-status', message);
         setText('recovery-software-status', message);
-        if (softwareBusy) window.LoadingOverlay?.showSoftware?.(message || 'Preparing Billy…');
+        if (softwareBusy) window.LoadingOverlay?.showSoftware?.(message || `Preparing ${deviceName()}…`);
         else window.LoadingOverlay?.hideSoftware?.();
     };
     const renderRecovery = () => {
@@ -255,12 +341,12 @@
             const message = packages.message || 'System-component checks require the compatibility update.';
             const needsAttention = packages.state === 'attention';
             const action = packages.damaged?.length
-                ? {label: 'Repair components', badge: 'Repair needed', icon: 'build', summary: 'Repair the components Billy needs to run.'}
+                ? {label: 'Repair components', badge: 'Repair needed', icon: 'build', summary: `Repair the components ${deviceName()} needs to run.`}
                 : packages.missing?.length
-                ? {label: 'Install components', badge: 'Installation needed', icon: 'download', summary: 'Install the missing components Billy needs to run.'}
+                ? {label: 'Install components', badge: 'Installation needed', icon: 'download', summary: `Install the missing components ${deviceName()} needs to run.`}
                 : packages.updates?.length
-                ? {label: 'Update components', badge: 'Update available', icon: 'system_update_alt', summary: 'Update the components Billy needs to run.'}
-                : {label: 'Set up components', badge: 'Setup needed', icon: 'build', summary: 'Finish setting up the components Billy needs to run.'};
+                ? {label: 'Update components', badge: 'Update available', icon: 'system_update_alt', summary: `Update the components ${deviceName()} needs to run.`}
+                : {label: 'Set up components', badge: 'Setup needed', icon: 'build', summary: `Finish setting up the components ${deviceName()} needs to run.`};
             if (packageSummary) packageSummary.textContent = needsAttention ? action.summary : message;
             // The badge already explains the generic attention state. Keep
             // specific backend messages visible, including actionable errors.
@@ -295,7 +381,7 @@
             }
         } catch (error) {
             // The job continues independently. Never resend a POST after timeout.
-            if (sawSoftwareJob) setSoftwareProgress('Reconnecting to Billy… The software operation continues.');
+            if (sawSoftwareJob) setSoftwareProgress(`Reconnecting to ${deviceName()}… The software operation continues.`);
         } finally {
             softwarePolling = false;
             if (softwareBusy || sawSoftwareJob || packagesChecking) softwareTimer = setTimeout(pollSoftware, 2000);
@@ -317,7 +403,7 @@
             const button = event.target.closest('[data-optional-install]');
             if (!button || button.disabled) return;
             runSoftwareAction(`/software/optional/${encodeURIComponent(button.dataset.optionalInstall)}`,
-                `Install ${button.dataset.optionalName}? Billy pauses briefly and the Raspberry Pi restarts when it is done. Your settings are kept. Keep the power connected.`);
+                `Install ${button.dataset.optionalName}? ${deviceName()} pauses briefly and the Raspberry Pi restarts when it is done. Your settings are kept. Keep the power connected.`);
         });
     };
 
@@ -336,7 +422,7 @@
         requestDeadline = Date.now() + 30000;
         sawSoftwareJob = true;
         actionButtons().forEach(item => setButtonLoading(item, true));
-        setSoftwareProgress('Preparing Billy…');
+        setSoftwareProgress(`Preparing ${deviceName()}…`);
         try { sessionStorage.removeItem('billy:reload_on_ws_reconnect'); } catch (_) { /* Storage may be disabled. */ }
         try {
             const data = await softwareJson(url, {method: 'POST', headers: {'X-Billy-Update': '1'}});
@@ -358,7 +444,7 @@
                 actionButtons().forEach(item => setButtonLoading(item, false));
             }
             showNotification(error.name === 'AbortError'
-                ? 'Checking whether Billy accepted the request…'
+                ? `Checking whether ${deviceName()} accepted the request…`
                 : error.message, 'warning');
         }
         submittingSoftware = false;
@@ -366,11 +452,11 @@
     }
 
     const bindUpdateButton = () => bindSoftwareButton(getUpdateBtn(), '/update',
-        'Update Billy? The new software is prepared first. Billy restarts briefly when it is ready. Keep the power connected.');
+        `Update ${deviceName()}? The new software is prepared first. ${deviceName()} restarts briefly when it is ready. Keep the power connected.`);
     const bindSimulateUpdateButton = () => bindSoftwareButton(getSimulateUpdateBtn(), '/update-simulate',
         () => `Reinstall ${recoveryVersions.current}? Your settings, profiles and memories are kept.`);
     const bindPackagesButton = () => bindSoftwareButton(document.getElementById('repair-packages-btn'), '/software/packages',
-        'Install or repair Billy’s required system components? Billy may pause briefly. Your settings are kept. Keep the power connected.');
+        `Install or repair ${deviceName()}’s required system components? ${deviceName()} may pause briefly. Your settings are kept. Keep the power connected.`);
     const bindRollbackButton = () => bindSoftwareButton(document.getElementById('rollback-software-btn'), '/software/rollback',
         () => `Restore ${recoveryVersions.previous || 'the previous installation'}? Current version: ${recoveryVersions.current}. Your settings, profiles and memories are kept.`);
 
@@ -398,6 +484,7 @@
             bindSimulateUpdateButton();
             bindRollbackButton();
             bindPackagesButton();
+            loadDeviceSoftware();
             const detailsToggle = document.getElementById('toggle-component-details');
             if (detailsToggle && !detailsToggle.dataset.bound) {
                 detailsToggle.dataset.bound = 'true';

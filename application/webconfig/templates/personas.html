@@ -1,6 +1,7 @@
 {% extends "base.html" %}
+{% from "components/handover.html" import handover with context %}
 
-{% block title %}Personas | Billy Bassistant{% endblock %}
+{% block title %}Personas | {{ product_name|default('Billy Bassistant') }}{% endblock %}
 
 {% block header %}
 {% include "components/header.html" %}
@@ -8,7 +9,9 @@
 
 {% block main_content %}
 <main id="main-content" data-page="personas" class="max-w-6xl mx-auto px-2 md:px-4 pt-4 pb-32">
+    {% call handover("Personas give {device}'s own AI its voice and character, so they are not used now.") %}
     {% include "components/persona-form.html" %}
+    {% endcall %}
 </main>
 
 {% include "components/wifi-setup-modal.html" %}

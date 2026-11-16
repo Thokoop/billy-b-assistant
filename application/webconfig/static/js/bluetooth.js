@@ -115,7 +115,7 @@ window.BluetoothSettings = (() => {
                 return;
             }
             const setup = state.setup || {};
-            el('bt-pair-hint').textContent = `Select ${state.adapter?.Alias || 'Billy'} in your device’s Bluetooth settings, then confirm pairing on your device.`;
+            el('bt-pair-hint').textContent = `Select ${state.adapter?.Alias || deviceName()} in your device’s Bluetooth settings, then confirm pairing on your device.`;
             const connectedDevice = (state.devices || []).some((device) => device.Connected);
             el('bt-setup').textContent = setup.message || '';
             el('bt-setup').hidden = setup.state === 'ready';
@@ -150,7 +150,7 @@ window.BluetoothSettings = (() => {
             setDisabled(el('bt-pair'), Boolean(blocked) || pairing || connectedDevice);
             el('bt-pair').title = blocked || (pairing
                 ? 'Already visible to nearby devices'
-                : 'Make Billy visible to nearby devices');
+                : `Make ${deviceName()} visible to nearby devices`);
             el('bt-pair-status').textContent = pairing
                 ? `Visible for ${state.pairing_seconds}s` : '';
             el('bt-pair-status').hidden = !pairing;
@@ -281,7 +281,7 @@ window.BluetoothSettings = (() => {
                         // other destructive action in the UI confirms.
                         if (action === 'forget' && !window.confirm(
                             `Forget ${name.textContent}? You will need to pair it again, `
-                            + 'and remove Billy from the device\u2019s Bluetooth settings first.',
+                            + `and remove ${deviceName()} from the device\u2019s Bluetooth settings first.`,
                         )) return;
                         act(action, { address: device.Address });
                     });
@@ -301,7 +301,7 @@ window.BluetoothSettings = (() => {
                     }));
                     const caption = document.createElement('span');
                     caption.textContent = 'Auto-connect';
-                    label.title = 'When Billy starts, try selected devices until one connects.';
+                    label.title = `When ${deviceName()} starts, try selected devices until one connects.`;
                     const track = document.createElement('span');
                     track.className = 'wf-toggle-track';
                     track.setAttribute('aria-hidden', 'true');

@@ -41,7 +41,7 @@
     {% set ringtone = config.get('BLUETOOTH_RINGTONE', 'billy') %}
     <section class="card" id="bt-ringtones" aria-labelledby="bt-ringtones-title">
         <h4 id="bt-ringtones-title" class="card-title mb-1">Ringtones</h4>
-        <p class="text-xs text-zinc-400 mb-4">What Billy plays while a connected phone rings. Press his button to answer the call.</p>
+        <p class="text-xs text-zinc-400 mb-4">What {{ device_name|default('Billy') }} plays while a connected phone rings. Press the button to answer the call.</p>
         <label for="BLUETOOTH_RINGTONE-bar" class="flex justify-between items-center text-sm text-zinc-300 relative">
             Ringtone
             <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
@@ -51,7 +51,7 @@
         </label>
         <div class="relative">
             <div data-tooltip>
-                <b>Billy's ringtones</b>: a random ringtone from the list below. Generate one in the
+                <b>{{ device_name|default('Billy') }}'s ringtones</b>: a random ringtone from the list below. Generate one in the
                 current persona's voice, or upload your own audio file. Restore Defaults brings back
                 the built-in ringtones you removed.<br>
                 <b>Phone's ringtone</b>: the ringtone your phone sends over Bluetooth.<br>
@@ -61,16 +61,16 @@
                 is a proxy for it (settings-form.js), like Interruption sensitivity. #}
             <select id="BLUETOOTH_RINGTONE" name="BLUETOOTH_RINGTONE" class="hidden">
                 <option value="off" {% if ringtone == 'off' %}selected{% endif %}>Silent</option>
-                <option value="billy" {% if ringtone not in ['phone', 'off'] %}selected{% endif %}>Billy's ringtones</option>
+                <option value="billy" {% if ringtone not in ['phone', 'off'] %}selected{% endif %}>{{ device_name|default('Billy') }}'s ringtones</option>
                 <option value="phone" {% if ringtone == 'phone' %}selected{% endif %}>Phone's ringtone</option>
             </select>
-            {% set ringtone_label = {'off': 'Silent', 'phone': "Phone's ringtone"}.get(ringtone, "Billy's ringtones") %}
+            {% set ringtone_label = {'off': 'Silent', 'phone': "Phone's ringtone"}.get(ringtone, (device_name|default('Billy')) ~ "'s ringtones") %}
             {% set ringtone_percent = {'off': 0, 'phone': 100}.get(ringtone, 50) %}
             {{ step_slider('BLUETOOTH_RINGTONE', 'Ringtone', ringtone_label, ringtone_percent) }}
         </div>
         <p id="ringtone-telephony-note" class="text-xs text-amber-300 mt-1" hidden>
             This system can only play the phone's own ringtone, and calls are answered on the phone.
-            Billy's ringtones and answering with his button need a newer PipeWire:
+            {{ device_name|default('Billy') }}'s ringtones and answering with the button need a newer PipeWire:
             install <a href="/settings/software" data-page-link data-page="settings" class="underline">Bluetooth calls under Software</a>
             (System components).
         </p>

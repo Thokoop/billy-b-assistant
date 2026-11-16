@@ -43,6 +43,19 @@ def mqtt_available():
     return all([MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD])
 
 
+# Entities that need Billy's own AI (Say, Mood) follow this availability topic.
+# With Home Assistant Assist as voice provider Home Assistant does the talking:
+# they show as unavailable there, and come back with an AI provider (changing
+# the provider restarts the worker, which publishes the new value on connect).
+ASSISTANT_AVAILABILITY_TOPIC = "billy/assistant/available"
+
+
+def assistant_entities_available() -> bool:
+    from . import config
+
+    return getattr(config, "REALTIME_AI_PROVIDER", None) != "home-assistant"
+
+
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected
     with _lifecycle_lock:
@@ -52,6 +65,12 @@ def on_connect(client, userdata, flags, rc):
     if rc == 0:
         logger.success("MQTT connected successfully!", "🔌")
         mqtt_send_discovery()
+        mqtt_publish(
+            ASSISTANT_AVAILABILITY_TOPIC,
+            "online" if assistant_entities_available() else "offline",
+            retain=True,
+            retry=False,
+        )
         mqtt_publish("billy/state", _last_state, retain=True, retry=False)
         with contextlib.suppress(Exception):
             from .mood import mood_manager
@@ -69,7 +88,8 @@ def on_connect(client, userdata, flags, rc):
         client.subscribe(mqtt_wire_topic("billy/wakeup/play"))
         client.subscribe(mqtt_wire_topic("billy/ringtone/play"))
         with _extra_topics_lock:
-            extra = list(_extra_topics)
+            # State topics (no handler) are only announced, never subscribed.
+            extra = [t for t, entry in _extra_topics.items() if entry[0] is not None]
         for topic in extra:
             client.subscribe(mqtt_wire_topic(topic))
     else:
@@ -213,6 +233,8 @@ def register_topic(topic: str, handler, *, discovery: tuple | list | None = None
     Home Assistant ``(config_topic, payload)``, or a list of them for several
     entities on one topic; payloads get Billy's device block. Retained
     messages are not passed on: these topics carry commands. Safe to call before or after the connection is up.
+    With ``handler=None`` the topic is a state the device publishes itself
+    (``mqtt_publish``, e.g. a sensor): it is announced, not subscribed to.
     Returns a function that removes the topic again.
     """
     with _extra_topics_lock:
@@ -220,7 +242,8 @@ def register_topic(topic: str, handler, *, discovery: tuple | list | None = None
     client = mqtt_client
     if client is not None and mqtt_connected:
         with contextlib.suppress(Exception):
-            client.subscribe(mqtt_wire_topic(topic))
+            if handler is not None:
+                client.subscribe(mqtt_wire_topic(topic))
             _publish_extra_discovery(client, discovery)
 
     def unregister():
@@ -228,7 +251,7 @@ def register_topic(topic: str, handler, *, discovery: tuple | list | None = None
             if _extra_topics.get(topic, (None,))[0] is handler:
                 del _extra_topics[topic]
         current = mqtt_client
-        if current is not None and mqtt_connected:
+        if handler is not None and current is not None and mqtt_connected:
             with contextlib.suppress(Exception):
                 current.unsubscribe(mqtt_wire_topic(topic))
 
@@ -274,7 +297,7 @@ def _announce(client, config_topic: str, payload: dict | None):
 def _dispatch_extra_topic(topic: str, payload: str, retained: bool = False) -> bool:
     with _extra_topics_lock:
         entry = _extra_topics.get(topic)
-    if entry is None:
+    if entry is None or entry[0] is None:
         return False
     if retained:
         # A broker replays retained messages on every (re)connect; a command
@@ -301,12 +324,28 @@ def _discovery_device():
         from .devices import active_device_model
 
         model = active_device_model() or model
+    with contextlib.suppress(Exception):
+        from billy_runtime import theme
+
+        # A device with a theme names its product (theme.json).
+        if theme.theme_dir() is not None:
+            model = theme.load()["product_name"]
     return {
         "identifiers": [f"billy_{MQTT_DEVICE_ID}"],
         "name": MQTT_DEVICE_ID,
         "model": model,
         "manufacturer": "ThingsFromThom",
     }
+
+
+def _entity_name(suffix: str) -> str:
+    """ "Billy State" for the fish (existing entities); else the device's name."""
+    label = (
+        "Billy"
+        if MQTT_DEVICE_ID == "billy"
+        else MQTT_DEVICE_ID[:1].upper() + MQTT_DEVICE_ID[1:]
+    )
+    return f"{label} {suffix}"
 
 
 def _play_ringtone_preview(payload: bytes):
@@ -347,7 +386,7 @@ def mqtt_send_discovery():
 
     # Sensor for Billy's state
     payload_sensor = {
-        "name": "Billy State",
+        "name": _entity_name("State"),
         "unique_id": "billy_state",
         "state_topic": "billy/state",
         "icon": "mdi:fish",
@@ -356,10 +395,11 @@ def mqtt_send_discovery():
     _announce(mqtt_client, "homeassistant/sensor/billy/state/config", payload_sensor)
 
     payload_mood_sensor = {
-        "name": "Billy Mood",
+        "name": _entity_name("Mood"),
         "unique_id": "billy_mood",
         "state_topic": "billy/mood",
         "json_attributes_topic": "billy/mood/state",
+        "availability_topic": ASSISTANT_AVAILABILITY_TOPIC,
         "icon": "mdi:emoticon-outline",
         "device": device,
     }
@@ -369,7 +409,7 @@ def mqtt_send_discovery():
 
     # Button to send shutdown command
     payload_button = {
-        "name": "Billy Shutdown",
+        "name": _entity_name("Shutdown"),
         "unique_id": "billy_shutdown",
         "command_topic": "billy/command",
         "payload_press": "shutdown",
@@ -379,7 +419,7 @@ def mqtt_send_discovery():
 
     # Button to restart Billy service
     payload_button_restart = {
-        "name": "Billy Restart",
+        "name": _entity_name("Restart"),
         "unique_id": "billy_restart",
         "command_topic": "billy/command",
         "payload_press": "restart-billy",
@@ -391,7 +431,7 @@ def mqtt_send_discovery():
 
     # Button to reboot the system
     payload_button_reboot = {
-        "name": "Billy Reboot",
+        "name": _entity_name("Reboot"),
         "unique_id": "billy_reboot",
         "command_topic": "billy/command",
         "payload_press": "reboot",
@@ -403,7 +443,7 @@ def mqtt_send_discovery():
 
     # Button to toggle listening
     payload_button_listen = {
-        "name": "Billy Listen",
+        "name": _entity_name("Listen"),
         "unique_id": "billy_listen",
         "command_topic": "billy/command",
         "payload_press": "listen",
@@ -415,9 +455,10 @@ def mqtt_send_discovery():
 
     # Single text entity
     payload_text_input = {
-        "name": "Billy Say",
+        "name": _entity_name("Say"),
         "unique_id": "billy_say",
         "command_topic": "billy/say",
+        "availability_topic": ASSISTANT_AVAILABILITY_TOPIC,
         "mode": "text",
         "max": 255,
         "device": device,
@@ -426,7 +467,7 @@ def mqtt_send_discovery():
 
     # Single text entity for playing songs
     payload_song_input = {
-        "name": "Billy Song",
+        "name": _entity_name("Song"),
         "unique_id": "billy_song",
         "command_topic": "billy/song",
         "mode": "text",
@@ -437,7 +478,7 @@ def mqtt_send_discovery():
 
     # Sensor for the last song Billy played (e.g. offline Song mode picks)
     payload_last_song_sensor = {
-        "name": "Billy Last Song",
+        "name": _entity_name("Last Song"),
         "unique_id": "billy_last_song",
         "state_topic": "billy/song/last",
         "icon": "mdi:music",
@@ -589,10 +630,13 @@ def mqtt_start_listening():
                         return
 
         button_mod.audio.ensure_playback_worker_started(button_mod.config.CHUNK_MS)
-        button_mod.audio.playback_done_event.clear()
-        threading.Thread(
-            target=button_mod.audio.play_random_wake_up_clip, daemon=True
-        ).start()
+        if button_mod.plays_wake_up_clip():
+            button_mod.audio.playback_done_event.clear()
+            threading.Thread(
+                target=button_mod.audio.play_random_wake_up_clip, daemon=True
+            ).start()
+        else:
+            button_mod.audio.playback_done_event.set()
 
         button_mod.is_active = True
         button_mod.interrupt_event = threading.Event()
@@ -600,7 +644,7 @@ def mqtt_start_listening():
         def run_session():
             try:
                 button_mod.move_head("on")
-                button_mod.session_instance = button_mod.BillySession(
+                button_mod.session_instance = button_mod.new_session(
                     interrupt_event=button_mod.interrupt_event
                 )
                 button_mod.session_instance.last_activity[0] = time.time()
@@ -722,6 +766,16 @@ def on_message(client, userdata, msg):
 
         # 🔁 Lazy import here to avoid circular import with session.py
         from .say import say
+
+        if not assistant_entities_available():
+            # Before a device sees it: the phone would ring for a message
+            # Home Assistant never receives (assist_satellite.announce does).
+            logger.info(
+                "Ignoring SAY: with Home Assistant as voice provider, use "
+                "assist_satellite.announce.",
+                "🔕",
+            )
+            return
 
         try:
             text, interactive = _parse_say_payload(msg.payload.decode())

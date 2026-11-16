@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Settings | Billy Bassistant{% endblock %}
+{% block title %}Settings | {{ product_name|default('Billy Bassistant') }}{% endblock %}
 
 {% block header %}
 {% include "components/header.html" %}

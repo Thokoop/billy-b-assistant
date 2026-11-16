@@ -18,7 +18,7 @@ window.updateRecoveryNotice = (notice) => {
     const message = document.getElementById('debug-recovery-message');
     if (message) message.textContent = notice.active ? (
         notice.kind === 'runtime'
-            ? `Billy could not start normally. ${notice.message || 'Open the logs below for details.'}`
+            ? `${deviceName()} could not start normally. ${notice.message || 'Open the logs below for details.'}`
             : notice.message || 'Settings are awaiting a successful startup.'
     ) : '';
     const detail = document.getElementById('debug-recovery-detail');

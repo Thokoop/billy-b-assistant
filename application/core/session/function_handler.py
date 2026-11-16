@@ -378,7 +378,7 @@ class FunctionHandler:
             await asyncio.sleep(0.1)
 
         prompt = (
-            "Tell the user Billy's current mood in one short spoken sentence. "
+            "Tell the user your current mood in one short spoken sentence. "
             f"Use this mood state: {json.dumps(result)}. "
             "Do not list raw numbers unless the user asked for details. "
             "Do not force a follow-up question, but keep the interactive "
@@ -410,7 +410,7 @@ class FunctionHandler:
 
         if result.get("ok"):
             prompt = (
-                "Confirm in one short spoken sentence that Billy's temporary mood "
+                "Confirm in one short spoken sentence that your temporary mood "
                 f"is now {result['mood']['label']}. Do not imply the persona changed. "
                 "Do not force a follow-up question, but keep the interactive "
                 "conversation open. After speaking, call conversation_state with "

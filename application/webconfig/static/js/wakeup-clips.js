@@ -165,7 +165,7 @@ async function loadWakeupClips(personaName = null) {
         } else {
             const label = document.createElement("label");
             label.className = "flex items-center justify-between text-sm text-zinc-300 mb-1";
-            label.textContent = "Words or phrases that Billy will randomly say on activation:";
+            label.textContent = `Words or phrases that ${deviceName()} will randomly say on activation:`;
             container.appendChild(label);
         }
         clips.sort((a, b) => a.index - b.index).forEach(({ index, phrase, moods, has_audio }) => {
@@ -237,7 +237,7 @@ function bindWakeupClips() {
                         await fetch("/service/stop");
                         await ServiceStatus.fetchStatus();
                         await tryPlay();
-                        showNotification("Billy was active. Stopped and retried clip.", "warning");
+                        showNotification(`${deviceName()} was active. Stopped and retried clip.`, "warning");
                     } catch (retryErr) {
                         console.error("Retry failed:", retryErr);
                         showNotification("Play failed after retry: " + retryErr.message, "error");

@@ -598,6 +598,9 @@ def _input_stream_with_retry(**kwargs):
 
 def get_mic_gain_numid(card_index):
     """Find the numid for mic gain on the specified card."""
+    if card_index is None:
+        # No USB capture card (e.g. only a loopback or Bluetooth microphone).
+        return None
     try:
         output = subprocess.check_output(
             ["amixer", "-c", str(card_index), "controls"], text=True
@@ -1189,11 +1192,16 @@ def generate_wakeup_ideas():
         from openai import OpenAI
 
         client = OpenAI(api_key=core_config.OPENAI_API_KEY)
+        from billy_runtime import theme
+
+        from ..theme import device_name
+
+        character, name = theme.load()["character"], device_name()
         prompt = (
-            "Generate short activation cues for a Big Mouth Billy Bass assistant persona. "
+            f"Generate short activation cues for an assistant persona: {character}. "
             "These are NOT alarm-clock sounds and NOT literal waking-from-sleep lines. "
-            "They play immediately after the user activates Billy and before the conversation starts, "
-            "as a quick acknowledgement that Billy is now listening. "
+            f"They play immediately after the user activates {name} and before the conversation starts, "
+            f"as a quick acknowledgement that {name} is now listening. "
             "Generate a varied mix across these three formats: pure sound only "
             "(\"hmmpf\", \"huh?\", \"mmm?\", \"heh\", \"ugh\", \"ah\", \"oof\", "
             "\"eh?\", \"pfft\"), sound plus a very short phrase (\"Huh? Go on.\", "
@@ -1498,7 +1506,15 @@ def mic_gain():
     card_index = get_usb_capture_card_index()
     numid = get_mic_gain_numid(card_index)
     if card_index is None or numid is None:
-        return jsonify({"error": "Could not determine mic card or control ID"}), 500
+        # Not a failure: this microphone has no ALSA gain control to adjust.
+        reason = "no_usb_microphone" if card_index is None else "no_gain_control"
+        if request.method == "GET":
+            return jsonify({"available": False, "reason": reason})
+        return jsonify({
+            "error": "This microphone has no adjustable gain",
+            "available": False,
+            "reason": reason,
+        }), 409
     if request.method == "GET":
         try:
             output = subprocess.check_output(
@@ -1507,6 +1523,7 @@ def mic_gain():
             gain = parse_amixer_control_value(output)
             min_value, max_value = parse_amixer_control_range(output)
             return jsonify({
+                "available": True,
                 "gain": gain,
                 "min": min_value,
                 "max": max_value,
@@ -1548,8 +1565,17 @@ def mic_gain():
     return jsonify({"error": "Unsupported method"}), 405
 
 
+def _device_speaker_volume():
+    from flask import current_app
+
+    return current_app.config.get("DEVICE_SPEAKER_VOLUME") or None
+
+
 @bp.route("/volume", methods=["GET", "POST"])
 def volume():
+    hooks = _device_speaker_volume()
+    if hooks:
+        return _device_volume_route(hooks)
     try:
         card_index = get_usb_pcm_card_index()
         base = amixer_base_args_for_card(card_index)
@@ -1580,6 +1606,44 @@ def volume():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _device_volume_route(hooks):
+    """The device's own volume steps (core.devices "speaker_volume")."""
+    steps = hooks["steps"]
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        try:
+            index = int(data["volume"])
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "Missing volume"}), 400
+        if not (0 <= index < len(steps)):
+            return jsonify({"error": f"Volume must be 0–{len(steps) - 1}"}), 400
+        try:
+            result = hooks["set"](index)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        ok, message = (
+            (bool(result[0]), str(result[1] if len(result) > 1 else ""))
+            if isinstance(result, tuple)
+            else (bool(result), "")
+        )
+        if not ok:
+            return jsonify({"error": message or "Could not set the volume"}), 409
+    else:
+        message = ""
+        try:
+            index = int(hooks["get"]())
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        index = max(0, min(len(steps) - 1, index))
+    return jsonify({
+        "volume": index,
+        "steps": steps,
+        "label": steps[index],
+        "message": message,
+        "control": "device",
+    })
 
 
 def device_info_snapshot(max_attempts=6):

@@ -45,6 +45,7 @@ from ..state import (
     load_versions,
     save_versions,
 )
+from ..theme import device_name
 
 
 bp = Blueprint("system", __name__)
@@ -59,8 +60,10 @@ CONFIG_KEYS = [
     "OPENAI_MODEL",
     "OPENAI_LIVE_MODEL",
     "OPENAI_LIVE_BACKEND_MODEL",
+    "OPENAI_LIVE_CUSTOM_VOICES",
     "XAI_MODEL",
     "REALTIME_AI_PROVIDER",
+    "HA_SATELLITE_PORT",
     "BILLY_MODEL",
     "BILLY_PINS",
     "MIC_TIMEOUT_SECONDS",
@@ -114,6 +117,8 @@ CONFIG_KEYS = [
     "WIFI_COUNTRY",
     "WIFI_ONBOARDING_MODE",
     "BLUETOOTH_RINGTONE",
+    "LIVE_BACKCHANNELS",
+    "LIVE_IGNORE_BACKGROUND",
 ]
 # Keys saved by an extension device's settings panel (app/device_panels.py).
 DEVICE_CONFIG_KEYS: set[str] = set()
@@ -126,6 +131,7 @@ BOOLEAN_CONFIG_KEYS = {
     "FLAP_ON_BOOT",
     "MIC_TIMEOUT_TAIL_FLAP",
     "MOOD_INSTRUCTIONS_ENABLED",
+    "LIVE_IGNORE_BACKGROUND",
     "SHOW_TOOLTIPS",
 }
 WAKEWORD_REL_ROOT = Path("wakewords")
@@ -669,22 +675,20 @@ def _friendly_wifi_error_message(error: str, *, password_provided: bool) -> str:
         return (
             "This Wi-Fi network requires a password."
             if not password_provided
-            else "Billy could not join this Wi-Fi network. Check the password and try again."
+            else f"{device_name()} could not join this Wi-Fi network. Check the password and try again."
         )
     if "activation failed" in lowered and "password" in lowered:
-        return (
-            "Billy could not join this Wi-Fi network. Check the password and try again."
-        )
+        return f"{device_name()} could not join this Wi-Fi network. Check the password and try again."
     if "no network with ssid" in lowered:
-        return "Billy could not find that Wi-Fi network. Scan again and try once more."
+        return f"{device_name()} could not find that Wi-Fi network. Scan again and try once more."
     if "ssid not found" in lowered:
-        return "Billy could not find that Wi-Fi network. Scan again and try once more."
+        return f"{device_name()} could not find that Wi-Fi network. Scan again and try once more."
     if "connection profile creation failed" in lowered:
-        return "Billy could not save this Wi-Fi network. Try again."
+        return f"{device_name()} could not save this Wi-Fi network. Try again."
     if "timed out" in lowered:
-        return "Billy could not join this Wi-Fi network in time. Try again in a moment."
+        return f"{device_name()} could not join this Wi-Fi network in time. Try again in a moment."
 
-    return message or "Billy could not join this Wi-Fi network. Try again."
+    return message or f"{device_name()} could not join this Wi-Fi network. Try again."
 
 
 def _wifi_connect(
@@ -1037,7 +1041,9 @@ def _voice_options(provider_name: str) -> list[str]:
             from core.providers.live_provider import LIVE_VOICES
 
             voices = list(LIVE_VOICES)
-        elif provider_name == "openai":
+        elif provider_name in {"openai", "home-assistant"}:
+            # Home Assistant chooses its own voice; personas keep an OpenAI
+            # voice for when another provider is selected again.
             from core.providers.openai_provider import OpenAIProvider
 
             voices = OpenAIProvider(api_key="").get_supported_voices()
@@ -1046,7 +1052,97 @@ def _voice_options(provider_name: str) -> list[str]:
                 f"[config] No realtime provider available for '{provider_name}': {e}"
             )
             voices = []
+    if provider_name == "gpt-live":
+        # The custom voices as saved now (the provider may predate the save).
+        voices = list(voices) + [
+            voice["id"] for voice in _custom_voices() if voice["id"] not in voices
+        ]
     return voices
+
+
+def _custom_voices() -> list[dict]:
+    from core.live_voices import parse
+
+    return parse(_config_value_for_ui("OPENAI_LIVE_CUSTOM_VOICES"))
+
+
+def _voice_labels() -> dict:
+    """Display names of the custom voices, by ID (persona voice choices)."""
+    return {voice["id"]: f"{voice['name']} (custom)" for voice in _custom_voices()}
+
+
+@bp.post("/voices/custom")
+def create_custom_voice():
+    """Create a GPT-Live voice from a description (Settings > Voice).
+
+    The voice is made at OpenAI with the saved API key and returned for the
+    custom voice list; it is kept once the settings are saved.
+    """
+    from core.live_voices import MAX_VOICES, VoiceError, create
+
+    # JSON only: a cross-site form cannot send it without a CORS preflight.
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON"}), 415
+    data = request.get_json(silent=True) or {}
+    if len(_custom_voices()) >= MAX_VOICES:
+        return jsonify({"error": f"At most {MAX_VOICES} custom voices"}), 400
+    try:
+        voice = create(
+            _config_value_for_ui("OPENAI_API_KEY"),
+            data.get("name"),
+            data.get("description"),
+            data.get("script"),
+        )
+    except VoiceError as exc:
+        return jsonify({"error": str(exc)}), 400
+    logger.info(f"Created custom voice '{voice['name']}' ({voice['id']}).")
+    return jsonify({"voice": voice})
+
+
+def _ha_satellite_keys():
+    from core.ha_satellite.keystore import KeyStore
+
+    return KeyStore()
+
+
+def _ha_satellite_key_state(store) -> str:
+    if store.damaged:
+        return "damaged"
+    return "set" if store.get() is not None else "none"
+
+
+@bp.get("/ha-satellite/encryption")
+def ha_satellite_encryption():
+    """Whether Home Assistant has set the satellite's encryption key."""
+    return jsonify({"state": _ha_satellite_key_state(_ha_satellite_keys())})
+
+
+@bp.post("/ha-satellite/encryption/key")
+def ha_satellite_encryption_key():
+    """The key, for adding Billy to Home Assistant by hand (JSON POST only)."""
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON"}), 415
+    key = _ha_satellite_keys().get_text()
+    if key is None:
+        return jsonify({"error": "No encryption key is set"}), 404
+    response = jsonify({"key": key})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.post("/ha-satellite/encryption/reset")
+def ha_satellite_encryption_reset():
+    """Forget the key; the satellite applies this within a few seconds."""
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON"}), 415
+    store = _ha_satellite_keys()
+    try:
+        store.clear()
+    except OSError as exc:
+        logger.warning(f"Could not reset the satellite encryption key: {exc}")
+        return jsonify({"error": "The encryption key could not be reset"}), 500
+    logger.info("Home Assistant satellite encryption key reset from the web UI.")
+    return jsonify({"state": _ha_satellite_key_state(store)})
 
 
 def _page_context(current_page: str) -> dict:
@@ -1054,6 +1150,9 @@ def _page_context(current_page: str) -> dict:
         "current_page": current_page,
         "config": {k: _config_value_for_ui(k) for k in CONFIG_KEYS}
         | {
+            # A persona's fallback voice: one every OpenAI provider has.
+            "VOICE_FALLBACK_OPTIONS": _voice_options("openai"),
+            "VOICE_LABELS": _voice_labels(),
             "VOICE_OPTIONS": _voice_options(
                 _config_value_for_ui("REALTIME_AI_PROVIDER")
             ),
@@ -1241,6 +1340,63 @@ def software_rollback():
     return _software_action('rollback')
 
 
+DEVICE_SOFTWARE_MAX_BYTES = 64 * 1024**2
+
+
+@bp.get('/software/device')
+def device_software_status():
+    from billy_runtime.device_software import installed
+
+    return (
+        jsonify(installed=installed(PROJECT_ROOT)),
+        200,
+        {'Cache-Control': 'no-store'},
+    )
+
+
+@bp.post('/software/device')
+def install_device_software():
+    """Install device software from an uploaded package file.
+
+    The files are swapped in at once; Billy uses them after a restart, which
+    the page starts when this succeeds.
+    """
+    # Browsers cannot submit this custom header from a cross-site HTML form.
+    if request.headers.get('X-Billy-Update') != '1':
+        return jsonify(error='Reload the settings page before installing'), 403
+    from billy_runtime.device_software import install
+
+    upload = request.files.get('file')
+    if upload is None or not upload.filename:
+        return jsonify(error='Choose a device software file'), 400
+    incoming = (
+        Path(PROJECT_ROOT) / 'state' / f'device-software-{uuid.uuid4().hex}.tar.gz'
+    )
+    try:
+        incoming.parent.mkdir(parents=True, exist_ok=True)
+        size = 0
+        with incoming.open('xb') as target:
+            while chunk := upload.stream.read(1024 * 1024):
+                size += len(chunk)
+                if size > DEVICE_SOFTWARE_MAX_BYTES:
+                    return jsonify(
+                        error='This file is too large for device software'
+                    ), 400
+                target.write(chunk)
+        manifest = install(incoming, PROJECT_ROOT, get_current_version())
+    except ValueError as exc:
+        return jsonify(error=f'{exc}.'), 400
+    except OSError as exc:
+        logger.error(f'Device software installation failed: {exc}')
+        return jsonify(error='Could not install the device software.'), 500
+    finally:
+        incoming.unlink(missing_ok=True)
+    logger.info(
+        f"Device software installed: {manifest['title']} {manifest['version']}", '🔌'
+    )
+    return jsonify(installed=manifest)
+
+
 @bp.route("/release-note")
 def release_note():
     current = get_current_version()
@@ -1248,6 +1404,18 @@ def release_note():
     if RELEASE_NOTE.get('tag') != latest:
         return jsonify(tag=latest, body='', url='')
     return jsonify(RELEASE_NOTE)
+
+
+def _ha_token_error(values) -> str | None:
+    """Why these settings cannot be saved: Assist without a Home Assistant token."""
+    provider = str(values.get("REALTIME_AI_PROVIDER") or "").strip().lower()
+    token = str(values.get("HA_TOKEN") or "").strip()
+    if provider == "home-assistant" and not token:
+        return (
+            "Home Assistant Assist needs a Home Assistant token. "
+            "Add one in the Home Assistant settings first."
+        )
+    return None
 
 
 @bp.route("/save", methods=["POST"])
@@ -1318,11 +1486,12 @@ def save():
                     else:
                         raw_value = str(max(0, parsed))
                 value = raw_value or "max"
-            elif key == "MQTT_PORT":
+            elif key in {"MQTT_PORT", "HA_SATELLITE_PORT"}:
+                default_port = 1883 if key == "MQTT_PORT" else 6053
                 try:
                     parsed = int(str(value).strip())
                 except (TypeError, ValueError):
-                    parsed = 1883
+                    parsed = default_port
                 value = str(max(1, min(65535, parsed)))
             elif key == "STATUS_LED_BRIGHTNESS":
                 try:
@@ -1330,6 +1499,10 @@ def save():
                 except (TypeError, ValueError):
                     parsed = 0.2
                 value = str(max(0.0, min(1.0, parsed)))
+            elif key == "OPENAI_LIVE_CUSTOM_VOICES":
+                from core.live_voices import normalize
+
+                value = normalize(value)
             old_value = str(existing_env.get(key, ""))
             new_value = str(value)
             updates[key] = value
@@ -1343,6 +1516,10 @@ def save():
         updates['SHOW_RC_VERSIONS'] = (
             'False' if updates['UPDATE_CHANNEL'] == 'stable' else 'True'
         )
+    if {"REALTIME_AI_PROVIDER", "HA_TOKEN"} & updates.keys() and (
+        error := _ha_token_error({**existing_env, **updates})
+    ):
+        return jsonify({"error": error}), 400
     try:
         patch_env(ENV_PATH, updates)
     except ConfigError as exc:
@@ -1433,6 +1610,10 @@ def wifi_networks():
 
         networks: list[dict[str, str | int | bool]] = []
         seen: set[str] = set()
+        from billy_runtime import theme
+
+        # This Billy's own setup hotspot (the device's name, theme.json).
+        own_hotspots = {WIFI_UNIFIED_HOTSPOT_SSID, theme.load()["hotspot_ssid"]}
         for raw_line in result.stdout.splitlines():
             line = raw_line.strip()
             if not line:
@@ -1443,7 +1624,7 @@ def wifi_networks():
             ssid = parts[0].strip()
             if not ssid or ssid in seen:
                 continue
-            if ssid == WIFI_UNIFIED_HOTSPOT_SSID:
+            if ssid in own_hotspots:
                 continue
             seen.add(ssid)
             signal = parts[1].strip()
@@ -1987,6 +2168,9 @@ def get_config():
     # Get basic configuration
     config_data = {k: _config_value_for_ui(k, core_config) for k in CONFIG_KEYS}
 
+    # A persona's fallback voice: one every OpenAI provider has (Realtime).
+    config_data["VOICE_FALLBACK_OPTIONS"] = _voice_options("openai")
+    config_data["VOICE_LABELS"] = _voice_labels()
     config_data["VOICE_OPTIONS"] = _voice_options(
         config_data.get("REALTIME_AI_PROVIDER", "openai")
     )

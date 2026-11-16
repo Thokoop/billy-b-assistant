@@ -21,6 +21,7 @@ Sources of truth:
 | Page shell, footer navigation | `templates/base.html` |
 | Header, toolbar, power menu | `templates/components/header.html` |
 | Status badge macro | `templates/components/status-badge.html` |
+| Handover macro | `templates/components/handover.html` |
 | Notification bar, tooltips, dropdowns | `static/js/ui-helpers.js` |
 | Compiled CSS (generated, do not edit) | `static/css/styles.css`, built with `npm run build:css` |
 
@@ -189,13 +190,13 @@ a destructive action.
 
 | Layer | z-index | What |
 | --- | --- | --- |
-| Card with an open tooltip or help panel | 15 | Lifts above the cards after it |
-| Sticky save bar | 20 | Stays above page content, including lifted cards |
+| Sticky save bar | 20 | Stays above page content |
 | Menus, dropdowns | 20–40 | `.dropdown-menu` 20, power menu 40 |
+| Card with an open tooltip or help panel | 25 | Lifts above the cards after it and above the save bar, so help near the bottom of the screen stays readable |
 | Footer navigation dock | 30 | Always above content and the save bar's shadow |
 | Modals, full-screen log | 50–60 | Above everything |
 
-Content never goes above 15, so the save bar and the dock stay on top.
+Content stays at 20 or below; only a card with open help goes to 25, so the dock stays on top.
 
 ---
 
@@ -255,16 +256,23 @@ both look the same.
 
 - A settings panel with several groups uses `settings-card settings-card--sections`.
   The panel then has no card of its own: every group is a separate `.card`,
-  stacked with `space-y-4`, and the panel title (`.settings-panel-title`) sits
+  stacked with `space-y-4` (`flex flex-col gap-4` when a card can be hidden,
+  so it leaves no gap), and the panel title (`.settings-panel-title`) sits
   inside the first card, never on its own above the cards. A device panel
   template renders `{{ panel_heading }}` at the top of its first section; it
   holds the title for the first device panel and is empty otherwise. The Device panel
-  (device-profile sections plus a "General" card), the Software panel and the
-  Bluetooth panel (devices, plus a Ringtones card on the fish) work this way.
-- A small subgroup inside a card (the GPT-Live model choice, the wake-word file
-  upload) is separated by a hairline: `.card-divider` (a zinc-700 top border
-  with 16px above and below), or `.api-model-panel` for the bottom border
-  variant. It gets no background of its own.
+  (device-profile sections plus a "General" card), the Software panel, the
+  Bluetooth panel (devices, plus a Ringtones card on the fish) and the Voice & AI
+  panel (provider and models, a GPT-Live-only "Custom voices" card and a
+  "Conversation" card) and the Home Assistant panel (connection, plus a "Voice
+  satellite" card shown only with Home Assistant Assist) work this way. Later cards are titled with
+  `h4.card-title`. A card whose blocks depend on the provider spaces them with
+  `flex flex-col gap-4`, not margins on the blocks, so hidden blocks leave no gap.
+- A small subgroup inside a card (the wake-word file upload, the "Create from
+  description" form under Custom voices, Encryption in the "Voice satellite"
+  card) is separated by a hairline:
+  `.card-divider` (a zinc-700 top border with 16px above and below). It gets no
+  background of its own.
 - **Collapsible section**: add `collapsible-section`. The heading is an `h3`
   that stays visible; any other child is hidden while `.collapsed`, except
   elements marked `data-disclosure-panel`. Heading:
@@ -432,7 +440,9 @@ toggle started.
   `relative w-full h-4 rounded-full bg-zinc-700` with an emerald fill
   (`bg-emerald-500`). Used for gain, volume, LED brightness and mouth boost.
 - **Stepped control** (`.settings-step-control`): the same bar for a hidden
-  select, with white dots on the steps and a label below.
+  select, with white dots on the steps and a label below. The Audio page's
+  Speaker Volume uses it when the device offers its own volume steps (dots
+  rendered by the template, applied at once instead of on Save).
 - Native range inputs that remain (persona form, waveform zoom) use an emerald
   thumb on a zinc-700 track, matching the bar.
 
@@ -516,6 +526,22 @@ and rotates its chevron.
   `optional` state ("Not installed (optional)"), with their description under
   the name and a `button-small` secondary emerald Install button in the state
   cell. Never a warning colour: nothing is wrong.
+- **Editable rows with column labels** (phone numbers): fields side by side
+  in a `flex gap-4` row, with one header line above the list in
+  `text-xs text-zinc-400` whose spans take the fields' widths. Hide the header
+  while the list is empty. Action columns get no label. The rows get no
+  background of their own: the fields already sit on the card, and a list-row
+  surface underneath would stack a third one.
+  A row that wraps onto a second line (a custom voice and its description) is
+  separated from the next by a `white/7` hairline
+  (`py-4 border-t border-white/7 first:border-t-0 first:pt-0 last:pb-0`), and
+  its header is hidden below `md` (`max-md:hidden`), where the fields wrap
+  and no longer line up with it; the fields keep their `aria-label`s.
+- **One-at-a-time choice in a row** (the auto-dial number): an icon button
+  (`button-icon`, `secondary-action--hover--emerald`) with `aria-pressed`;
+  the chosen row adds `secondary-action--active`. Choosing another row moves
+  the choice, pressing the chosen one again clears it. It sits left of the
+  row's remove button.
 - Definition summary: `.wifi-summary` (`dt` muted, `dd` white).
 - Stepper: `.wifi-stepper`, numbered steps with an emerald underline for the
   current step.
@@ -525,13 +551,43 @@ and rotates its chevron.
 `.billy-header` with `.billy-topbar`: logo (48px, 36px on mobile), name
 (16px / 650), state line (12px muted with a 7px status dot), then the action
 groups. Groups are separated with `.header-separated-actions` (a left hairline).
-On phones under 480px the state line moves below the name.
+On phones under 480px the state line moves below the name. The logo and the
+loading image come from `/theme/images/…` (see 4.5), never `/static/images/…`.
 
 ### 3.14 Back pill
 
 The "back" link at the top of the library, songs, persona and profile pages:
 `group self-start inline-flex items-center gap-2 rounded-full border border-white/15 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-200 backdrop-blur-xs`
 with an `arrow_back` icon at `text-lg` that nudges left on hover.
+
+### 3.15 Handover
+
+Shown on a page that Billy's own assistant uses while another assistant answers
+instead. Today that is Home Assistant Assist (`REALTIME_AI_PROVIDER=home-assistant`)
+on the Personas, Profiles, Songs and Library pages. The page keeps rendering, so
+nothing is lost and switching back needs no reload, but it is dimmed and inert,
+and one notice explains why and links to the voice provider setting.
+
+```jinja
+{% from "components/handover.html" import handover with context %}
+{% call handover("Personas give {device}'s own AI its voice and character, so they are not used now.") %}
+    …page content…
+{% endcall %}
+```
+
+- `.handover` wraps the page; `.handover-content` holds the page with `inert`
+  and `aria-hidden`, at 30% opacity and greyed out.
+- `.handover-notice` covers it at z-index 20 (content level, below the save bar
+  and dock). Its `.handover-card` sticks 6rem below the top while the page
+  scrolls: a nearly opaque `.card` look (`bg-zinc-900/90`), centred text, a
+  cyan `home` icon (`.handover-icon`), an `h2` title, a shared sentence on what
+  the mode is (the device as Home Assistant's speaker and microphone, with no
+  AI of its own in between), the page's own sentence on what it is for and what
+  still works (`{device}` becomes the device name), and a
+  `secondary-action--hover--cyan` link to `/settings/voice`.
+- The macro reads `config`, so import it `with context`. With any other
+  provider it renders the page unchanged.
+- Under `.reduce-motion` the card drops its blur and uses a solid zinc-900.
 
 ---
 
@@ -576,6 +632,10 @@ Hardware variants add their own settings panels through device profiles.
 These panels use the same components and tokens as the core UI, so the UI looks
 the same whatever hardware it runs on. Panel titles and labels describe the
 function ("Phone line", "Display"), not the part inside the device.
+Device software itself is installed from a file: the last row of the System
+components details ("Device software", the installed name and version, and a
+`button-small` secondary emerald "Install from file"), deliberately out of
+sight until the details are opened.
 
 ### 4.4 Checklist for a change touching the UI
 
@@ -585,7 +645,31 @@ function ("Phone line", "Display"), not the part inside the device.
 - [ ] No new arbitrary values (`text-[…]`, `rounded-[…]`, raw hex) without reason.
 - [ ] Keyboard focus is visible; icon-only buttons have a name.
 - [ ] Works at 360px and on desktop; reduced motion respected.
+- [ ] No "Billy" or he/his in text the user reads; images through `/theme/` (4.5).
 - [ ] `styles.css` rebuilt; preview and this document updated.
+
+### 4.5 Names and images (theme)
+
+Billy is the default, not a given: other hardware can have another name and
+character (`billy_runtime/theme.py`, a device's `theme/theme.json`).
+
+- **Name in text:** the hostname, as the header shows it. Templates
+  `{{ device_name|default('Billy') }}`, JavaScript `deviceName()`
+  (`ui-helpers.js`), Flask `device_name()` (`app/theme.py`). Never type
+  "Billy" in a sentence the user reads.
+- **No he/his/him:** the character can be anyone. Write around it ("Press the
+  button to answer", "before ending the conversation").
+- **Product name** (page titles): `{{ product_name|default('Billy Bassistant') }}`.
+- **Persona icon:** `{{ persona_icon|default('set_meal') }}`, in JavaScript
+  `document.body.dataset.personaIcon`; mark it `data-persona-icon`.
+- **Images** that show the character (status logo, loading image, favicon):
+  `/theme/<path>`. It serves the device's `theme/<path>`, else the core's
+  `static/<path>`. Keep the same file names and sizes (1024×1024 PNG, the
+  loading GIF 360 px wide).
+- **Text to the model** (tool descriptions, instructions) speaks to the model
+  as "you"/"your", so it fits any persona name.
+- Fish-only hardware text (motors, mouth, tail) stays: those panels are hidden
+  on other hardware.
 
 ---
 

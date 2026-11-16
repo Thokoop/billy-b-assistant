@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, redirect, render_template_string, request, session
 
-from . import updates
+from . import theme, updates
 from .configuration import (
     ConfigError,
     ConflictError,
@@ -24,9 +24,9 @@ from .storage import atomic_write, transaction
 
 
 PAGE = '''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Billy recovery</title><style>
+<title>{{ name }} recovery</title><style>
 body{font:17px system-ui;background:#103747;color:#edf5f7;max-width:950px;margin:40px auto;padding:20px}a{color:#67e8b0}button,input,select,textarea{font:inherit;padding:10px;border-radius:8px;border:1px solid #79929c}button{cursor:pointer;background:#36cc98;color:#082a23;margin:8px 4px 8px 0}textarea{box-sizing:border-box;width:100%;height:45vh;font:14px monospace}section{background:#174353;padding:20px;border-radius:12px;margin:20px 0}.error{color:#ffc9ab}small{color:#b7cbd3}</style>
-<h1>Billy recovery</h1><p>The web interface is available even when Billy cannot start.</p>
+<h1>{{ name }} recovery</h1><p>The web interface is available even when {{ name }} cannot start.</p>
 <p>{{ status.get('reason', 'Use this page to repair configuration or retry startup.') }}</p><p>State: {{ status.get('mode', 'starting') }}. {{ runtime }}</p>
 {% if message %}<p class="error" role="status">{{ message }}</p>{% endif %}
 <section><h2>Software recovery</h2><p id="software-progress" role="status">{{ software.get('job', {}).get('message', '') }}</p>
@@ -35,7 +35,7 @@ body{font:17px system-ui;background:#103747;color:#edf5f7;max-width:950px;margin
 <script>async function softwareProgress(){try{const r=await fetch('/software/status',{cache:'no-store',signal:AbortSignal.timeout(4000)});const s=await r.json();document.getElementById('software-progress').textContent=s.job?.message||'';const p=s.packages||{};document.getElementById('package-status').textContent=p.message||'Checking system components…';document.getElementById('package-details').textContent=[...(p.missing||[]),...(p.damaged||[]),...(p.updates||[])].join(', ');const busy=['queued','preparing','installing_packages','activating','validating','rolling_back'].includes(s.job?.state);document.getElementById('package-repair').hidden=!p.repairable;document.getElementById('package-repair').disabled=busy||!p.repairable;}catch(e){}setTimeout(softwareProgress,2000);}softwareProgress();</script>
 <form method="get"><label>Open file <select name="file">{% for name in files %}<option {% if name==selected %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label><button>Open</button></form>
 <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="file" value="{{ selected }}"><input type="hidden" name="revision" value="{{ digest }}"><textarea name="content" spellcheck="false" aria-label="Configuration">{{ content }}</textarea><p><small>Backups and damaged originals can be opened here. Saving an environment backup or original repairs the active .env. Other files are saved separately. File format is checked on save; Billy checks the settings when you retry or restart.</small></p><button name="action" value="save">Save configuration</button></form>
-<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="retry">Retry web interface</button><button name="action" value="core">Restart Billy</button></form>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="retry">Retry web interface</button><button name="action" value="core">Restart {{ name }}</button></form>
 <p>After retrying, <a href="/settings">open the normal settings</a>. A restart is needed to activate repaired settings.</p>
 {% if auto_return %}<script>
 async function checkReady(){try{const r=await fetch('/health',{cache:'no-store',signal:AbortSignal.timeout(2000)});const s=await r.json();if(s.status==='ok'&&!s.recovery){location.replace('/settings');return;}}catch(e){}setTimeout(checkReady,2000);}setTimeout(checkReady,2000);
@@ -63,7 +63,10 @@ def create_recovery_app(store):
             request.method == 'POST'
             and request.headers.get('Sec-Fetch-Site') == 'cross-site'
         ):
-            return 'Open Billy recovery directly in your browser.', 403
+            return (
+                f'Open {theme.display_name()} recovery directly in your browser.',
+                403,
+            )
         origin = request.headers.get('Origin')
         if origin == 'null' and request.headers.get('Sec-Fetch-Site') == 'same-origin':
             # A browser that withholds the origin still says where the request
@@ -83,7 +86,10 @@ def create_recovery_app(store):
             except ValueError:
                 matches = False
             if not matches:
-                return 'Open Billy recovery directly in your browser.', 403
+                return (
+                    f'Open {theme.display_name()} recovery directly in your browser.',
+                    403,
+                )
         return None
 
     def files():
@@ -200,7 +206,7 @@ def create_recovery_app(store):
                         atomic_write(path, content)
                 saved = True
                 message = (
-                    'Saved. Retry the web interface and restart Billy; '
+                    f'Saved. Retry the web interface and restart {theme.display_name()}; '
                     'the selected release will check its settings before starting.'
                 )
             elif action == 'retry':
@@ -217,7 +223,7 @@ def create_recovery_app(store):
                     timeout=15,
                 )
                 message = (
-                    'Billy restart requested.'
+                    f'{theme.display_name()} restart requested.'
                     if result.returncode == 0
                     else 'Restart failed; check service permissions and journal.'
                 )
@@ -269,6 +275,7 @@ def create_recovery_app(store):
             software=updates.status(store.root),
             runtime=runtime,
             auto_return=not bool(request.script_root),
+            name=theme.display_name(),
         )
 
     return app

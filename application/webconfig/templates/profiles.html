@@ -1,6 +1,7 @@
 {% extends "base.html" %}
+{% from "components/handover.html" import handover with context %}
 
-{% block title %}Profiles | Billy Bassistant{% endblock %}
+{% block title %}Profiles | {{ product_name|default('Billy Bassistant') }}{% endblock %}
 
 {% block header %}
 {% include "components/header.html" %}
@@ -8,7 +9,9 @@
 
 {% block main_content %}
 <main id="main-content" data-page="profiles" class="max-w-6xl mx-auto px-2 md:px-4 pt-4 pb-32">
+    {% call handover("Profiles and their memories are for {device}'s own AI, so they are not used now.") %}
     {% include "components/user-profile-main.html" %}
+    {% endcall %}
 </main>
 
 {% include "components/wifi-setup-modal.html" %}

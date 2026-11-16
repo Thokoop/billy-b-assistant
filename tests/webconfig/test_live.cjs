@@ -5,7 +5,10 @@ const {test} = require('node:test');
 const source = fs.readFileSync('application/webconfig/static/js/settings-form.js', 'utf8');
 function setup() {
     const select = (id, values) => ({id, value: values[0], options: values.map(value => ({value})), dataset: {},
-        addEventListener(event, handler) {this[event] = handler;}});
+        addEventListener(event, handler) {this[event] = handler;},
+        querySelector(selector) {
+            return selector === 'option[data-needs-ha-token]' ? this.haOption || null : null;
+        }});
     const elements = {
         REALTIME_AI_PROVIDER: select('REALTIME_AI_PROVIDER', ['openai', 'xai', 'gpt-live']),
         OPENAI_LIVE_MODEL: select('OPENAI_LIVE_MODEL', ['gpt-live-1', 'pinned-live']),
@@ -452,4 +455,36 @@ test('Fullscreen speaker labels use the rendered hostname, not the browser addre
         h.nodes['expand-captions-btn'].click();
         assert.equal(rows[1].children[0].textContent, name);
     }
+});
+
+test('Home Assistant Assist can only be chosen with a Home Assistant token', () => {
+    const {form, elements} = setup();
+    const provider = elements.REALTIME_AI_PROVIDER;
+    provider.haOption = {value: 'home-assistant', disabled: false, textContent: ''};
+    const token = elements.HA_TOKEN = {
+        id: 'HA_TOKEN', value: '', required: false, validity: '', dataset: {},
+        addEventListener(event, handler) {this[event] = handler;},
+        setCustomValidity(message) {this.validity = message;},
+    };
+    form.bindApiProviderFields();
+    assert.equal(provider.haOption.disabled, true);
+    assert.match(provider.haOption.textContent, /add a Home Assistant token first/);
+    token.value = 'synthetic';
+    token.input();
+    assert.equal(provider.haOption.disabled, false);
+    assert.equal(provider.haOption.textContent, 'Home Assistant Assist');
+    provider.value = 'home-assistant';
+    provider.change();
+    assert.equal(token.required, true);
+    assert.equal(token.validity, '');
+    // Clearing the token keeps Assist selectable but asks for the token.
+    token.value = '';
+    token.input();
+    assert.equal(provider.haOption.disabled, false);
+    assert.match(token.validity, /needs a Home Assistant token/);
+    provider.value = 'openai';
+    provider.change();
+    assert.equal(token.required, false);
+    assert.equal(token.validity, '');
+    assert.equal(provider.haOption.disabled, true);
 });

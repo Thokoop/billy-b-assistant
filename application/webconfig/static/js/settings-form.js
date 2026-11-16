@@ -21,6 +21,7 @@ const SettingsForm = (() => {
         'WAKE_WORD_ENABLED',
         'MIC_TIMEOUT_TAIL_FLAP',
         'MOOD_INSTRUCTIONS_ENABLED',
+        'LIVE_IGNORE_BACKGROUND',
     ]);
 
     const normalizeSelectValue = (id, value) => {
@@ -52,7 +53,7 @@ const SettingsForm = (() => {
         return true;
     };
 
-    // The 5 BOOLEAN_SELECT_IDS keep their original <select> (hidden) as the
+    // The BOOLEAN_SELECT_IDS keep their original <select> (hidden) as the
     // real form control - it's what FormData/localStorage/refreshFromConfig
     // already all work against, untouched. The visible iOS-style switch is a
     // pure proxy: this keeps it in sync whenever code sets the select's value
@@ -67,7 +68,9 @@ const SettingsForm = (() => {
     // Same idea for the few selects drawn as a stepped slider: the select is
     // the form control, the slider is the picture of it, and population and
     // refresh set the select without firing 'change'.
-    const STEP_SLIDER_SELECT_IDS = new Set(['AEC_BARGE_IN_SNR_DB', 'UPDATE_CHANNEL', 'BLUETOOTH_RINGTONE']);
+    const STEP_SLIDER_SELECT_IDS = new Set([
+        'AEC_BARGE_IN_SNR_DB', 'UPDATE_CHANNEL', 'BLUETOOTH_RINGTONE', 'LIVE_BACKCHANNELS',
+    ]);
 
     const syncStepSlider = (selectElement) => {
         if (!selectElement || !STEP_SLIDER_SELECT_IDS.has(selectElement.id)) return;
@@ -325,6 +328,8 @@ const SettingsForm = (() => {
             { id: 'MIC_TIMEOUT_TAIL_FLAP', key: 'MIC_TIMEOUT_TAIL_FLAP' },
             { id: 'MOOD_INSTRUCTIONS_ENABLED', key: 'MOOD_INSTRUCTIONS_ENABLED' },
             { id: 'BLUETOOTH_RINGTONE', key: 'BLUETOOTH_RINGTONE' },
+            { id: 'LIVE_BACKCHANNELS', key: 'LIVE_BACKCHANNELS' },
+            { id: 'LIVE_IGNORE_BACKGROUND', key: 'LIVE_IGNORE_BACKGROUND' },
             { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
             { id: 'WIFI_COUNTRY', key: 'WIFI_COUNTRY' }
         ];
@@ -429,7 +434,8 @@ const SettingsForm = (() => {
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'WIFI_COUNTRY', 'AEC_ENABLED',
-            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED'
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED',
+            'LIVE_BACKCHANNELS', 'LIVE_IGNORE_BACKGROUND'
         ];
 
         dropdowns.forEach(id => {
@@ -544,6 +550,11 @@ const SettingsForm = (() => {
                 accept: (data, res) => res.ok && data?.status === "ok",
                 error: "The settings could not be saved",
             });
+            // A device's own settings panel can follow up on a save (e.g.
+            // send settings on to hardware); the payload says what was posted.
+            window.dispatchEvent(new CustomEvent("billy:settings-saved", {
+                detail: {result: saveResult, saved: Object.keys(payload)},
+            }));
             const portChanged = saveResult.port_changed || (oldPort !== newPort);
             if (saveResult.update_channel_changed) {
                 await window.BillyVersionUI?.reloadVersion?.();
@@ -625,10 +636,10 @@ const SettingsForm = (() => {
                 try {
                     sessionStorage.removeItem("billy:reload_on_ws_reconnect");
                     await fetch("/restart-billy", {method: "POST"});
-                    showNotification("Settings saved — restarting Billy in background", "success");
+                    showNotification(`Settings saved — restarting ${deviceName()} in background`, "success");
                 } catch (error) {
                     console.error("Failed to restart Billy after save:", error);
-                    showNotification("Settings saved, but the Billy restart failed", "warning", 5000);
+                    showNotification(`Settings saved, but the ${deviceName()} restart failed`, "warning", 5000);
                 }
             }
             } catch (error) {
@@ -1149,7 +1160,8 @@ const SettingsForm = (() => {
             'REALTIME_AI_PROVIDER', 'OPENAI_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL', 'XAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
             'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND', 'AEC_ENABLED', 'WEB_SEARCH_ENABLED',
-            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED', 'BLUETOOTH_RINGTONE'
+            'AEC_BARGE_IN_SNR_DB', 'MIC_TIMEOUT_TAIL_FLAP', 'MOOD_INSTRUCTIONS_ENABLED', 'BLUETOOTH_RINGTONE',
+            'LIVE_BACKCHANNELS', 'LIVE_IGNORE_BACKGROUND'
         ];
         dropdowns.forEach(id => {
             const element = document.getElementById(id);
@@ -1335,10 +1347,32 @@ const SettingsForm = (() => {
         return optionsReady;
     };
 
+    // Home Assistant Assist needs the Home Assistant token: without one the
+    // option cannot be chosen, and keeping it selected makes the token required.
+    const HA_OPTION_LABEL = "Home Assistant Assist";
+    const syncHomeAssistantProvider = (providerSelect, provider) => {
+        const option = providerSelect.querySelector("option[data-needs-ha-token]");
+        const token = document.getElementById("HA_TOKEN");
+        if (!option || !token) return;
+        const hasToken = token.value.trim() !== "";
+        const selected = provider === "home-assistant";
+        option.disabled = !hasToken && !selected;
+        option.textContent = hasToken
+            ? HA_OPTION_LABEL
+            : `${HA_OPTION_LABEL} (add a Home Assistant token first)`;
+        token.required = selected;
+        token.setCustomValidity(
+            selected && !hasToken
+                ? "Home Assistant Assist needs a Home Assistant token."
+                : ""
+        );
+    };
+
     const syncApiProviderFields = () => {
         const providerSelect = document.getElementById("REALTIME_AI_PROVIDER");
         if (!providerSelect) return;
         const provider = String(providerSelect.value || "openai").trim().toLowerCase();
+        syncHomeAssistantProvider(providerSelect, provider);
         document.querySelectorAll("[data-api-provider]").forEach((element) => {
             const match = element.dataset.apiProvider.split(/\s+/).includes(provider);
             element.classList.toggle("hidden", !match);
@@ -1354,6 +1388,210 @@ const SettingsForm = (() => {
         if (providerSelect.dataset.providerFieldsBound === "true") return;
         providerSelect.dataset.providerFieldsBound = "true";
         providerSelect.addEventListener("change", syncApiProviderFields);
+        document.getElementById("HA_TOKEN")?.addEventListener("input", syncApiProviderFields);
+        bindLiveCustomVoices();
+        bindHaSatelliteEncryption();
+    };
+
+    // Home Assistant satellite encryption. Home Assistant normally sets the
+    // key itself; the key is kept outside the settings form (and its global
+    // save) so a draft can never erase it. Shown only on request.
+    const bindHaSatelliteEncryption = () => {
+        const panel = document.getElementById("ha-satellite-encryption");
+        if (!panel || panel.dataset.bound === "true") return;
+        panel.dataset.bound = "true";
+        const status = document.getElementById("ha-satellite-encryption-status");
+        const show = document.getElementById("ha-satellite-key-show");
+        const reset = document.getElementById("ha-satellite-key-reset");
+        const keyField = document.getElementById("ha-satellite-key");
+        const name = deviceName();
+        const messages = {
+            none: `Not set yet. Home Assistant sets a key automatically when it adds ${name}; until then the connection is not encrypted.`,
+            set: "On. Home Assistant's connection is encrypted; unencrypted connections are refused.",
+            damaged: "The stored key is damaged, so Home Assistant cannot connect. Reset the key to let Home Assistant set a new one.",
+        };
+
+        const render = (state) => {
+            panel.dataset.state = state;
+            status.textContent = messages[state] || "Could not read the encryption state.";
+            show.hidden = state !== "set";
+            reset.hidden = state === "none" || !messages[state];
+            if (state !== "set") {
+                keyField.value = "";
+                keyField.hidden = true;
+                show.textContent = "Show key";
+            }
+        };
+
+        const refresh = async () => {
+            try {
+                const data = await requestJson("/ha-satellite/encryption", {
+                    accept: (body, res) => res.ok && typeof body?.state === "string",
+                    error: "Could not read the encryption state",
+                });
+                render(data.state);
+            } catch (error) {
+                render("unknown");
+            }
+        };
+
+        show.addEventListener("click", async () => {
+            if (!keyField.hidden) {
+                keyField.value = "";
+                keyField.hidden = true;
+                show.textContent = "Show key";
+                return;
+            }
+            show.disabled = true;
+            try {
+                const data = await requestJson("/ha-satellite/encryption/key", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: "{}",
+                    accept: (body, res) => res.ok && typeof body?.key === "string",
+                    error: "Could not read the encryption key",
+                });
+                keyField.value = data.key;
+                keyField.hidden = false;
+                keyField.focus();
+                keyField.select();
+                show.textContent = "Hide key";
+            } catch (error) {
+                showNotification(error.message, "error", 5000);
+            } finally {
+                show.disabled = false;
+            }
+        });
+
+        reset.addEventListener("click", async () => {
+            if (!window.confirm(
+                `Reset ${name}'s encryption key?\n\nHome Assistant can no longer connect with the old key. ` +
+                "It will ask you to confirm the change, then sets a new key automatically."
+            )) return;
+            reset.disabled = true;
+            try {
+                const data = await requestJson("/ha-satellite/encryption/reset", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: "{}",
+                    accept: (body, res) => res.ok && body?.state === "none",
+                    error: "Could not reset the encryption key",
+                });
+                render(data.state);
+                showNotification("Encryption key reset", "success", 3000);
+            } catch (error) {
+                showNotification(error.message, "error", 5000);
+            } finally {
+                reset.disabled = false;
+            }
+        });
+
+        render("loading");
+        status.textContent = "Checking…";
+        refresh();
+    };
+
+    // Custom GPT-Live voices: rows of name, voice ID, accent and description,
+    // saved as "Name|voice_id|accent|description;..." in
+    // OPENAI_LIVE_CUSTOM_VOICES (live_voices.py). "Create from description"
+    // makes a new voice at OpenAI (POST /voices/custom) and adds its row.
+    const bindLiveCustomVoices = () => {
+        const hidden = document.getElementById("OPENAI_LIVE_CUSTOM_VOICES");
+        const rows = document.getElementById("live-custom-voice-rows");
+        const template = document.getElementById("live-custom-voice-row");
+        const header = document.getElementById("live-custom-voices-header");
+        const add = document.getElementById("live-custom-voice-add");
+        if (!hidden || !rows || !template || rows.dataset.bound === "true") return;
+        rows.dataset.bound = "true";
+        const clean = (text) => String(text || "").replace(/[|;]/g, " ").replace(/\s+/g, " ").trim();
+
+        const write = () => {
+            const entries = [...rows.querySelectorAll("[data-custom-voice-row]")]
+                .map((row) => [
+                    clean(row.querySelector("[data-custom-voice-name]").value),
+                    clean(row.querySelector("[data-custom-voice-id]").value).replace(/\s/g, ""),
+                    clean(row.querySelector("[data-custom-voice-accent]").value),
+                    clean(row.querySelector("[data-custom-voice-description]").value),
+                ])
+                .filter(([name, id]) => name && id)
+                .map((parts) => (parts[3] ? parts : parts.slice(0, 3)).join("|"));
+            const value = entries.join(";");
+            if (hidden.value !== value) {
+                hidden.value = value;
+                hidden.dispatchEvent(new Event("change", {bubbles: true}));
+            }
+            header.hidden = !rows.children.length;
+        };
+
+        const addRow = ({name = "", id = "", accent = "", description = ""} = {}) => {
+            const row = template.content.firstElementChild.cloneNode(true);
+            row.querySelector("[data-custom-voice-name]").value = name;
+            row.querySelector("[data-custom-voice-id]").value = id;
+            row.querySelector("[data-custom-voice-accent]").value = accent;
+            row.querySelector("[data-custom-voice-description]").value = description;
+            row.addEventListener("input", write);
+            row.querySelector("[data-custom-voice-remove]").addEventListener("click", () => {
+                row.remove();
+                write();
+            });
+            rows.appendChild(row);
+            header.hidden = false;
+            return row;
+        };
+
+        hidden.value.split(";").filter(Boolean).forEach((entry) => {
+            const [name, id, accent, description] = entry.split("|");
+            addRow({name, id, accent, description});
+        });
+        header.hidden = !rows.children.length;
+        add?.addEventListener("click", () => {
+            addRow().querySelector("[data-custom-voice-name]").focus();
+        });
+        bindLiveCustomVoiceCreate((voice) => {
+            addRow(voice);
+            write();
+        });
+    };
+
+    const bindLiveCustomVoiceCreate = (onCreated) => {
+        const submit = document.getElementById("live-custom-voice-create-submit");
+        const status = document.getElementById("live-custom-voice-create-status");
+        const fields = {
+            name: document.getElementById("live-custom-voice-create-name"),
+            description: document.getElementById("live-custom-voice-create-description"),
+            script: document.getElementById("live-custom-voice-create-script"),
+        };
+        if (!submit || !status || Object.values(fields).some((field) => !field)) return;
+        submit.addEventListener("click", async () => {
+            const name = fields.name.value.trim();
+            const description = fields.description.value.trim();
+            if (!name || !description) {
+                status.textContent = "Give the voice a name and a description.";
+                (name ? fields.description : fields.name).focus();
+                return;
+            }
+            submit.disabled = true;
+            status.textContent = "Creating the voice…";
+            try {
+                const data = await requestJson("/voices/custom", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({name, description, script: fields.script.value}),
+                    accept: (body, res) => res.ok && body?.voice?.id,
+                    error: "Could not create the voice",
+                });
+                onCreated(data.voice);
+                Object.values(fields).forEach((field) => { field.value = ""; });
+                status.textContent = `Created "${data.voice.name}". Save the settings to keep it.`;
+                showNotification(`Voice "${data.voice.name}" created; save to keep it`, "success", 4000);
+            } catch (error) {
+                // The fields keep what was typed, to correct and try again.
+                status.textContent = error.message;
+                showNotification(error.message, "error", 5000);
+            } finally {
+                submit.disabled = false;
+            }
+        });
     };
 
     const NEWS_SOURCE_TEMPLATES = {
@@ -1761,7 +1999,7 @@ const SettingsForm = (() => {
                 const hotspotActiveNow = Boolean(data.hotspot_active);
                 if (hotspotActiveNow) {
                     setSettingsConnectionStatus(
-                        "Billy setup hotspot is active. Connect Billy to your home Wi-Fi to finish setup.",
+                        `${deviceName()} setup hotspot is active. Connect ${deviceName()} to your home Wi-Fi to finish setup.`,
                         "setup"
                     );
                 } else {
@@ -1959,8 +2197,8 @@ const SettingsForm = (() => {
             editToggleBtn?.setAttribute("aria-label", editLabel);
             editToggleBtn?.setAttribute("title", editLabel);
             wifiModalDescription.textContent = onboardingUi
-                ? "Connect Billy to your home Wi-Fi to finish setup. The setup hotspot will close when Billy connects. Reconnect your device to your home Wi-Fi and open Billy’s web interface again."
-                : "Choose your Wi-Fi network and save the connection for Billy. Billy will connect immediately; your browser may briefly disconnect.";
+                ? `Connect ${deviceName()} to your home Wi-Fi to finish setup. The setup hotspot will close when ${deviceName()} connects. Reconnect your device to your home Wi-Fi and open ${deviceName()}’s web interface again.`
+                : `Choose your Wi-Fi network and save the connection for ${deviceName()}. ${deviceName()} will connect immediately; your browser may briefly disconnect.`;
         };
 
         const invalidateSuccessfulTest = () => {
@@ -2197,7 +2435,7 @@ const SettingsForm = (() => {
                 syncOnboardingUiState();
                 if (hotspotActive) {
                     setConnectionStatus(
-                        "Billy setup hotspot is active. Connect Billy to your home Wi-Fi to finish setup.",
+                        `${deviceName()} setup hotspot is active. Connect ${deviceName()} to your home Wi-Fi to finish setup.`,
                         "setup"
                     );
                 } else {
@@ -2339,7 +2577,7 @@ const SettingsForm = (() => {
             setBusy(saveBtn, true);
             showError("");
             if (onboardingActive && unifiedConfigured) {
-                showTestResult(`Trying to connect Billy to ${ssid}. If it fails, setup mode will come back automatically.`);
+                showTestResult(`Trying to connect ${deviceName()} to ${ssid}. If it fails, setup mode will come back automatically.`);
             }
 
             let rebooting = false;
@@ -2360,13 +2598,13 @@ const SettingsForm = (() => {
                 if (data.rebooting) {
                     // Billy joins the new network after a restart; the page
                     // loses its connection, so don't reload or redirect.
-                    showTestResult(`Saved Wi-Fi for ${ssid}. Billy restarts now to connect to it. Connect your device to ${ssid} and open Billy’s web interface again in about a minute.`);
-                    showNotification("Wi-Fi saved. Billy is restarting…", "success", 8000);
+                    showTestResult(`Saved Wi-Fi for ${ssid}. ${deviceName()} restarts now to connect to it. Connect your device to ${ssid} and open ${deviceName()}’s web interface again in about a minute.`);
+                    showNotification(`Wi-Fi saved. ${deviceName()} is restarting…`, "success", 8000);
                     savedFingerprint = currentFingerprint();
                     rebooting = true;
                     return;
                 }
-                showTestResult(`Saved Wi-Fi for ${ssid}. Billy is connected. If you were using the setup hotspot, reconnect your device to your home Wi-Fi and open Billy’s web interface again.`);
+                showTestResult(`Saved Wi-Fi for ${ssid}. ${deviceName()} is connected. If you were using the setup hotspot, reconnect your device to your home Wi-Fi and open ${deviceName()}’s web interface again.`);
                 showNotification("Wi-Fi saved and connected", "success", 4500);
                 savedFingerprint = currentFingerprint();
                 syncSaveButton();

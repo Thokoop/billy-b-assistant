@@ -1,5 +1,33 @@
 // ===================== PERSONA FORM =====================
 const PersonaForm = (() => {
+    // The character's icon (theme.json "persona_icon"; the fish: set_meal).
+    const personaIcon = () => document.body?.dataset?.personaIcon || 'set_meal';
+
+    // A persona's voice can be one the current provider does not have (a
+    // GPT-Live voice while Realtime runs): keep it selectable instead of
+    // replacing it with the first voice of the list on the next save.
+    const keepVoiceOption = (select, voice) => {
+        if (!select || !voice || [...select.options].some(option => option.value === voice)) return;
+        const option = document.createElement('option');
+        option.value = voice;
+        option.textContent = `${voice.charAt(0).toUpperCase() + voice.slice(1)} (other provider)`;
+        select.appendChild(option);
+    };
+
+    // The fallback voice is only asked for when the voice is not a Realtime
+    // voice (those every OpenAI provider has).
+    const syncVoiceFallback = () => {
+        const voice = document.getElementById('VOICE')?.value || '';
+        const fallback = document.getElementById('VOICE_FALLBACK');
+        const row = document.getElementById('voice-fallback-row');
+        if (!fallback || !row) return;
+        const realtime = [...fallback.options].map(option => option.value).filter(Boolean);
+        row.hidden = !voice || realtime.includes(voice);
+    };
+    const voiceFallbackValue = () => {
+        const row = document.getElementById('voice-fallback-row');
+        return row && !row.hidden ? (document.getElementById('VOICE_FALLBACK')?.value || '') : '';
+    };
     // Debug logging utility that respects log level
     const debugLog = (level, message, ...args) => {
         const levels = { 'ERROR': 0, 'WARNING': 1, 'INFO': 2, 'VERBOSE': 3 };
@@ -369,8 +397,20 @@ const PersonaForm = (() => {
         const voiceSelect = document.getElementById("VOICE");
         if (voiceSelect) {
             // Set voice from persona data, or default to 'ballad' if not specified
-            voiceSelect.value = data.META && data.META.voice || 'ballad';
+            const voice = data.META && data.META.voice || 'ballad';
+            keepVoiceOption(voiceSelect, voice);
+            voiceSelect.value = voice;
+            if (!voiceSelect.dataset.fallbackBound) {
+                voiceSelect.dataset.fallbackBound = 'true';
+                voiceSelect.addEventListener('change', syncVoiceFallback);
+            }
         }
+        const fallbackSelect = document.getElementById("VOICE_FALLBACK");
+        if (fallbackSelect) {
+            const fallback = data.META && data.META.voice_fallback || '';
+            fallbackSelect.value = [...fallbackSelect.options].some(o => o.value === fallback) ? fallback : '';
+        }
+        syncVoiceFallback();
         
         // Load mouth articulation setting
         const mouthArticulationInput = document.getElementById("MOUTH_ARTICULATION");
@@ -483,6 +523,7 @@ const PersonaForm = (() => {
                 description: description,
                 instructions: instructions,
                 voice: voice,
+                voice_fallback: voiceFallbackValue(),
                 mouth_articulation: mouthArticulation
             };
 
@@ -647,7 +688,7 @@ const PersonaForm = (() => {
                     
                     row.innerHTML = `
                         <div class="flex items-center space-x-3">
-                            <span class="material-icons ${isCurrentPersona ? 'text-emerald-400' : 'text-zinc-400'}">set_meal</span>
+                            <span class="material-icons ${isCurrentPersona ? 'text-emerald-400' : 'text-zinc-400'}" data-persona-icon>${personaIcon()}</span>
                             <div>
                                 <div class="text-white">${displayText}</div>
                                 <div class="text-xs text-zinc-400">${persona.voice}</div>
@@ -760,8 +801,8 @@ const PersonaForm = (() => {
         rows.forEach(row => {
             row.dataset.selected = 'false';
             
-            // Reset set_meal icon color
-            const setMealIcon = row.querySelector('.set_meal');
+            // Reset the persona icon's color
+            const setMealIcon = row.querySelector('[data-persona-icon]');
             if (setMealIcon) {
                 setMealIcon.classList.remove('text-emerald-500');
                 setMealIcon.classList.add('text-zinc-400');
@@ -774,14 +815,14 @@ const PersonaForm = (() => {
         if (selectedRow) {
             selectedRow.dataset.selected = 'true';
             
-            // Set set_meal icon to green for active persona
-            const setMealIcon = selectedRow.querySelector('.material-icons');
-            if (setMealIcon && setMealIcon.textContent === 'set_meal') {
+            // Set the persona icon to green for the active persona
+            const setMealIcon = selectedRow.querySelector('[data-persona-icon]');
+            if (setMealIcon) {
                 setMealIcon.classList.remove('text-zinc-400');
                 setMealIcon.classList.add('text-emerald-500');
                 debugLog('VERBOSE', 'Set icon to green for:', selectedPersonaName);
             } else {
-                debugLog('VERBOSE', 'No set_meal icon found for:', selectedPersonaName);
+                debugLog('VERBOSE', 'No persona icon found for:', selectedPersonaName);
             }
         } else {
             debugLog('VERBOSE', 'No selected row found for:', selectedPersonaName);
@@ -806,8 +847,8 @@ const PersonaForm = (() => {
 
         const rows = personaList.querySelectorAll('[data-persona]');
         rows.forEach(row => {
-            const setMealIcon = row.querySelector('.material-icons');
-            if (setMealIcon && setMealIcon.textContent === 'set_meal') {
+            const setMealIcon = row.querySelector('[data-persona-icon]');
+            if (setMealIcon) {
                 if (row.dataset.selected === 'true') {
                     setMealIcon.classList.remove('text-zinc-400');
                     setMealIcon.classList.add('text-emerald-500');
@@ -974,6 +1015,7 @@ const PersonaForm = (() => {
                     description: description,
                     instructions: instructions,
                     voice: voice,
+                    voice_fallback: voiceFallbackValue(),
                     mouth_articulation: mouthArticulation
                 },
                 WAKEUP: wakeup
@@ -1086,9 +1128,25 @@ const PersonaForm = (() => {
         const modal = document.getElementById('create-persona-modal');
         if (!modal) return;
         
-        // Clear previous input
+        // Clear previous input; Create stays disabled until there is a name.
         const nameInput = document.getElementById('new-persona-name');
-        if (nameInput) nameInput.value = '';
+        const submit = document.getElementById('create-persona-submit');
+        if (nameInput) {
+            nameInput.value = '';
+            if (!nameInput.dataset.bound) {
+                nameInput.dataset.bound = 'true';
+                nameInput.addEventListener('input', () => {
+                    if (submit) submit.disabled = !nameInput.value.trim();
+                });
+                nameInput.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' && nameInput.value.trim()) {
+                        event.preventDefault();
+                        createPersonaFromModal();
+                    }
+                });
+            }
+        }
+        if (submit) submit.disabled = true;
         
         // Load presets
         await loadPresets();
@@ -1159,6 +1217,7 @@ const PersonaForm = (() => {
         
         if (!personaName) {
             showNotification('Please enter a persona name', 'error');
+            nameInput?.focus();
             return;
         }
         
@@ -1167,6 +1226,9 @@ const PersonaForm = (() => {
             return;
         }
         
+        // No second persona from a double click while this one is created.
+        const submit = document.getElementById('create-persona-submit');
+        if (submit) submit.disabled = true;
         try {
             const response = await fetch('/persona/create-from-preset', {
                 method: 'POST',
@@ -1194,6 +1256,8 @@ const PersonaForm = (() => {
         } catch (error) {
             console.error('Failed to create persona:', error);
             showNotification('Failed to create persona', 'error');
+        } finally {
+            if (submit) submit.disabled = !nameInput?.value.trim();
         }
     };
 
@@ -1251,16 +1315,20 @@ const PersonaForm = (() => {
                 configData.VOICE_OPTIONS.forEach(voice => {
                     const option = document.createElement('option');
                     option.value = voice;
-                    option.textContent = voice.charAt(0).toUpperCase() + voice.slice(1); // Capitalize first letter
+                    // Custom GPT-Live voices show their name; named voices capitalized.
+                    option.textContent = configData.VOICE_LABELS?.[voice]
+                        || voice.charAt(0).toUpperCase() + voice.slice(1);
                     voiceSelect.appendChild(option);
                 });
 
-                // Restore selection or default to first option
-                if (configData.VOICE_OPTIONS.includes(currentValue)) {
+                // Restore the selection, also a voice of another provider.
+                if (currentValue) {
+                    keepVoiceOption(voiceSelect, currentValue);
                     voiceSelect.value = currentValue;
                 } else if (configData.VOICE_OPTIONS.length > 0) {
                     voiceSelect.value = configData.VOICE_OPTIONS[0];
                 }
+                syncVoiceFallback();
             }
         } catch (error) {
             console.error('Failed to populate voice options:', error);

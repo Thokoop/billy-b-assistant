@@ -384,6 +384,47 @@ def test_topic_registered_while_connected_subscribes_and_announces(mqtt_topics):
     assert m._dispatch_extra_topic('billy/x', '') is False
 
 
+def test_state_topic_is_announced_but_not_subscribed(mqtt_topics):
+    # A sensor the device publishes itself: handler None (devices.mqtt_publish).
+    import json
+
+    m, ns, client = mqtt_topics.module, mqtt_topics.ns, mqtt_topics.client
+    ns['mqtt_client'], ns['mqtt_connected'] = client, True
+
+    unregister = m.register_topic(
+        'billy/phone/last_dialed',
+        None,
+        discovery=(
+            'homeassistant/sensor/billy/phone_last_dialed/config',
+            {'state_topic': 'billy/phone/last_dialed'},
+        ),
+    )
+    client.subscribe.assert_not_called()
+    topic, payload = client.publish.call_args.args
+    assert topic == 'homeassistant/sensor/billy/phone_last_dialed/config'
+    assert json.loads(payload)['state_topic'] == 'billy/phone/last_dialed'
+    assert m._dispatch_extra_topic('billy/phone/last_dialed', '23') is False
+
+    unregister()
+    client.unsubscribe.assert_not_called()
+    assert 'billy/phone/last_dialed' not in ns['_extra_topics']
+
+
+def test_device_publishes_a_retained_state(monkeypatch):
+    import core
+    from core.devices import DeviceControls
+
+    # core.mqtt needs paho; a stand-in is enough to see what is published.
+    publish = Mock()
+    fake = SimpleNamespace(mqtt_publish=publish)
+    monkeypatch.setitem(sys.modules, 'core.mqtt', fake)
+    monkeypatch.setattr(core, 'mqtt', fake, raising=False)
+    DeviceControls().mqtt_publish('billy/phone/last_dialed', 23)
+    publish.assert_called_once_with(
+        'billy/phone/last_dialed', '23', retain=True, retry=False
+    )
+
+
 def test_failing_topic_handler_is_contained(mqtt_topics):
     m = mqtt_topics.module
     m.register_topic('billy/x', Mock(side_effect=RuntimeError('boom')))
@@ -685,3 +726,53 @@ def test_bluetooth_waits_until_a_ringing_call_is_answered(monkeypatch, states, r
 
     monkeypatch.setattr(controls, 'call_states', lambda timeout=1.0: states)
     assert watcher._only_ringing() is ringing
+
+
+def test_device_can_start_a_song_instead_of_a_conversation(isolated, monkeypatch):
+    devices = isolated.load('devices')
+    starts = []
+    fake = SimpleNamespace(
+        request_session_start=lambda source, **options: (
+            starts.append((source, options)) or True
+        )
+    )
+    monkeypatch.setitem(sys.modules, 'isolated_core.button', fake)
+    monkeypatch.setattr(sys.modules['isolated_core'], 'button', fake, raising=False)
+    controls = devices.DeviceControls()
+
+    assert controls.request_session_start('handset', song='Take Me')
+    assert controls.request_session_start('handset', persona='pirate')
+    assert starts == [
+        ('handset', {'song': 'Take Me'}),
+        (
+            'handset',
+            {'opening': None, 'situation': None, 'persona': 'pirate'},
+        ),
+    ]
+
+
+def test_device_installed_in_the_install_root_is_loaded(
+    isolated, monkeypatch, tmp_path
+):
+    folder = tmp_path / 'private' / 'demo2'
+    folder.mkdir(parents=True)
+    (folder / 'helper.py').write_text('VALUE = 42\n')
+    (folder / '__init__.py').write_text(
+        'from .helper import VALUE\n'
+        'class Demo:\n'
+        '    def start(self, controls): pass\n'
+        'DEVICE = Demo\n'
+    )
+    from billy_runtime import paths
+
+    monkeypatch.setattr(paths, 'INSTALL_ROOT', tmp_path)
+    for name in ['private', 'private.demo2', 'private.demo2.helper']:
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    devices = isolated.load('devices')
+
+    device = devices.load_device('demo2')
+    assert type(device).__name__ == 'Demo'
+    assert sys.modules['private.demo2'].VALUE == 42
+    assert devices.load_device('private.demo2:DEVICE') is not None
+    assert paths.installed_devices(tmp_path) == ['demo2']
+    assert paths.default_device(tmp_path) == 'demo2'
